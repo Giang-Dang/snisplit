@@ -432,3 +432,11 @@ by IP address or DNS poisoning of its real address is not fixed by it. Milestone
 (`probe`) automates this check and is the base for the UI in milestone 9. (Checked
 by the lead: the ASCII file with `example.com` ran on 127.0.0.4 and the request
 through the relay returned 200.)
+
+### The foreground build after the rescope, 2026-11-14 (owner's run)
+
+- The owner ran the 23:11 release build (`run --verbose`, administrator terminal,
+  zapret removed). Owner: Steam works, Kaspersky raised no alert. Checked by the lead
+  while it ran: one `snisplit` process, 2 snisplit rules, store HTTPS `200` via
+  127.0.0.2, the binary on disk.
+- Random split positions: the owner asked only out of interest; no change.
