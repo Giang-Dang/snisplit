@@ -43,10 +43,14 @@ for it was removed; no code from it exists.
 
 - `crates/core`: TLS ClientHello and HTTP Host inspection, domain matcher, split
   strategy (reused by the relay); segment planner, flow table, engine, packet loop
-  (parked). 12 real Steam ClientHello fixtures. The workspace has 291 passing tests.
-- `crates/cli`: `snisplit run [--verbose]`, `--version`, `help`, built-in Steam
-  profile. `run` currently exits with "unsupported": it was wired to the parked
-  engine and will be rewired to the relay in milestone 3.
+  (parked). 12 real Steam ClientHello fixtures. The workspace has 287 passing tests.
+- `crates/core` also has the DNS codec (`dns`) and the relay's first-flight decision
+  (`first_flight`).
+- `crates/relay`: tokio TCP relay (cut writes), per-profile DNS server, UDP upstream
+  resolver.
+- `crates/cli`: `snisplit run [--profile] [--no-routing] [--upstream] [--verbose]`,
+  `cleanup`, `--version`, `help`; built-in profiles steam (127.0.0.2) and medium
+  (127.0.0.3); Windows NRPT routing through PowerShell.
 - `crates/backend-windows`: WinDivert FFI and the `sniff` / `capture` examples
   (parked; `capture` is how the fixtures were recorded).
 - Local-only branch `m2/windows` (never pushed): runtime-loaded WinDivert and a
