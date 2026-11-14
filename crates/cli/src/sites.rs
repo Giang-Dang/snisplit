@@ -1,5 +1,5 @@
 use std::ffi::OsString;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -195,7 +195,7 @@ pub fn add(folder: &Path, profile_text: &str) -> io::Result<ProfileSpec> {
     }
     fs::create_dir_all(folder)?;
     let path = folder.join(format!("{}.{EXTENSION}", spec.name));
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&path)
@@ -205,8 +205,24 @@ pub fn add(folder: &Path, profile_text: &str) -> io::Result<ProfileSpec> {
                 format!("cannot write site {}: {error}", spec.name),
             )
         })?;
-    file.write_all(profile_text.as_bytes())?;
+    write_or_remove(file, &path, |file| {
+        file.write_all(profile_text.as_bytes())?;
+        file.flush()
+    })?;
     Ok(spec)
+}
+
+fn write_or_remove(
+    mut file: File,
+    path: &Path,
+    write: impl FnOnce(&mut File) -> io::Result<()>,
+) -> io::Result<()> {
+    let written = write(&mut file);
+    drop(file);
+    if written.is_err() {
+        let _ = fs::remove_file(path);
+    }
+    written
 }
 
 pub fn remove(folder: &Path, name: &str) -> io::Result<()> {

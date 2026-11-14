@@ -239,6 +239,24 @@ fn adding_text_that_does_not_parse_or_reuses_a_file_name_is_refused() {
 }
 
 #[test]
+fn a_failed_write_removes_the_partial_file_and_returns_the_write_error() {
+    let folder = TempFolder::created("partial");
+    let path = folder.path().join("half.profile");
+    let failure = write_or_remove(File::create_new(&path).unwrap(), &path, |file| {
+        file.write_all(b"name ha")?;
+        assert_eq!(fs::read_to_string(&path).unwrap(), "name ha");
+        Err(io::Error::new(io::ErrorKind::StorageFull, "disk full"))
+    })
+    .unwrap_err();
+    assert_eq!(failure.kind(), io::ErrorKind::StorageFull);
+    assert_eq!(failure.to_string(), "disk full");
+    assert!(!path.exists());
+    let retry = File::create_new(&path).unwrap();
+    write_or_remove(retry, &path, |file| file.write_all(b"name half\n")).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), "name half\n");
+}
+
+#[test]
 fn removing_deletes_only_a_listed_site_file() {
     let folder = TempFolder::created("remove");
     let outside = TempFolder::created("remove-outside");
