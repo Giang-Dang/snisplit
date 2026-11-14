@@ -223,3 +223,43 @@ milestone.
 - Linux and macOS services: milestone 10.
 - Writing NRPT rules to the registry directly: undocumented, and PowerShell is fast
   enough once batched.
+
+## Decisions made during implementation
+
+- Start-up uses one gated PowerShell child instead of two scripts (stream A): it
+  removes stale rules, prints a marker, waits on stdin, and adds the rules only when
+  released; closing stdin abandons it. Stale removal runs while upstreams are found
+  and sockets bound. A stale-removal failure surfaces at step 5 with its own message.
+- A stop before the ready line prints `stopping` and the rules-left line; the ready
+  line is not printed. Explicit `--upstream` values that are all loopback fail at
+  once even for the service; a failed system lookup is retried while waiting.
+- The service reports `ERROR_SERVICE_SPECIFIC_ERROR` code 2 when its log cannot be
+  opened. Install also runs the profile clash check, clears stale profile copies,
+  and skips copying the executable onto itself. Elevation is detected from
+  `OpenSCManagerW` returning access denied. Uninstall stops and waits a second time
+  after `DeleteService`, in case a recovery restart fired in between.
+- Bind errors name the address (`binding 127.0.0.4:80 failed: ...`). Found in CI:
+  GitHub's Windows runners reserve TCP port 80 (an administered port exclusion,
+  `System` listening on `:::80`), so binding 127.0.0.x:80 fails with 10013. The CI
+  service job and the bound start-up tests use a TLS-only profile file
+  (`http-ports none`) on 127.0.0.4. The same would happen on a PC where http.sys or
+  IIS holds port 80: the service then fails and restarts on the recovery schedule,
+  and its log names the port. Handling that (skipping the HTTP listener with a log
+  line) is left for milestone 7, when friends install it.
+- Stream C ran `snisplit service install --no-routing` once from the debug build,
+  against its brief; it stopped in the argument parser before any SCM, file or DNS
+  call.
+
+## Results before the owner's acceptance run
+
+- Unrouted start-up (`run --no-routing --profile medium`, launch to ready line):
+  median 33 ms over 7 runs, baseline median 1165 ms (stream A, release builds).
+- CI `windows service` job, run 43608073645 on branch `ci/m5-service`, passed:
+  rule present and the name relayed 0.5 s after install; after `Stop-Process -Force`
+  a new process relayed again after 5.9 s; after `Stop-Service` 0 rules, exit code 0
+  and no restart; uninstall left no service, no `C:\Program Files\snisplit` and 0
+  rules. The registered command line and failure actions (`sc qc`, `sc qfailure`)
+  match decisions 3 and 4.
+- Earlier failing runs of the same job showed the recovery schedule working:
+  restarts 5 s, 5 s, then 30 s apart.
+- Workspace: 450 tests; all gates pass on `main`.
