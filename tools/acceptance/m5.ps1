@@ -144,6 +144,7 @@ Log "example.org at start: $exampleBefore"
 
 if (-not $SwitchToSnisplit -and -not $AfterReboot) {
   if (Service) { Say 'A snisplit service is already installed. Run snisplit service uninstall first. Nothing was changed.'; exit 1 }
+  if (-not (Test-Path $built)) { Say "$built is missing (removed by the antivirus?). Nothing was changed."; exit 1 }
   try {
     Stop-Service zapret-steam -Force
     $deadline = (Get-Date).AddSeconds(15)
@@ -161,7 +162,7 @@ if (-not $SwitchToSnisplit -and -not $AfterReboot) {
       Log-Run $run
       Log "rules after run ${i}: $((Rules).Count)"
     }
-    foreach ($delay in 0, 50, 100, 200, 500, 1000, 2000) {
+    foreach ($delay in 50, 100, 200, 500, 1000, 2000) {
       $run = Start-Run "ctrlc-$delay" @('run')
       Start-Sleep -Milliseconds $delay
       $exited = Send-CtrlC $run
@@ -210,6 +211,7 @@ if (-not $SwitchToSnisplit -and -not $AfterReboot) {
 }
 
 if ($SwitchToSnisplit) {
+  if (-not (Test-Path $built)) { Say "$built is missing (removed by the antivirus?). Nothing was changed."; exit 1 }
   Log $zapretBundleNote
   $zapretRemoved = $false
   try {
