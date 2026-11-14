@@ -149,6 +149,51 @@ async fn start(upstreams: Vec<SocketAddr>) -> Running {
     Running { addr, stop, task }
 }
 
+const UPSTREAM_A_RECORD: [u8; 16] = [0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 203, 0, 113, 7];
+const UPSTREAM_AAAA_RECORD: [u8; 28] = [
+    0xc0, 0x0c, 0, 28, 0, 1, 0, 0, 0, 60, 0, 16, 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0x42,
+];
+const QUESTION_TAIL_LEN: usize = 4;
+const HEADER_LEN: usize = 12;
+
+#[derive(Clone, Copy)]
+enum Presence {
+    Ipv4,
+    Ipv6Only,
+}
+
+fn upstream_reply(query: &[u8], presence: Presence) -> Vec<u8> {
+    let qtype = [query[query.len() - 4], query[query.len() - 3]];
+    let record: &[u8] = match (qtype, presence) {
+        (TYPE_A, Presence::Ipv4) => &UPSTREAM_A_RECORD,
+        (TYPE_AAAA, Presence::Ipv6Only) => &UPSTREAM_AAAA_RECORD,
+        _ => &[],
+    };
+    let answers = u8::from(!record.is_empty());
+    let mut reply = vec![query[0], query[1], 0x81, 0x80, 0, 1, 0, answers, 0, 0, 0, 0];
+    reply.extend_from_slice(&query[HEADER_LEN..]);
+    reply.extend_from_slice(record);
+    reply
+}
+
+async fn serve_dns(socket: UdpSocket, presence: Presence) {
+    let mut buffer = [0u8; 4096];
+    while let Ok((length, asker)) = socket.recv_from(&mut buffer).await {
+        if length >= HEADER_LEN + QUESTION_TAIL_LEN {
+            let reply = upstream_reply(&buffer[..length], presence);
+            let _ = socket.send_to(&reply, asker).await;
+        }
+    }
+}
+
+async fn start_with_dns_upstream(presence: Presence) -> Running {
+    let upstream = udp_socket().await;
+    let address = upstream.local_addr().unwrap();
+    tokio::spawn(serve_dns(upstream, presence));
+    start(vec![address]).await
+}
+
 async fn receive(socket: &UdpSocket) -> Vec<u8> {
     receive_with_peer(socket).await.0
 }
@@ -175,7 +220,7 @@ fn with_id(reply: &[u8], id: [u8; 2]) -> Vec<u8> {
 #[test]
 fn a_listed_name_gets_the_answer_address_with_ttl_5() {
     block_on(async {
-        let running = start(Vec::new()).await;
+        let running = start_with_dns_upstream(Presence::Ipv4).await;
 
         let reply = ask(running.addr, &query([0x33, 0x44], STORE_NAME, TYPE_A)).await;
 
@@ -187,7 +232,7 @@ fn a_listed_name_gets_the_answer_address_with_ttl_5() {
 #[test]
 fn the_listed_apex_itself_is_answered_too() {
     block_on(async {
-        let running = start(Vec::new()).await;
+        let running = start_with_dns_upstream(Presence::Ipv4).await;
 
         let reply = ask(running.addr, &query([0x01, 0x02], APEX_NAME, TYPE_A)).await;
 
@@ -199,7 +244,7 @@ fn the_listed_apex_itself_is_answered_too() {
 #[test]
 fn aaaa_and_https_for_a_listed_name_get_noerror_without_answers() {
     block_on(async {
-        let running = start(Vec::new()).await;
+        let running = start_with_dns_upstream(Presence::Ipv4).await;
 
         let aaaa = ask(running.addr, &query([0x54, 0xe5], STORE_NAME, TYPE_AAAA)).await;
         let https = ask(running.addr, &query([0x11, 0xd0], STORE_NAME, TYPE_HTTPS)).await;
@@ -284,7 +329,7 @@ fn a_reply_with_the_wrong_id_is_not_relayed() {
 #[test]
 fn garbage_is_ignored_and_the_server_keeps_serving() {
     block_on(async {
-        let running = start(Vec::new()).await;
+        let running = start_with_dns_upstream(Presence::Ipv4).await;
         let client = client_to(running.addr).await;
         let truncated_header = [0x12u8, 0x34, 0x01];
         let junk = vec![0xffu8; 4096];
@@ -306,7 +351,7 @@ fn garbage_is_ignored_and_the_server_keeps_serving() {
 #[test]
 fn shutdown_releases_the_port() {
     block_on(async {
-        let running = start(Vec::new()).await;
+        let running = start_with_dns_upstream(Presence::Ipv4).await;
         let addr = running.addr;
         assert_eq!(
             ask(addr, &query([0, 9], STORE_NAME, TYPE_A)).await,
@@ -316,5 +361,22 @@ fn shutdown_releases_the_port() {
         running.shut_down().await;
 
         UdpSocket::bind(addr).await.expect("the port is free again");
+    });
+}
+
+#[test]
+fn a_listed_name_without_ipv4_gets_the_upstream_answer_for_a_and_aaaa() {
+    block_on(async {
+        let running = start_with_dns_upstream(Presence::Ipv6Only).await;
+
+        let a = ask(running.addr, &query([0x21, 0x22], STORE_NAME, TYPE_A)).await;
+        let aaaa = ask(running.addr, &query([0x23, 0x24], STORE_NAME, TYPE_AAAA)).await;
+
+        assert_eq!(a, expected_empty([0x21, 0x22], STORE_NAME, TYPE_A));
+        let mut expected_aaaa = expected_empty([0x23, 0x24], STORE_NAME, TYPE_AAAA);
+        expected_aaaa[7] = 1;
+        expected_aaaa.extend_from_slice(&UPSTREAM_AAAA_RECORD);
+        assert_eq!(aaaa, expected_aaaa);
+        running.shut_down().await;
     });
 }

@@ -10,7 +10,7 @@ use snisplit_core::dns::{self, TYPE_A};
 use snisplit_core::first_flight::RelayProfile;
 use tokio::net::UdpSocket;
 
-use crate::resolve::Resolve;
+use crate::resolve::{Resolve, ResolveBoxed};
 use tokio::task::JoinSet;
 use tokio::time::{Instant, timeout_at};
 
@@ -25,6 +25,7 @@ struct Policy {
     answer: Ipv4Addr,
     upstreams: Vec<SocketAddr>,
     upstream_timeout: Duration,
+    resolver: Box<dyn ResolveBoxed>,
 }
 
 pub struct DnsServer {
@@ -39,9 +40,17 @@ impl DnsServer {
         profiles: Vec<RelayProfile>,
         answer: Ipv4Addr,
         upstreams: Vec<SocketAddr>,
-        _resolver: R,
+        resolver: R,
     ) -> io::Result<DnsServer> {
-        Self::bind_with(listen, profiles, answer, upstreams, UPSTREAM_TIMEOUT).await
+        Self::bind_with(
+            listen,
+            profiles,
+            answer,
+            upstreams,
+            UPSTREAM_TIMEOUT,
+            Box::new(resolver),
+        )
+        .await
     }
 
     pub(crate) async fn bind_with(
@@ -50,6 +59,7 @@ impl DnsServer {
         answer: Ipv4Addr,
         upstreams: Vec<SocketAddr>,
         upstream_timeout: Duration,
+        resolver: Box<dyn ResolveBoxed>,
     ) -> io::Result<DnsServer> {
         let socket = UdpSocket::bind(listen).await?;
         let local_addr = socket.local_addr()?;
@@ -58,6 +68,7 @@ impl DnsServer {
             answer,
             upstreams,
             upstream_timeout,
+            resolver,
         };
         Ok(DnsServer {
             socket,
@@ -73,10 +84,10 @@ impl DnsServer {
     pub async fn run(self, shutdown: impl Future<Output = ()> + Send) {
         let socket = Arc::new(self.socket);
         let mut shutdown = pin!(shutdown);
-        let mut forwards = JoinSet::new();
+        let mut tasks = JoinSet::new();
         let mut buffer = [0u8; MAX_DATAGRAM];
         loop {
-            while forwards.try_join_next().is_some() {}
+            while tasks.try_join_next().is_some() {}
             let received = {
                 let mut receive = pin!(socket.recv_from(&mut buffer));
                 poll_fn(|context| {
@@ -91,51 +102,78 @@ impl DnsServer {
             let Ok((length, client)) = received else {
                 continue;
             };
-            let datagram = &buffer[..length];
-            match decide(&self.policy, datagram) {
-                Verdict::Ignore => {}
-                Verdict::Reply(reply) => {
-                    let _ = socket.send_to(&reply, client).await;
-                }
+            let query = &buffer[..length];
+            let Some(verdict) = decide(&self.policy, query) else {
+                continue;
+            };
+            if tasks.len() >= MAX_PENDING_FORWARDS {
+                continue;
+            }
+            let socket = Arc::clone(&socket);
+            let policy = Arc::clone(&self.policy);
+            let query = query.to_vec();
+            match verdict {
                 Verdict::Forward => {
-                    if forwards.len() < MAX_PENDING_FORWARDS {
-                        let query = datagram.to_vec();
-                        let policy = Arc::clone(&self.policy);
-                        forwards.spawn(forward(Arc::clone(&socket), policy, client, query));
-                    }
+                    tasks.spawn(forward(socket, policy, client, query));
+                }
+                Verdict::Listed { name, qtype } => {
+                    tasks.spawn(answer_listed(socket, policy, client, query, name, qtype));
                 }
             }
         }
-        forwards.abort_all();
-        while forwards.join_next().await.is_some() {}
+        tasks.abort_all();
+        while tasks.join_next().await.is_some() {}
     }
 }
 
 enum Verdict {
-    Ignore,
-    Reply(Vec<u8>),
     Forward,
+    Listed { name: String, qtype: u16 },
 }
 
-fn decide(policy: &Policy, datagram: &[u8]) -> Verdict {
-    let Some(question) = dns::parse_query(datagram) else {
-        return Verdict::Ignore;
-    };
+fn decide(policy: &Policy, datagram: &[u8]) -> Option<Verdict> {
+    let question = dns::parse_query(datagram)?;
     let listed = policy.profiles.iter().any(|profile| {
         profile
             .domains
             .matched_domain(question.name.as_bytes())
             .is_some()
     });
-    if !listed {
-        return Verdict::Forward;
-    }
-    let reply = if question.qtype == TYPE_A {
-        dns::answer_a(datagram, policy.answer, ANSWER_TTL_SECONDS)
+    if listed {
+        Some(Verdict::Listed {
+            name: question.name,
+            qtype: question.qtype,
+        })
     } else {
-        dns::answer_empty(datagram)
+        Some(Verdict::Forward)
+    }
+}
+
+async fn answer_listed(
+    client_socket: Arc<UdpSocket>,
+    policy: Arc<Policy>,
+    client: SocketAddr,
+    query: Vec<u8>,
+    name: String,
+    qtype: u16,
+) {
+    let has_ipv4 = policy
+        .resolver
+        .resolve_boxed(&name)
+        .await
+        .is_ok_and(|addresses| !addresses.is_empty());
+    if !has_ipv4 {
+        forward(client_socket, policy, client, query).await;
+        return;
+    }
+    let reply = if qtype == TYPE_A {
+        dns::answer_a(&query, policy.answer, ANSWER_TTL_SECONDS)
+    } else {
+        dns::answer_empty(&query)
     };
-    reply.map_or(Verdict::Ignore, Verdict::Reply)
+    if let Some(reply) = reply {
+        let _ = client_socket.send_to(&reply, client).await;
+    }
 }
 
 async fn forward(
