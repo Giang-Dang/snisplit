@@ -1,11 +1,10 @@
-#![cfg_attr(not(windows), allow(dead_code))]
-
 use std::io;
 use std::net::Ipv4Addr;
 
 #[cfg(windows)]
 mod windows;
 
+#[cfg(any(windows, test))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Adapter {
     up: bool,
@@ -25,6 +24,7 @@ pub fn servers() -> io::Result<Vec<Ipv4Addr>> {
     ))
 }
 
+#[cfg(any(windows, test))]
 fn usable_servers(adapters: &[Adapter]) -> Vec<Ipv4Addr> {
     let mut servers: Vec<Ipv4Addr> = Vec::new();
     let candidates = adapters

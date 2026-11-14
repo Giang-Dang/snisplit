@@ -21,8 +21,7 @@ use crate::routing::{self, ProfileRule, StartFailure};
 use crate::{profile, system_dns};
 
 const NO_UPSTREAM: &str = "no usable upstream DNS server found; pass --upstream <ipv4>";
-const WAITING_FOR_UPSTREAM: &str =
-    "waiting for a usable upstream DNS server (none found yet; pass --upstream <ipv4> to name one)";
+const WAITING_FOR_UPSTREAM: &str = "waiting for a usable upstream DNS server (none found yet; loopback addresses are skipped; pass --upstream <ipv4> to name one)";
 const TIMING: Timing = Timing {
     upstream_retry: Duration::from_secs(2),
     retries_per_report: 30,

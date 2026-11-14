@@ -178,7 +178,7 @@ mod start_up {
         refresh_every: Duration::from_millis(20),
     };
     const HANG_LIMIT: Duration = Duration::from_secs(20);
-    const WAITING: &str = "waiting for a usable upstream DNS server (none found yet; pass --upstream <ipv4> to name one)";
+    const WAITING: &str = "waiting for a usable upstream DNS server (none found yet; loopback addresses are skipped; pass --upstream <ipv4> to name one)";
     const RULES_LEFT: &str = "snisplit DNS rules left: 0";
     const BEGIN_MEDIUM: &str = "begin medium.com@127.0.0.3";
 
@@ -439,7 +439,7 @@ mod start_up {
         assert_eq!(
             recorder.lines(),
             [
-                "waiting for a usable upstream DNS server (none found yet; pass --upstream <ipv4> to name one); reading them failed: adapter list unreadable",
+                "waiting for a usable upstream DNS server (none found yet; loopback addresses are skipped; pass --upstream <ipv4> to name one); reading them failed: adapter list unreadable",
                 WAITING,
                 "stopping"
             ]
@@ -457,6 +457,16 @@ mod start_up {
             stdout(),
         );
         assert_send(&future);
+    }
+
+    #[test]
+    fn production_timing_follows_the_plan() {
+        assert_eq!(TIMING.upstream_retry, Duration::from_secs(2));
+        assert_eq!(
+            TIMING.upstream_retry * TIMING.retries_per_report,
+            Duration::from_secs(60)
+        );
+        assert_eq!(TIMING.refresh_every, Duration::from_secs(30));
     }
 
     #[test]
