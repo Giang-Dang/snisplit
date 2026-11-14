@@ -2,7 +2,8 @@ param(
   [string] $OutDir = $env:TEMP,
   [int] $SteamObserveSeconds = 150,
   [int] $WaitForSteamSeconds = 300,
-  [int] $ChromeWaitSeconds = 90
+  [int] $ChromeWaitSeconds = 90,
+  [switch] $SteamClientOnly
 )
 $ErrorActionPreference = 'Continue'
 $exe = (Resolve-Path (Join-Path $PSScriptRoot '..\..\target\release\snisplit.exe')).Path
@@ -86,6 +87,7 @@ function Wait-ForChrome($name) {
 "started $(Get-Date -Format s)" | Set-Content $log
 Log "zapret before: $((Get-Service zapret-steam).Status), winws=$(Winws); snisplit rules before: $((Rules).Count)"
 
+if ($SteamClientOnly) { Log 'Part 1 skipped (-SteamClientOnly)' } else {
 Say 'Part 1: medium.com with NRPT rules (zapret keeps running). No action needed.'
 $run = Start-Snisplit 'medium' @('run', '--profile', 'medium', '--verbose')
 try {
@@ -113,6 +115,7 @@ if ($leftByServer -gt 0 -or -not $afterMedium -or (Is-Loopback $afterMedium)) {
   Say 'Part 1 failed its cleanup check. Steam part skipped; zapret was not touched. You can close this window.'
   Log "finished $(Get-Date -Format s)"
   exit 1
+}
 }
 
 Say 'Part 2: Steam with zapret stopped. When asked below, restart Steam and open the Store.'

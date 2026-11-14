@@ -235,3 +235,55 @@ file.
   to a listed name was observed.
 - Windows service, crash-safe cleanup: milestone 5.
 - Reading DNS servers with Win32 FFI: PowerShell is already needed for NRPT.
+
+## Acceptance results
+
+### Done-when 1 (no admin), 2026-11-14
+
+`snisplit run --no-routing --profile medium --verbose`, then curl with
+`--resolve <host>:443:127.0.0.3`: medium.com 403 (Cloudflare's answer to curl; the
+handshake passed, direct is reset), www.medium.com 403, help.medium.com 302, each
+`relayed ... in 2 pieces`. The DNS server answered `medium.com` with 127.0.0.3 and
+forwarded `example.org`. Port 80 relayed unchanged and stays blocked (milestone 4).
+Ctrl+C through `GenerateConsoleCtrlEvent` stops with exit code 0. Without admin,
+`snisplit run --profile medium` fails with a one-line routing error and leaves no
+rule.
+
+### Elevated run, `tools/acceptance/m3.ps1`, 2026-11-14 17:54-18:01
+
+Part 1, medium.com with NRPT, zapret running: PASS.
+
+- Ready after 14.4 s (rule installation through PowerShell). Rules
+  `medium.com->127.0.0.3` and `.medium.com->127.0.0.3`.
+- System resolver: medium.com and www.medium.com -> 127.0.0.3 (first answer 59 ms
+  after ready); example.org -> its real addresses.
+- curl https://medium.com/ 403 via 127.0.0.3; help.medium.com 302.
+- Headless Chrome without resolver flags: two `relayed medium.com:443` lines.
+- Ctrl+C: exit 0, `snisplit DNS rules left: 0`; independent check by name server:
+  0 rules pointing at 127.0.0.2/3; medium.com resolves to 162.159.152.4,
+  162.159.153.4 again.
+
+Part 2, Steam, zapret stopped: PASS for HTTPS URLs and Chrome; Steam client not
+covered.
+
+- Control without snisplit: store.steampowered.com fails (000).
+- Ready after 21.2 s, 30 rules. store.steampowered.com and
+  cmp1-hkg1.steamserver.net -> 127.0.0.2.
+- curl: store 200, steamcommunity 200, api GetCMListForConnect 200, login 302, all
+  via 127.0.0.2. `http://store.steampowered.com/` relayed unchanged and blocked, as
+  planned for milestone 3.
+- The owner's Chrome, open since before snisplit started, reloaded the store: its
+  lookups went through the system resolver (DNS client log: store.steampowered.com,
+  steamcommunity.com, store/shared/cdn `*.steamstatic.com`) and the relay logged 39
+  relayed connections, 0 refused, 0 failed. This covers the "snisplit started while
+  Chrome is open" risk for Chrome.
+- The Steam client was not restarted within the 300 s window, so login and the
+  client's Store page are not covered yet.
+- After: 0 rules left, zapret Running with winws, store 200 through zapret.
+
+Findings:
+
+- Start-up takes 14-21 s before rules exist; most of it is PowerShell. Acceptable
+  for a foreground run; milestone 5 (service) should batch the rule installation.
+- Headless Chrome `--dump-dom` prints nothing on Windows (GUI subsystem); the relay
+  log is the evidence instead.
