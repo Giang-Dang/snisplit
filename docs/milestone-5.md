@@ -1,8 +1,8 @@
 # Milestone 5: foreground use, crash-safe DNS rules, zapret removed
 
 Rescoped on 2026-11-14 by the owner after Kaspersky terminated `snisplit service
-install` twice: "foreground, bật khi cần. bỏ service" (foreground, started when
-needed; drop the service). The plan below is kept as written; the service it
+install` twice: snisplit runs in the foreground, started when needed, and the
+service is dropped. The plan below is kept as written; the service it
 describes was built, proven in CI, and removed (see "Rescoped" at the end).
 
 Done when (rescoped):
@@ -399,30 +399,36 @@ milestone.
   commit with the service. `m5-restore.ps1` stays as the binary-free rule cleanup.
 - Commit `4da1a44`: `run` stops through the same rule-removing path on Ctrl+C,
   Ctrl+Break, a closed console window, logoff and shutdown (SIGINT, SIGTERM, SIGHUP
-  on Unix). tokio's console handler keeps the process alive after a close, logoff
-  or shutdown event until it exits (read in its source), so the stop path can run;
-  how long Windows waits is not assumed. PowerShell children now get
-  `CREATE_NO_WINDOW`, so a closing console does not take the rule removal with it.
+  on Unix). The intent: tokio's console handler does not return after a close,
+  logoff or shutdown event (read in its source), which should leave the stop path
+  time to run; how long Windows waits is not assumed. PowerShell children now get
+  `CREATE_NO_WINDOW`, meant to keep the rule removal from going down with a closing
+  console. Neither is shown in a real close yet.
   Not checked yet: a routed close with X and a restart while running (both in
   `m5.ps1`, the second with `-AfterRestart`). The lead could not automate an X close
   here: conhost hands new windows to Windows Terminal.
 
 ## Adding a site today
 
-A profile file adds sites without code changes; built-ins print a template:
+A profile file adds sites without code changes; a built-in prints a template. In
+Windows PowerShell 5.1, `>` writes UTF-16, which the profile parser rejects, so
+write the file as ASCII:
 
 ```
-snisplit show-profile medium > my-sites.profile
+snisplit show-profile medium | Set-Content -Encoding ascii my-sites.profile
 ```
 
-Edit `name` and the `domains` lines (for example `example.com`), then run
-`snisplit run --profile-file my-sites.profile` (it adds the built-ins only when no
-`--profile` is given, so name them too: `--profile steam --profile medium
---profile-file my-sites.profile`). Keep a personal site list outside the repo.
+Change the `name` line to a new name (a built-in name is rejected) and the
+`domains` lines to the sites (for example `example.com`). Built-in profiles run only
+when neither `--profile` nor `--profile-file` is given, so name them too:
+`snisplit run --profile steam --profile medium --profile-file my-sites.profile`.
+Keep a personal site list outside the repo.
 
 Before trusting a site, check it without admin rights: run `snisplit run
 --no-routing --profile-file my-sites.profile` and compare
 `curl --resolve example.com:443:127.0.0.4 https://example.com/` with the same request
 sent directly. Splitting helps only where the block is by SNI or Host; a site blocked
 by IP address or DNS poisoning of its real address is not fixed by it. Milestone 6
-(`probe`) automates this check and is the base for the UI in milestone 9.
+(`probe`) automates this check and is the base for the UI in milestone 9. (Checked
+by the lead: the ASCII file with `example.com` ran on 127.0.0.4 and the request
+through the relay returned 200.)
