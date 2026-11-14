@@ -102,21 +102,22 @@ fn a_stop_during_start_up_is_not_undone_by_a_late_ready() {
 fn a_routing_failure_says_administrator_rights_are_needed_and_start_can_be_pressed_again() {
     let mut state = State::new();
     state.update(Event::StartPressed);
-    state.update(Event::SessionEnded(SessionEnd::Failed {
-        message: "powershell: Access is denied.".to_string(),
-        routing: true,
-    }));
+    state.update(Event::SessionEnded(SessionEnd::RoutingFailed(
+        "powershell: Access is denied.".to_string(),
+    )));
+    assert_eq!(state.status(), "Failed");
     assert_eq!(
-        state.relay,
-        Relay::Failed(
-            "Adding the DNS rules failed. snisplit needs administrator rights for that: close this window and start snisplit-gui again with Run as administrator. (powershell: Access is denied.)"
-                .to_string()
+        state.failure(),
+        Some(
+            "Adding the DNS rules failed. snisplit needs administrator rights for that: close this window and start snisplit-gui again with Run as administrator. Windows said: powershell: Access is denied."
         )
     );
-    assert!(
-        state
-            .status()
-            .starts_with("Failed: Adding the DNS rules failed.")
+    assert_eq!(
+        log_of(&state),
+        [
+            "starting snisplit",
+            "snisplit stopped: adding the DNS rules failed: powershell: Access is denied."
+        ]
     );
     assert_eq!(state.start_stop_label(), Some("Start"));
     assert_eq!(state.update(Event::StartPressed), [Effect::StartSession]);
@@ -126,10 +127,9 @@ fn a_routing_failure_says_administrator_rights_are_needed_and_start_can_be_press
 fn any_other_failure_shows_its_own_message_only() {
     let mut state = State::new();
     state.update(Event::StartPressed);
-    state.update(Event::SessionEnded(SessionEnd::Failed {
-        message: "address in use".to_string(),
-        routing: false,
-    }));
+    state.update(Event::SessionEnded(SessionEnd::Failed(
+        "address in use".to_string(),
+    )));
     assert_eq!(state.relay, Relay::Failed("address in use".to_string()));
     assert_eq!(
         log_of(&state),
@@ -164,10 +164,7 @@ fn closing_while_starting_stops_the_start_up_and_exits_after_it_ends() {
     let mut state = State::new();
     state.update(Event::StartPressed);
     assert_eq!(state.update(Event::CloseRequested), [Effect::StopSession]);
-    let failed = SessionEnd::Failed {
-        message: "rules could not be removed".to_string(),
-        routing: false,
-    };
+    let failed = SessionEnd::Failed("rules could not be removed".to_string());
     assert_eq!(state.update(Event::SessionEnded(failed)), [Effect::Exit]);
 }
 
@@ -230,10 +227,7 @@ fn a_close_during_a_pending_restart_cancels_the_restart() {
 fn a_failed_stop_during_a_restart_does_not_start_again() {
     let mut state = running();
     state.update(Event::SiteRemoved(Ok("news".to_string())));
-    let failed = SessionEnd::Failed {
-        message: "rules could not be removed".to_string(),
-        routing: false,
-    };
+    let failed = SessionEnd::Failed("rules could not be removed".to_string());
     assert_eq!(state.update(Event::SessionEnded(failed)), []);
     assert_eq!(
         state.relay,

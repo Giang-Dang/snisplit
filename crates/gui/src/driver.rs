@@ -186,9 +186,9 @@ impl Drop for Driver {
 fn session_end(result: io::Result<()>) -> SessionEnd {
     match result {
         Ok(()) => SessionEnd::Clean,
-        Err(error) => SessionEnd::Failed {
-            routing: session::is_routing_failure(&error),
-            message: error.to_string(),
+        Err(error) => match session::routing_failure_cause(&error) {
+            Some(cause) => SessionEnd::RoutingFailed(cause.to_string()),
+            None => SessionEnd::Failed(error.to_string()),
         },
     }
 }

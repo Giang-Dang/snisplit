@@ -361,7 +361,7 @@ mod start_up {
             error.to_string(),
             "no usable upstream DNS server found; pass --upstream <ipv4>"
         );
-        assert!(!is_routing_failure(&error));
+        assert_eq!(routing_failure_cause(&error), None);
         assert_eq!(recorder.lines(), [RULES_LEFT]);
         assert_eq!(host.calls(), [BEGIN_MEDIUM, "lookup", "abandon", "remove"]);
     }
@@ -689,7 +689,10 @@ mod start_up {
                 )
                 .unwrap_err();
                 assert_eq!(error.to_string(), expected);
-                assert!(is_routing_failure(&error));
+                assert_eq!(
+                    routing_failure_cause(&error),
+                    Some("powershell: Access is denied.")
+                );
                 assert_eq!(recorder.lines(), [RULES_LEFT]);
                 assert_eq!(
                     host.calls(),
@@ -713,7 +716,7 @@ mod start_up {
             )
             .unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
-            assert!(!is_routing_failure(&error));
+            assert_eq!(routing_failure_cause(&error), None);
             assert_eq!(recorder.lines(), [RULES_LEFT]);
             assert_eq!(host.calls(), [BEGIN_GAME, "abandon", "remove"]);
         }

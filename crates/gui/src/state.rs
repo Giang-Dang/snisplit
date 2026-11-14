@@ -86,7 +86,8 @@ pub enum Probe {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionEnd {
     Clean,
-    Failed { message: String, routing: bool },
+    Failed(String),
+    RoutingFailed(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,13 +171,20 @@ impl State {
         self.log.iter().map(String::as_str)
     }
 
-    pub fn status(&self) -> String {
+    pub fn status(&self) -> &'static str {
         match &self.relay {
-            Relay::Stopped => "Stopped".to_string(),
-            Relay::Starting => "Starting...".to_string(),
-            Relay::Running => "Running: the listed sites go through snisplit".to_string(),
-            Relay::Stopping => "Stopping...".to_string(),
-            Relay::Failed(message) => format!("Failed: {message}"),
+            Relay::Stopped => "Stopped",
+            Relay::Starting => "Starting...",
+            Relay::Running => "Running: the listed sites go through snisplit",
+            Relay::Stopping => "Stopping...",
+            Relay::Failed(_) => "Failed",
+        }
+    }
+
+    pub fn failure(&self) -> Option<&str> {
+        match &self.relay {
+            Relay::Failed(message) => Some(message),
+            _ => None,
         }
     }
 
@@ -248,14 +256,17 @@ impl State {
     fn session_ended(&mut self, end: SessionEnd) -> Vec<Effect> {
         self.relay = match end {
             SessionEnd::Clean => Relay::Stopped,
-            SessionEnd::Failed { message, routing } => {
+            SessionEnd::Failed(message) => {
                 self.restart_pending = false;
                 self.push_log(format!("snisplit stopped with an error: {message}"));
-                Relay::Failed(if routing {
-                    format!("{ADMIN_NEEDED} ({message})")
-                } else {
-                    message
-                })
+                Relay::Failed(message)
+            }
+            SessionEnd::RoutingFailed(cause) => {
+                self.restart_pending = false;
+                self.push_log(format!(
+                    "snisplit stopped: adding the DNS rules failed: {cause}"
+                ));
+                Relay::Failed(format!("{ADMIN_NEEDED} Windows said: {cause}"))
             }
         };
         if self.closing {

@@ -181,10 +181,11 @@ pub async fn serve_with_ready(
     serve_on(System, &TIMING, options, stop_requested, out, ready).await
 }
 
-pub fn is_routing_failure(error: &io::Error) -> bool {
+pub fn routing_failure_cause(error: &io::Error) -> Option<&str> {
     error
-        .get_ref()
-        .is_some_and(|inner| inner.is::<RoutingFailure>())
+        .get_ref()?
+        .downcast_ref::<RoutingFailure>()
+        .map(|failure| failure.cause.as_str())
 }
 
 pub fn remove_rules(out: &Output) -> io::Result<()> {
@@ -389,19 +390,31 @@ fn join_failure(error: JoinError) -> io::Error {
 }
 
 fn start_failure(failure: StartFailure) -> io::Error {
-    let failed = match failure {
-        StartFailure::RemovingStale(error) => error,
-        StartFailure::Adding(error) => routing_failure(&error),
+    let (cause, failed) = match failure {
+        StartFailure::RemovingStale(error) => (first_line(&error), error),
+        StartFailure::Adding(error) => (first_line(&error), routing_failure(&error)),
     };
-    io::Error::new(failed.kind(), RoutingFailure(failed.to_string()))
+    let reported = RoutingFailure {
+        message: failed.to_string(),
+        cause,
+    };
+    io::Error::new(failed.kind(), reported)
+}
+
+fn first_line(error: &io::Error) -> String {
+    let message = error.to_string();
+    message.lines().next().unwrap_or_default().to_string()
 }
 
 #[derive(Debug)]
-struct RoutingFailure(String);
+struct RoutingFailure {
+    message: String,
+    cause: String,
+}
 
 impl fmt::Display for RoutingFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.message)
     }
 }
 

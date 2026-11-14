@@ -85,8 +85,11 @@ impl App {
                     ui.add_enabled(false, egui::Button::new("Stop"));
                 }
             }
-            ui.label(self.state.status());
+            ui.strong(self.state.status());
         });
+        if let Some(failure) = self.state.failure() {
+            ui.label(failure);
+        }
         if let Some(notice) = &self.state.notice {
             ui.label(notice);
         }
