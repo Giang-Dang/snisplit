@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'ci/**']
   pull_request:
 
 permissions:
@@ -26,3 +26,153 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace
+
+  service:
+    name: windows service
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup toolchain install stable --profile minimal
+      - run: cargo build --release -p snisplit
+
+      - name: Write the check helpers
+        run: |
+          @'
+          $ErrorActionPreference = 'Stop'
+          $Exe = Join-Path $env:GITHUB_WORKSPACE 'target\release\snisplit.exe'
+          $InstallDir = Join-Path $env:ProgramFiles 'snisplit'
+          $Log = Join-Path $InstallDir 'logs\snisplit.log'
+          $SavedLog = Join-Path $env:RUNNER_TEMP 'snisplit.log'
+
+          function Get-SnisplitRuleCount {
+              @(Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'snisplit' }).Count
+          }
+
+          function Test-MediumRelayed {
+              try {
+                  $answers = Resolve-DnsName -Name medium.com -Server 127.0.0.3 -DnsOnly -Type A -ErrorAction Stop
+                  return (@($answers | Where-Object { $_.Type -eq 'A' -and $_.IPAddress -eq '127.0.0.3' }).Count -gt 0)
+              } catch {
+                  return $false
+              }
+          }
+
+          function Get-ServiceProcessId {
+              $service = Get-CimInstance Win32_Service -Filter "Name='snisplit'"
+              if ($null -eq $service) { return 0 }
+              return [int]$service.ProcessId
+          }
+
+          function Assert-Check([string]$What, [bool]$Passed) {
+              if (-not $Passed) { throw "check failed: $What" }
+              Write-Host "ok: $What"
+          }
+
+          function Wait-Until([string]$What, [int]$Seconds, [scriptblock]$Condition) {
+              $clock = [Diagnostics.Stopwatch]::StartNew()
+              while ($clock.Elapsed.TotalSeconds -lt $Seconds) {
+                  if (& $Condition) {
+                      Write-Host ('ok after {0:N1} s: {1}' -f $clock.Elapsed.TotalSeconds, $What)
+                      return
+                  }
+                  Start-Sleep -Milliseconds 500
+              }
+              throw "check failed: $What (not within $Seconds s)"
+          }
+
+          function Invoke-Snisplit([string[]]$Arguments) {
+              Write-Host "> snisplit $($Arguments -join ' ')"
+              & $Exe @Arguments
+              if ($LASTEXITCODE -ne 0) {
+                  throw "check failed: snisplit $($Arguments -join ' ') exited with $LASTEXITCODE"
+              }
+          }
+          '@ | Set-Content -Path (Join-Path $env:RUNNER_TEMP 'checks.ps1') -Encoding UTF8
+
+      - name: Before install, the NRPT cmdlets work and no snisplit rule or service exists
+        run: |
+          . (Join-Path $env:RUNNER_TEMP 'checks.ps1')
+          Assert-Check 'no snisplit NRPT rule before install' ((Get-SnisplitRuleCount) -eq 0)
+          Assert-Check 'no snisplit service before install' ($null -eq (Get-Service snisplit -ErrorAction SilentlyContinue))
+
+      - name: Install the service with the medium profile
+        run: |
+          . (Join-Path $env:RUNNER_TEMP 'checks.ps1')
+          Invoke-Snisplit @('service', 'install', '--profile', 'medium')
+          sc.exe qc snisplit
+          sc.exe qfailure snisplit
+
+      - name: The service adds its rule and relays medium.com
+        run: |
+          . (Join-Path $env:RUNNER_TEMP 'checks.ps1')
+          Wait-Until 'a snisplit NRPT rule exists and medium.com resolves to 127.0.0.3 at 127.0.0.3' 90 {
+              ((Get-SnisplitRuleCount) -ge 1) -and (Test-MediumRelayed)
+          }
+          Assert-Check 'Get-Service snisplit is Running' ((Get-Service snisplit).Status -eq 'Running')
+
+      - name: Killing the service process restarts it and it relays again
+        run: |
+          . (Join-Path $env:RUNNER_TEMP 'checks.ps1')
+          $old = Get-ServiceProcessId
+          Assert-Check "the service has a process (PID $old)" ($old -gt 0)
+          Stop-Process -Id $old -Force
+          Write-Host "killed PID $old"
+          Wait-Until "a new service process (not PID $old) runs and medium.com resolves to 127.0.0.3 again" 30 {
+              $current = Get-ServiceProcessId
+              ($current -gt 0) -and ($current -ne $old) -and (Test-MediumRelayed)
+          }
+          Write-Host "new PID $(Get-ServiceProcessId)"
+
+      - name: Stop-Service stops it cleanly and removes every snisplit rule
+        run: |
+          . (Join-Path $env:RUNNER_TEMP 'checks.ps1')
+          Stop-Service snisplit
+          Wait-Until 'Get-Service snisplit is Stopped' 40 { (Get-Service snisplit).Status -eq 'Stopped' }
+          Assert-Check '0 snisplit NRPT rules after the stop' ((Get-SnisplitRuleCount) -eq 0)
+          $exitCode = (Get-CimInstance Win32_Service -Filter "Name='snisplit'").ExitCode
+          Assert-Check "the stopped service reports exit code 0 (got $exitCode)" ($exitCode -eq 0)
+          Start-Sleep -Seconds 8
+          Assert-Check 'the service stays stopped (no restart after a clean stop)' ((Get-Service snisplit).Status -eq 'Stopped')
+
+      - name: Service log before uninstall
+        run: |
+          . (Join-Path $env:RUNNER_TEMP 'checks.ps1')
+          Assert-Check "the service log exists at $Log" (Test-Path $Log)
+          Copy-Item $Log $SavedLog
+          Get-Content $Log
+
+      - name: Uninstall removes the service, its folder and every rule
+        run: |
+          . (Join-Path $env:RUNNER_TEMP 'checks.ps1')
+          Invoke-Snisplit @('service', 'uninstall')
+          Wait-Until 'no snisplit service' 30 { $null -eq (Get-Service snisplit -ErrorAction SilentlyContinue) }
+          Assert-Check "no $InstallDir" (-not (Test-Path $InstallDir))
+          Assert-Check '0 snisplit NRPT rules after uninstall' ((Get-SnisplitRuleCount) -eq 0)
+
+      - name: Diagnostics after a failure
+        if: failure()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          . (Join-Path $env:RUNNER_TEMP 'checks.ps1')
+          $ErrorActionPreference = 'Continue'
+          Write-Host '--- service'
+          Get-Service snisplit -ErrorAction SilentlyContinue | Format-List *
+          Get-CimInstance Win32_Service -Filter "Name='snisplit'" | Format-List Name, State, ProcessId, ExitCode, ServiceSpecificExitCode, PathName
+          sc.exe qc snisplit
+          sc.exe qfailure snisplit
+          Write-Host '--- NRPT rules'
+          Get-DnsClientNrptRule | Format-List Namespace, NameServers, Comment
+          Write-Host '--- service log'
+          foreach ($path in @($Log, (Join-Path $InstallDir 'logs\snisplit.old.log'), $SavedLog)) {
+              if (Test-Path $path) {
+                  Write-Host "--- $path"
+                  Get-Content $path
+              }
+          }
+          Write-Host '--- Service Control Manager events'
+          Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Service Control Manager' } -MaxEvents 30 |
+              Format-List TimeCreated, Id, Message
