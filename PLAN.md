@@ -21,6 +21,8 @@ Status (current state and next step: docs/PROGRESS.md):
   Done 2026-11-14: a 1.66 GB Steam game download went through the relay with zapret
   stopped, entirely over plain HTTP on port 80.
 - 2026-11-14: milestones 6 to 9 are delegated to the lead, Windows only (D13); order: 6 and 8, then 9, then 7.
+- Milestone 6 done 2026-11-15 (docs/milestone-6.md): `snisplit probe <domain>` reproduces the
+  no-bypass and split rows of section 1 and prints a profile file.
 
 ## 1. What was measured
 

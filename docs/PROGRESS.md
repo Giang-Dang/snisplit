@@ -13,7 +13,8 @@ this file says where the work stands and what to do next.
 | 3 Relay + DNS, HTTPS only, foreground | **Done** 2026-11-14 (docs/milestone-3.md): Steam URLs, Chrome, Steam client login and Store, medium.com through the relay with zapret stopped; Ctrl+C, kill and `cleanup` leave no rules |
 | 4 HTTP respelling, profile files, IPv6-only names | **Done** 2026-11-14 (docs/milestone-4.md): every HTTP request respelled to `hoSt:`; Steam HTTP store, content servers and a real game download (1.66 GB, all on port 80) through the relay with zapret stopped; `--profile-file`; IPv6-only names forwarded |
 | 5 Foreground use, crash-safe DNS rules, zapret removed (rescoped) | **Done** 2026-11-14 (docs/milestone-5.md): the Windows service was built, proven in CI and removed after Kaspersky terminated its install twice; zapret removed; the foreground build runs with no Kaspersky alert; Ctrl+C at any moment and closing the window leave 0 rules; Steam login and a game download through `snisplit run` (owner). Start-up 0.7-2.0 s, accepted (D14) |
-| 6 and later | Not started |
+| 6 `probe` | **Done** 2026-11-15 (docs/milestone-6.md): `snisplit probe <domain>` reproduces section 1's no-bypass and split rows (store.steampowered.com, medium.com blocked, cut at byte 1 and `hoSt:` pass; example.org not blocked) and prints a profile file; library entry point `snisplit_relay::probe::probe` for the UI |
+| 7 and later | 8: see docs/milestone-8.md; 7, 9 and 10 not started |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
 snisplit answers DNS for listed domains with a loopback address and relays the
@@ -48,7 +49,9 @@ for it was removed; no code from it exists.
 
 - `crates/core`: TLS ClientHello and HTTP Host inspection, domain matcher, split
   strategy (reused by the relay); segment planner, flow table, engine, packet loop
-  (parked). 12 real Steam ClientHello fixtures. The workspace has 376 passing tests.
+  (parked). 12 real Steam ClientHello fixtures. The workspace has 472 passing tests.
+- `snisplit_core::probe` and `snisplit_relay::probe`: the `probe` attempts, a hand-built
+  ClientHello, reply classification, verdict and suggested profile (milestone 6).
 - `crates/core` also has the DNS codec (`dns`), the relay's first-flight decision
   (`first_flight`) and the HTTP `Host` respeller (`http_stream`).
 - `crates/relay`: tokio TCP relay (cut writes; every HTTP request head respelled to
@@ -56,7 +59,7 @@ for it was removed; no code from it exists.
   no A record are forwarded unchanged), UDP upstream resolver shared by both.
 - `crates/cli`: `snisplit run [--profile] [--profile-file] [--no-routing] [--upstream]
   [--verbose]` (stops on Ctrl+C, a closed window, logoff and shutdown), `cleanup`,
-  `show-profile`, `--version`, `help`; built-in profiles are
+  `show-profile`, `probe <domain> [--upstream] [--timeout] [--runs]`, `--version`, `help`; built-in profiles are
   files in `crates/cli/profiles/` (steam 127.0.0.2, medium 127.0.0.3), profile files
   from 127.0.0.4; Windows NRPT routing through PowerShell.
 - `crates/backend-windows`: WinDivert FFI and the `sniff` / `capture` examples
