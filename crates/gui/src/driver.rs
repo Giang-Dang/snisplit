@@ -20,6 +20,7 @@ use crate::report;
 use crate::state::{Effect, Event, SessionEnd, site_list};
 
 const SHUTDOWN_LIMIT: Duration = Duration::from_secs(60);
+const RUNTIME_LIMIT: Duration = Duration::from_secs(1);
 const NO_FOLDER: &str = "no site folder: the APPDATA environment variable is not set";
 const NO_SYSTEM_DNS: &str = "no usable system DNS server found";
 
@@ -45,7 +46,7 @@ struct Session {
 }
 
 pub struct Driver {
-    runtime: Runtime,
+    runtime: Option<Runtime>,
     inbox: Inbox,
     folder: Option<PathBuf>,
     session: Option<Session>,
@@ -58,12 +59,18 @@ impl Driver {
             .build()?;
         let (events, received) = channel();
         let driver = Self {
-            runtime,
+            runtime: Some(runtime),
             inbox: Inbox { events, wake },
             folder,
             session: None,
         };
         Ok((driver, received))
+    }
+
+    fn runtime(&self) -> &Runtime {
+        self.runtime
+            .as_ref()
+            .expect("the runtime lives until the driver is dropped")
     }
 
     pub fn run(&mut self, effect: Effect) {
@@ -81,7 +88,7 @@ impl Driver {
     pub fn shutdown(&mut self) {
         self.stop_session();
         if let Some(session) = self.session.take() {
-            wait_until_ended(&self.runtime, session.ended, SHUTDOWN_LIMIT);
+            wait_until_ended(self.runtime(), session.ended, SHUTDOWN_LIMIT);
         }
     }
 
@@ -99,7 +106,7 @@ impl Driver {
         let out: Output = Arc::new(move |line| lines.send(Event::SessionLine(line.to_string())));
         let ready = self.inbox.clone();
         let ended = self.inbox.clone();
-        let task = self.runtime.spawn(async move {
+        let task = self.runtime().spawn(async move {
             let stop_requested = async move {
                 let _ = stopped.await;
             };
@@ -127,7 +134,7 @@ impl Driver {
 
     fn probe(&self, domain: String) {
         let inbox = self.inbox.clone();
-        self.runtime.spawn(async move {
+        self.runtime().spawn(async move {
             let result = probe_domain(&domain).await;
             inbox.send(Event::ProbeFinished { domain, result });
         });
@@ -178,6 +185,9 @@ impl Driver {
 impl Drop for Driver {
     fn drop(&mut self) {
         self.shutdown();
+        if let Some(runtime) = self.runtime.take() {
+            runtime.shutdown_timeout(RUNTIME_LIMIT);
+        }
     }
 }
 

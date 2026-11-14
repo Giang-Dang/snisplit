@@ -408,6 +408,12 @@ impl State {
     }
 
     fn close(&mut self) -> Vec<Effect> {
+        if self.closing && self.relay == Relay::Stopping {
+            self.push_log(format!(
+                "closing before snisplit finished stopping: {RULES_MAY_REMAIN}"
+            ));
+            return vec![Effect::Exit];
+        }
         self.closing = true;
         self.restart_pending = false;
         match self.relay {

@@ -143,7 +143,9 @@ egui styling, English text.
   failure text plus a sentence saying DNS rules may remain and that Start then Stop, or
   `snisplit cleanup` from an administrator terminal, removes them; the next close request
   exits at once. As a safety net, if eframe returns for any other reason, dropping the driver
-  signals stop and waits up to 60 s for the session to end before the process exits.
+  signals stop and waits up to 60 s for the session to end, then at most 1 s for the runtime,
+  before the process exits. A second close request while the window is still stopping exits
+  at once and logs that DNS rules may remain and how to remove them.
 - Without administrator rights, Start fails with: "Adding the DNS rules failed. snisplit
   needs administrator rights for that: close this window and start snisplit-gui again
   with Run as administrator. Windows said: ..." Everything else (site list, Check, Add,

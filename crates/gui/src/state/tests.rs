@@ -150,7 +150,6 @@ fn closing_while_stopped_exits_at_once() {
 fn closing_while_running_stops_first_and_exits_only_when_the_session_has_ended() {
     let mut state = running();
     assert_eq!(state.update(Event::CloseRequested), [Effect::StopSession]);
-    assert_eq!(state.update(Event::CloseRequested), []);
     assert_eq!(state.update(Event::StartPressed), []);
     assert_eq!(state.relay, Relay::Stopping);
     assert_eq!(
@@ -197,6 +196,19 @@ fn a_failed_close_leaves_start_usable_for_the_removal_retry() {
     state.update(Event::CloseRequested);
     state.update(Event::SessionEnded(SessionEnd::Failed("x".to_string())));
     assert_eq!(state.update(Event::StartPressed), [Effect::StartSession]);
+}
+
+#[test]
+fn a_second_close_while_stopping_exits_and_logs_that_rules_may_remain() {
+    let mut state = running();
+    assert_eq!(state.update(Event::CloseRequested), [Effect::StopSession]);
+    assert_eq!(state.update(Event::CloseRequested), [Effect::Exit]);
+    assert_eq!(
+        log_of(&state).last().map(String::as_str),
+        Some(
+            "closing before snisplit finished stopping: DNS rules may remain: press Start and then Stop, or run snisplit cleanup from an administrator terminal, to remove them"
+        )
+    );
 }
 
 #[test]
