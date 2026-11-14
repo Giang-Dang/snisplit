@@ -16,7 +16,7 @@ this file says where the work stands and what to do next.
 | 6 `probe` | **Done** 2026-11-15 (docs/milestone-6.md): `snisplit probe <domain>` reproduces section 1's no-bypass and split rows (store.steampowered.com, medium.com blocked, cut at byte 1 and `hoSt:` pass; example.org not blocked) and prints a profile file; library entry point `snisplit_relay::probe::probe` for the UI |
 | 8 QUIC | **Measured** 2026-11-14 (docs/milestone-8.md): not filtered by server name on this ISP; no QUIC work. Awaiting the owner: one routed browser run to time the fallback to TCP |
 | 9 UI | **Built** 2026-11-15 (docs/milestone-9.md): `snisplit-gui` (egui) starts and stops the relay, lists, checks, adds and removes sites in the per-user folder `%APPDATA%\snisplit\sites` that a plain `snisplit run` also loads; checked unelevated in a real window. Awaiting the owner: `tools/acceptance/m9.ps1` from an elevated PowerShell |
-| 7 | Not started |
+| 7 Releases | **Built** 2026-11-15 (docs/milestone-7.md): README, release workflow, version 0.1.0, draft release `v0.1.0` with the Windows archive. Awaiting the owner: try the downloaded archive, publish the draft, a friend installs |
 | 10 Linux and macOS | Deferred (PLAN.md D13) |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
@@ -26,10 +26,17 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 
 ## Next step
 
-Milestones 6 to 9 are delegated to the lead, Windows only (PLAN.md D13 to D15):
-`probe` (6, done: docs/milestone-6.md) and the QUIC measurement (8) first, then the egui UI (9), then the draft
-release (7). Nothing overnight may need elevation: checks run with `--no-routing`
-or directly against the network, and routed checks go into one script for the owner.
+Milestones 6 to 9 are built (PLAN.md D13 to D15). Everything that needs
+administrator rights or a second person waits for the owner, in this order:
+
+1. `tools/acceptance/m9.ps1` from an elevated PowerShell: the window's Start, Stop,
+   add a site, and close while running (docs/milestone-9.md). Also the first elevated
+   run of the window under the antivirus.
+2. While the window is running: open a listed site in a browser that used it over
+   HTTP/3 before, and see that it falls back to TCP quickly (docs/milestone-8.md).
+3. The draft release: download, check, publish, a friend installs (docs/milestone-7.md).
+
+After that: milestone 10 (Linux and macOS) when the owner asks for it.
 Kaspersky: do not retry a service install or build variants to find one that passes; a
 false-positive report needs the owner's go. The notes below are the original plan for the spike
 questions, kept for reference.

@@ -27,6 +27,8 @@ Status (current state and next step: docs/PROGRESS.md):
   to TCP when a remembered alt-svc points it at a routed name.
 - Milestone 6 done 2026-11-15 (docs/milestone-6.md): `snisplit probe <domain>` reproduces the
   no-bypass and split rows of section 1 and prints a profile file.
+- Milestone 7 built 2026-11-15 (docs/milestone-7.md): README, release workflow, version
+  0.1.0, a draft release with the Windows archive; the owner publishes it.
 - Milestone 9 built 2026-11-15 (docs/milestone-9.md): `snisplit-gui`, eframe with `glow` and
   `default_fonts`, one elevated app; per-user site folder loaded by `snisplit run`. Awaiting the
   owner's elevated run of `tools/acceptance/m9.ps1`.
