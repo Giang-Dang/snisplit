@@ -270,3 +270,27 @@ milestone.
   content server over HTTP must return 200) before it removes `zapret-steam` and
   `windivert`; on failure it uninstalls snisplit and starts zapret again. Service
   logs are copied to the output folder before every uninstall.
+
+## Acceptance results
+
+### Part 1, elevated, 2026-11-14 22:10-22:12 (zapret stopped with the owner's consent)
+
+- Direct control with zapret stopped: store HTTP and HTTPS `000`.
+- Routed `run`, launch to ready line: 821, 759, 692 ms (milestone 4: 3467 ms;
+  target under 1.5 s). Store HTTPS through the relay `200` each time; 0 rules after
+  each Ctrl+C.
+- Ctrl+C at 50, 100, 200, 500 ms (before the ready line) and at 1000 and 2000 ms
+  (after it): each exited on its own with code 0, `stopping`, `snisplit DNS rules
+  left: 0`. At 0 ms the event was sent before the child had started, so it never
+  arrived; the script killed the process and ran `cleanup` (0 rules). A test artefact,
+  not a snisplit failure.
+- `service install --profile steam --profile medium --verbose` registered the
+  service, then Kaspersky's behaviour detection flagged
+  `target\release\snisplit.exe` as `PDM:Trojan.Win32.Generic` and removed it. The
+  service never ran (no log file, state Stopped, PID 0), the store checks returned
+  `000`, and the script stopped before its cleanup. Left behind: zapret stopped, the
+  `snisplit` service registered (automatic start) with its copy in
+  `C:\Program Files\snisplit`, 0 snisplit rules. Kaspersky was not worked around;
+  the owner decides what happens next.
+- Not reached: the kill check, Steam left running, the DNS cache dump, stop/start,
+  uninstall. The switch from zapret (approved by the owner) is on hold.
