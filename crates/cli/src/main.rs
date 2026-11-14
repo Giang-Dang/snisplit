@@ -64,7 +64,7 @@ fn run(options: RunOptions) -> io::Result<()> {
         .enable_all()
         .build()?
         .block_on(async {
-            let ctrl_c = session::ctrl_c()?;
-            session::serve(options, ctrl_c, session::stdout()).await
+            let stop = session::stop_signals()?;
+            session::serve(options, stop, session::stdout()).await
         })
 }

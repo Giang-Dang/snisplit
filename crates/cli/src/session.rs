@@ -35,21 +35,49 @@ pub fn stdout() -> Output {
 }
 
 #[cfg(windows)]
-pub fn ctrl_c() -> io::Result<impl Future<Output = ()> + Send> {
-    let mut signal = tokio::signal::windows::ctrl_c()?;
-    Ok(async move {
-        let _ = signal.recv().await;
-    })
+pub fn stop_signals() -> io::Result<impl Future<Output = ()> + Send> {
+    use tokio::signal::windows::{ctrl_break, ctrl_c, ctrl_close, ctrl_logoff, ctrl_shutdown};
+
+    let mut interrupt = ctrl_c()?;
+    let mut break_key = ctrl_break()?;
+    let mut window_closed = ctrl_close()?;
+    let mut logoff = ctrl_logoff()?;
+    let mut shutdown = ctrl_shutdown()?;
+    Ok(poll_fn(move |context| {
+        let signalled = [
+            interrupt.poll_recv(context).is_ready(),
+            break_key.poll_recv(context).is_ready(),
+            window_closed.poll_recv(context).is_ready(),
+            logoff.poll_recv(context).is_ready(),
+            shutdown.poll_recv(context).is_ready(),
+        ];
+        if signalled.contains(&true) {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }))
 }
 
 #[cfg(not(windows))]
-pub fn ctrl_c() -> io::Result<impl Future<Output = ()> + Send> {
+pub fn stop_signals() -> io::Result<impl Future<Output = ()> + Send> {
     use tokio::signal::unix::{SignalKind, signal};
 
-    let mut signal = signal(SignalKind::interrupt())?;
-    Ok(async move {
-        let _ = signal.recv().await;
-    })
+    let mut interrupt = signal(SignalKind::interrupt())?;
+    let mut terminate = signal(SignalKind::terminate())?;
+    let mut hangup = signal(SignalKind::hangup())?;
+    Ok(poll_fn(move |context| {
+        let signalled = [
+            interrupt.poll_recv(context).is_ready(),
+            terminate.poll_recv(context).is_ready(),
+            hangup.poll_recv(context).is_ready(),
+        ];
+        if signalled.contains(&true) {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }))
 }
 
 struct Timing {

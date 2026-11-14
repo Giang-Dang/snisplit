@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use crate::profile;
 
 pub const USAGE: &str = "usage:
-    snisplit run [options]      relay the listed domains until Ctrl+C
+    snisplit run [options]      relay the listed domains until Ctrl+C or the window closes
     snisplit cleanup            remove snisplit's DNS rules (after a crash)
     snisplit show-profile <name>
                                 print a built-in profile's file, as a template

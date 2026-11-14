@@ -191,12 +191,13 @@ mod powershell {
     use super::{Gated, interpret_outcome};
 
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     fn command(script: &str) -> Command {
         let mut command = Command::new("powershell.exe");
         command
             .args(["-NoProfile", "-NonInteractive", "-Command", script])
-            .creation_flags(CREATE_NEW_PROCESS_GROUP);
+            .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
         command
     }
 

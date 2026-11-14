@@ -1,5 +1,6 @@
 param(
-  [string] $OutDir = $env:TEMP
+  [string] $OutDir = $env:TEMP,
+  [switch] $AfterRestart
 )
 $ErrorActionPreference = 'Continue'
 $built = Join-Path $PSScriptRoot '..\..\target\release\snisplit.exe'
@@ -54,7 +55,14 @@ function Log-Run($run) {
   Get-Content $run.Err | ForEach-Object { "  err: $_" } | Log
 }
 
-"started $(Get-Date -Format s)" | Set-Content $log
+"started $(Get-Date -Format s)" | Add-Content $log
+if ($AfterRestart) {
+  $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+  Log "after a restart with snisplit running (booted $($boot.ToString('s'))): snisplit rules=$((Rules).Count), rules pointing at the relay=$((RulesToRelay).Count), store.steampowered.com -> $(Resolve 'store.steampowered.com'), example.org -> $(Resolve 'example.org')"
+  if ((RulesToRelay).Count -gt 0) { Log 'rules were left; removing them'; Remove-RelayRules; Log "rules now: $((RulesToRelay).Count)" }
+  Say "Done. Log: $log."
+  exit 0
+}
 Log "snisplit binary present=$(Test-Path $built); snisplit rules: $((Rules).Count); example.org: $(Resolve 'example.org')"
 if (-not (Test-Path $built)) { Say "$built is missing (removed by the antivirus?). Nothing was changed."; exit 1 }
 if ((Rules).Count -gt 0) { Log 'stale snisplit rules found; removing them first'; Remove-RelayRules }
@@ -78,7 +86,14 @@ foreach ($delay in 50, 100, 200, 500, 1000, 2000) {
   if ((RulesToRelay).Count -gt 0) { Log 'RULES LEFT after Ctrl+C; removing them'; Remove-RelayRules }
 }
 
-if ((RulesToRelay).Count -gt 0) { Remove-RelayRules }
+Say 'Closing the window: snisplit opens in a new window. When it says Ctrl+C to stop, close that window with its X button.'
+$windowed = Start-Process $built -ArgumentList 'run' -PassThru
+$closedInTime = $windowed.WaitForExit(180000)
+Start-Sleep 2
+Log "closed with X: exited=$closedInTime, exit code $(if ($closedInTime) { $windowed.ExitCode }), snisplit rules left=$((Rules).Count), rules pointing at the relay=$((RulesToRelay).Count)"
+if (-not $closedInTime) { Stop-Process -Id $windowed.Id -Force }
+if ((RulesToRelay).Count -gt 0) { Log 'RULES LEFT after closing the window; removing them'; Remove-RelayRules }
+
 Log "example.org at the end: $(Resolve 'example.org'); snisplit rules left: $((Rules).Count)"
 Say "Done. Log: $log. You can close this window."
 Log "finished $(Get-Date -Format s)"
