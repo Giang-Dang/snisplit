@@ -1,32 +1,64 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
-use std::io;
+use std::io::{self, Write};
 use std::net::Ipv4Addr;
+use std::process::{Child, Output};
 
 const RULE_COMMENT: &str = "snisplit";
 const MAX_LABEL_LEN: usize = 63;
 const MAX_NAME_LEN: usize = 253;
 const STOP_ON_ERROR: &str = "$ErrorActionPreference = 'Stop'";
+const STALE_RULES_REMOVED: &str = "stale rules removed";
+const GO_AHEAD: &[u8] = b"\n";
 
-pub fn install(suffixes: &[&str], server: Ipv4Addr) -> io::Result<()> {
-    let script = install_script(suffixes, server)?;
-    run_powershell(&script).map(drop)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileRule<'a> {
+    pub suffixes: Vec<&'a str>,
+    pub server: Ipv4Addr,
 }
 
-pub fn remove_all() -> io::Result<()> {
-    run_powershell(&remove_script()).map(drop)
+#[derive(Debug)]
+pub enum StartFailure {
+    RemovingStale(io::Error),
+    Adding(io::Error),
 }
 
-pub fn count() -> io::Result<usize> {
-    parse_count(&run_powershell(&count_script())?)
+pub struct PendingStart(Gated);
+
+pub fn begin_start(rules: &[ProfileRule]) -> io::Result<PendingStart> {
+    let script = start_script(rules)?;
+    Gated::spawn(&script).map(PendingStart)
 }
 
-pub fn flush_cache() -> io::Result<()> {
-    run_powershell(&flush_script()).map(drop)
+impl PendingStart {
+    pub fn add(self) -> Result<(), StartFailure> {
+        let output = self.0.release().map_err(StartFailure::RemovingStale)?;
+        start_outcome(output.status.success(), &output.stdout, &output.stderr)
+    }
+
+    pub fn abandon(self) -> io::Result<()> {
+        let output = self.0.abandon()?;
+        interpret_outcome(output.status.success(), &output.stdout, &output.stderr).map(drop)
+    }
 }
 
-pub fn system_dns_servers() -> io::Result<Vec<Ipv4Addr>> {
-    parse_dns_servers(&run_powershell(&dns_servers_script())?)
+pub fn remove_all() -> io::Result<usize> {
+    parse_count(&run_powershell(&stop_script())?)
+}
+
+fn start_outcome(success: bool, stdout: &[u8], stderr: &[u8]) -> Result<(), StartFailure> {
+    let removed_stale = String::from_utf8_lossy(stdout)
+        .lines()
+        .any(|line| line.trim() == STALE_RULES_REMOVED);
+    interpret_outcome(success, stdout, stderr)
+        .map(drop)
+        .map_err(|error| {
+            if removed_stale {
+                StartFailure::Adding(error)
+            } else {
+                StartFailure::RemovingStale(error)
+            }
+        })
 }
 
 fn invalid_input(message: String) -> io::Error {
@@ -73,36 +105,43 @@ fn namespaces(suffixes: &[&str]) -> io::Result<Vec<String>> {
     Ok(result)
 }
 
-fn install_script(suffixes: &[&str], server: Ipv4Addr) -> io::Result<String> {
-    let list = namespaces(suffixes)?
+fn add_command(rule: &ProfileRule) -> io::Result<String> {
+    let list = namespaces(&rule.suffixes)?
         .iter()
         .map(|namespace| format!("'{namespace}'"))
         .collect::<Vec<_>>()
         .join(", ");
     Ok(format!(
-        "{STOP_ON_ERROR}; foreach ($namespace in {list}) {{ Add-DnsClientNrptRule -Namespace $namespace -NameServers '{server}' -Comment '{RULE_COMMENT}' | Out-Null }}"
+        "Add-DnsClientNrptRule -Namespace {list} -NameServers '{}' -Comment '{RULE_COMMENT}' | Out-Null",
+        rule.server
     ))
 }
 
-fn remove_script() -> String {
+fn remove_command() -> String {
     format!(
-        "{STOP_ON_ERROR}; Get-DnsClientNrptRule | Where-Object {{ $_.Comment -eq '{RULE_COMMENT}' }} | Remove-DnsClientNrptRule -Force"
+        "Get-DnsClientNrptRule | Where-Object {{ $_.Comment -eq '{RULE_COMMENT}' }} | Remove-DnsClientNrptRule -Force"
     )
 }
 
-fn count_script() -> String {
-    format!(
-        "{STOP_ON_ERROR}; @(Get-DnsClientNrptRule | Where-Object {{ $_.Comment -eq '{RULE_COMMENT}' }}).Count"
-    )
+fn start_script(rules: &[ProfileRule]) -> io::Result<String> {
+    if rules.is_empty() {
+        return Err(invalid_input("no profiles to add rules for".to_string()));
+    }
+    let adds = rules
+        .iter()
+        .map(add_command)
+        .collect::<io::Result<Vec<_>>>()?
+        .join("; ");
+    Ok(format!(
+        "{STOP_ON_ERROR}; {}; Write-Output '{STALE_RULES_REMOVED}'; if ($null -eq [Console]::In.ReadLine()) {{ exit }}; {adds}; Clear-DnsClientCache",
+        remove_command()
+    ))
 }
 
-fn flush_script() -> String {
-    format!("{STOP_ON_ERROR}; Clear-DnsClientCache")
-}
-
-fn dns_servers_script() -> String {
+fn stop_script() -> String {
     format!(
-        "{STOP_ON_ERROR}; $up = @(Get-NetAdapter | Where-Object {{ $_.Status -eq 'Up' }} | ForEach-Object {{ $_.ifIndex }}); Get-DnsClientServerAddress -AddressFamily IPv4 | Where-Object {{ $up -contains $_.InterfaceIndex }} | ForEach-Object {{ $_.ServerAddresses }}"
+        "{STOP_ON_ERROR}; {}; Clear-DnsClientCache; @(Get-DnsClientNrptRule | Where-Object {{ $_.Comment -eq '{RULE_COMMENT}' }}).Count",
+        remove_command()
     )
 }
 
@@ -111,23 +150,6 @@ fn parse_count(stdout: &str) -> io::Result<usize> {
         .trim()
         .parse()
         .map_err(|_| invalid_data(format!("expected a rule count, got {:?}", stdout.trim())))
-}
-
-fn parse_dns_servers(stdout: &str) -> io::Result<Vec<Ipv4Addr>> {
-    let mut servers: Vec<Ipv4Addr> = Vec::new();
-    for line in stdout
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-    {
-        let address: Ipv4Addr = line
-            .parse()
-            .map_err(|_| invalid_data(format!("expected an IPv4 address, got {line:?}")))?;
-        if !address.is_loopback() && !servers.contains(&address) {
-            servers.push(address);
-        }
-    }
-    Ok(servers)
 }
 
 fn interpret_outcome(success: bool, stdout: &[u8], stderr: &[u8]) -> io::Result<String> {
@@ -144,23 +166,85 @@ fn interpret_outcome(success: bool, stdout: &[u8], stderr: &[u8]) -> io::Result<
     Err(io::Error::other(format!("powershell: {message}")))
 }
 
+struct Gated(Child);
+
+impl Gated {
+    fn release(mut self) -> io::Result<Output> {
+        if let Some(mut stdin) = self.0.stdin.take() {
+            let _ = stdin.write_all(GO_AHEAD);
+        }
+        self.0.wait_with_output()
+    }
+
+    fn abandon(mut self) -> io::Result<Output> {
+        drop(self.0.stdin.take());
+        self.0.wait_with_output()
+    }
+}
+
 #[cfg(windows)]
-fn run_powershell(script: &str) -> io::Result<String> {
+mod powershell {
+    use std::io;
+    use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
 
-    let output = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .stdin(Stdio::null())
-        .output()?;
-    interpret_outcome(output.status.success(), &output.stdout, &output.stderr)
+    use super::{Gated, interpret_outcome};
+
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+
+    fn command(script: &str) -> Command {
+        let mut command = Command::new("powershell.exe");
+        command
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .creation_flags(CREATE_NEW_PROCESS_GROUP);
+        command
+    }
+
+    pub(super) fn run(script: &str) -> io::Result<String> {
+        let output = command(script).stdin(Stdio::null()).output()?;
+        interpret_outcome(output.status.success(), &output.stdout, &output.stderr)
+    }
+
+    pub(super) fn spawn_gated(script: &str) -> io::Result<Gated> {
+        command(script)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map(Gated)
+    }
+}
+
+#[cfg(windows)]
+fn run_powershell(script: &str) -> io::Result<String> {
+    powershell::run(script)
+}
+
+#[cfg(windows)]
+impl Gated {
+    fn spawn(script: &str) -> io::Result<Self> {
+        powershell::spawn_gated(script)
+    }
+}
+
+#[cfg(not(windows))]
+fn unsupported() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::Unsupported,
+        "DNS routing is implemented for Windows only",
+    )
 }
 
 #[cfg(not(windows))]
 fn run_powershell(_script: &str) -> io::Result<String> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "DNS routing is implemented for Windows only",
-    ))
+    Err(unsupported())
+}
+
+#[cfg(not(windows))]
+impl Gated {
+    fn spawn(_script: &str) -> io::Result<Self> {
+        Err(unsupported())
+    }
 }
 
 #[cfg(test)]

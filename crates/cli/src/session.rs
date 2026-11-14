@@ -1,7 +1,9 @@
-use std::future::Future;
+use std::future::{Future, poll_fn};
 use std::io::{self, Write};
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::pin::{Pin, pin};
 use std::sync::Arc;
+use std::task::Poll;
 use std::time::Duration;
 
 use snisplit_core::first_flight::Refusal;
@@ -10,14 +12,22 @@ use snisplit_relay::dns_server::DnsServer;
 use snisplit_relay::upstream::UdpResolver;
 use snisplit_relay::{Event, Relay, Upstreams};
 use tokio::sync::watch;
-use tokio::task::JoinSet;
+use tokio::task::{JoinError, JoinSet, spawn_blocking};
 
 use crate::VERSION;
 use crate::args::RunOptions;
 use crate::plan::{self, Selected};
-use crate::{profile, routing, system_dns};
+use crate::routing::{self, ProfileRule, StartFailure};
+use crate::{profile, system_dns};
 
-const UPSTREAM_RETRY: Duration = Duration::from_secs(2);
+const NO_UPSTREAM: &str = "no usable upstream DNS server found; pass --upstream <ipv4>";
+const WAITING_FOR_UPSTREAM: &str =
+    "waiting for a usable upstream DNS server (none found yet; pass --upstream <ipv4> to name one)";
+const TIMING: Timing = Timing {
+    upstream_retry: Duration::from_secs(2),
+    retries_per_report: 30,
+    refresh_every: Duration::from_secs(30),
+};
 
 pub type Output = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -51,6 +61,305 @@ pub fn ctrl_c() -> io::Result<impl Future<Output = ()> + Send> {
     })
 }
 
+struct Timing {
+    upstream_retry: Duration,
+    retries_per_report: u32,
+    refresh_every: Duration,
+}
+
+trait Host: Clone + Send + Sync + 'static {
+    type Start: StartRules;
+
+    fn dns_servers(&self) -> io::Result<Vec<Ipv4Addr>>;
+    fn begin_rules(&self, rules: &[ProfileRule]) -> io::Result<Self::Start>;
+    fn remove_rules(&self) -> io::Result<usize>;
+}
+
+trait StartRules: Send + 'static {
+    fn add(self) -> Result<(), StartFailure>;
+    fn abandon(self);
+}
+
+#[derive(Debug, Clone, Copy)]
+struct System;
+
+impl Host for System {
+    type Start = routing::PendingStart;
+
+    fn dns_servers(&self) -> io::Result<Vec<Ipv4Addr>> {
+        system_dns::servers()
+    }
+
+    fn begin_rules(&self, rules: &[ProfileRule]) -> io::Result<Self::Start> {
+        routing::begin_start(rules)
+    }
+
+    fn remove_rules(&self) -> io::Result<usize> {
+        routing::remove_all()
+    }
+}
+
+impl StartRules for routing::PendingStart {
+    fn add(self) -> Result<(), StartFailure> {
+        routing::PendingStart::add(self)
+    }
+
+    fn abandon(self) {
+        let _ = routing::PendingStart::abandon(self);
+    }
+}
+
+enum Raced<T> {
+    Done(T),
+    Stopped,
+}
+
+async fn until_stopped<T>(
+    work: impl Future<Output = T>,
+    mut stop: Pin<&mut impl Future<Output = ()>>,
+) -> Raced<T> {
+    let mut work = pin!(work);
+    poll_fn(|context| {
+        if stop.as_mut().poll(context).is_ready() {
+            return Poll::Ready(Raced::Stopped);
+        }
+        work.as_mut().poll(context).map(Raced::Done)
+    })
+    .await
+}
+
+struct Bound {
+    relay: Relay,
+    dns_servers: Vec<DnsServer>,
+    upstreams: Upstreams,
+    first_upstreams: Vec<SocketAddr>,
+}
+
+pub async fn serve(
+    options: RunOptions,
+    start: StartPolicy,
+    stop_requested: impl Future<Output = ()> + Send,
+    out: Output,
+) -> io::Result<()> {
+    serve_on(System, &TIMING, options, start, stop_requested, out).await
+}
+
+pub fn remove_rules(out: &Output) -> io::Result<()> {
+    remove_rules_with(&System, out)
+}
+
+async fn serve_on<H: Host>(
+    host: H,
+    timing: &Timing,
+    options: RunOptions,
+    start: StartPolicy,
+    stop_requested: impl Future<Output = ()> + Send,
+    out: Output,
+) -> io::Result<()> {
+    let selected = load_selection(&options)?;
+    let mut stop = pin!(stop_requested);
+    let pending = if options.routing {
+        Some(host.begin_rules(&profile_rules(&selected))?)
+    } else {
+        None
+    };
+    let session = Session {
+        host,
+        timing,
+        options: &options,
+        selected: &selected,
+        out: &out,
+    };
+    match session.start_up(start, pending, stop.as_mut()).await {
+        Ok(Raced::Done(bound)) => session.relay_until_stopped(bound, stop).await,
+        Ok(Raced::Stopped) => {
+            out("stopping");
+            session.remove_rules_if_routed().await
+        }
+        Err(error) => {
+            let _ = session.remove_rules_if_routed().await;
+            Err(error)
+        }
+    }
+}
+
+struct Session<'a, H> {
+    host: H,
+    timing: &'a Timing,
+    options: &'a RunOptions,
+    selected: &'a [Selected],
+    out: &'a Output,
+}
+
+impl<H: Host> Session<'_, H> {
+    async fn start_up(
+        &self,
+        start: StartPolicy,
+        pending: Option<H::Start>,
+        mut stop: Pin<&mut impl Future<Output = ()>>,
+    ) -> io::Result<Raced<Bound>> {
+        let bound = match until_stopped(self.find_and_bind(start), stop.as_mut()).await {
+            Raced::Done(Ok(bound)) => bound,
+            Raced::Done(Err(error)) => {
+                abandon(pending).await;
+                return Err(error);
+            }
+            Raced::Stopped => {
+                abandon(pending).await;
+                return Ok(Raced::Stopped);
+            }
+        };
+        let Some(pending) = pending else {
+            return Ok(Raced::Done(bound));
+        };
+        let mut adding = spawn_blocking(move || pending.add());
+        match until_stopped(&mut adding, stop).await {
+            Raced::Done(added) => {
+                added.map_err(join_failure)?.map_err(start_failure)?;
+                Ok(Raced::Done(bound))
+            }
+            Raced::Stopped => {
+                let _ = adding.await;
+                Ok(Raced::Stopped)
+            }
+        }
+    }
+
+    async fn find_and_bind(&self, start: StartPolicy) -> io::Result<Bound> {
+        let upstreams = self.find_upstreams(start).await?;
+        bind(self.selected, upstreams, self.options.verbose, self.out).await
+    }
+
+    async fn find_upstreams(&self, start: StartPolicy) -> io::Result<Vec<SocketAddr>> {
+        if !self.options.upstreams.is_empty() {
+            return non_empty(plan::upstream_servers(&self.options.upstreams, &[]));
+        }
+        let mut misses: u32 = 0;
+        loop {
+            let system = read_system_dns(&self.host).await?;
+            let servers = plan::upstream_servers(&[], &system);
+            if !servers.is_empty() || !start.wait_for_upstreams {
+                return non_empty(servers);
+            }
+            if misses % self.timing.retries_per_report == 0 {
+                (self.out)(WAITING_FOR_UPSTREAM);
+            }
+            misses = misses.wrapping_add(1);
+            tokio::time::sleep(self.timing.upstream_retry).await;
+        }
+    }
+
+    async fn relay_until_stopped(
+        &self,
+        bound: Bound,
+        stop: Pin<&mut impl Future<Output = ()>>,
+    ) -> io::Result<()> {
+        (self.out)(&describe_start(
+            self.selected,
+            &bound.first_upstreams,
+            self.options.routing,
+        ));
+        let (stop_tasks, stopped) = watch::channel(false);
+        let mut tasks = JoinSet::new();
+        tasks.spawn(bound.relay.run(wait_for_stop(stopped.clone())));
+        for server in bound.dns_servers {
+            tasks.spawn(server.run(wait_for_stop(stopped.clone())));
+        }
+        if self.options.upstreams.is_empty() {
+            tasks.spawn(refresh_upstreams(
+                self.host.clone(),
+                bound.upstreams,
+                self.timing.refresh_every,
+                Arc::clone(self.out),
+                stopped,
+            ));
+        }
+        stop.await;
+        (self.out)("stopping");
+        let rules_removed = self.remove_rules_if_routed().await;
+        let _ = stop_tasks.send(true);
+        while tasks.join_next().await.is_some() {}
+        rules_removed
+    }
+
+    async fn remove_rules_if_routed(&self) -> io::Result<()> {
+        if !self.options.routing {
+            return Ok(());
+        }
+        let host = self.host.clone();
+        let out = Arc::clone(self.out);
+        spawn_blocking(move || remove_rules_with(&host, &out))
+            .await
+            .map_err(join_failure)?
+    }
+}
+
+async fn abandon<S: StartRules>(pending: Option<S>) {
+    if let Some(pending) = pending {
+        let _ = spawn_blocking(move || pending.abandon()).await;
+    }
+}
+
+fn remove_rules_with<H: Host>(host: &H, out: &Output) -> io::Result<()> {
+    let left = host.remove_rules()?;
+    out(&format!("snisplit DNS rules left: {left}"));
+    Ok(())
+}
+
+async fn read_system_dns<H: Host>(host: &H) -> io::Result<Vec<Ipv4Addr>> {
+    let host = host.clone();
+    spawn_blocking(move || host.dns_servers())
+        .await
+        .map_err(join_failure)?
+}
+
+async fn refresh_upstreams<H: Host>(
+    host: H,
+    upstreams: Upstreams,
+    every: Duration,
+    out: Output,
+    stopped: watch::Receiver<bool>,
+) {
+    let mut stop = pin!(wait_for_stop(stopped));
+    loop {
+        if let Raced::Stopped = until_stopped(tokio::time::sleep(every), stop.as_mut()).await {
+            return;
+        }
+        let read = match until_stopped(read_system_dns(&host), stop.as_mut()).await {
+            Raced::Done(read) => read,
+            Raced::Stopped => return,
+        };
+        let Some(servers) = read.ok().and_then(|system| refreshed_upstreams(&system)) else {
+            continue;
+        };
+        if upstreams.replace(servers.clone()) {
+            out(&describe_upstream_change(&servers));
+        }
+    }
+}
+
+fn refreshed_upstreams(system: &[Ipv4Addr]) -> Option<Vec<SocketAddr>> {
+    Some(plan::upstream_servers(&[], system)).filter(|servers| !servers.is_empty())
+}
+
+fn non_empty(servers: Vec<SocketAddr>) -> io::Result<Vec<SocketAddr>> {
+    if servers.is_empty() {
+        return Err(io::Error::other(NO_UPSTREAM));
+    }
+    Ok(servers)
+}
+
+fn join_failure(error: JoinError) -> io::Error {
+    io::Error::other(error)
+}
+
+fn start_failure(failure: StartFailure) -> io::Error {
+    match failure {
+        StartFailure::RemovingStale(error) => error,
+        StartFailure::Adding(error) => routing_failure(&error),
+    }
+}
+
 fn load_selection(options: &RunOptions) -> io::Result<Vec<Selected>> {
     let files = options
         .profile_files
@@ -60,110 +369,59 @@ fn load_selection(options: &RunOptions) -> io::Result<Vec<Selected>> {
     plan::select(&options.profiles, files).map_err(io::Error::other)
 }
 
-fn find_upstreams(options: &RunOptions) -> io::Result<Vec<SocketAddr>> {
-    let system = if options.upstreams.is_empty() {
-        system_dns::servers()?
-    } else {
-        Vec::new()
-    };
-    Ok(plan::upstream_servers(&options.upstreams, &system))
+fn profile_rules(selected: &[Selected]) -> Vec<ProfileRule<'_>> {
+    selected
+        .iter()
+        .map(|selection| ProfileRule {
+            suffixes: selection
+                .profile
+                .domains
+                .iter()
+                .map(String::as_str)
+                .collect(),
+            server: selection.address,
+        })
+        .collect()
 }
 
-async fn wait_for_upstreams(
-    options: &RunOptions,
-    start: StartPolicy,
-) -> io::Result<Vec<SocketAddr>> {
-    loop {
-        let upstreams = find_upstreams(options)?;
-        if !upstreams.is_empty() {
-            return Ok(upstreams);
-        }
-        if !start.wait_for_upstreams {
-            return Err(io::Error::other(
-                "no usable upstream DNS server found; pass --upstream <ipv4>",
-            ));
-        }
-        tokio::time::sleep(UPSTREAM_RETRY).await;
-    }
-}
-
-pub async fn serve(
-    options: RunOptions,
-    start: StartPolicy,
-    stop_requested: impl Future<Output = ()> + Send,
-    out: Output,
-) -> io::Result<()> {
-    let selected = load_selection(&options)?;
-    let upstreams = wait_for_upstreams(&options, start).await?;
-    if options.routing {
-        routing::remove_all()?;
-    }
-    let shared_upstreams = Upstreams::new(upstreams.clone());
-    let resolver = Arc::new(UdpResolver::new(
-        shared_upstreams.clone(),
-        plan::UPSTREAM_TIMEOUT,
-    ));
+async fn bind(
+    selected: &[Selected],
+    first_upstreams: Vec<SocketAddr>,
+    verbose: bool,
+    out: &Output,
+) -> io::Result<Bound> {
+    let upstreams = Upstreams::new(first_upstreams.clone());
+    let resolver = Arc::new(UdpResolver::new(upstreams.clone(), plan::UPSTREAM_TIMEOUT));
     let relay = Relay::bind(
-        plan::relay_config(&selected),
+        plan::relay_config(selected),
         Arc::clone(&resolver),
-        event_printer(options.verbose, Arc::clone(&out)),
+        event_printer(verbose, Arc::clone(out)),
     )
     .await?;
     let mut dns_servers = Vec::new();
-    for selection in &selected {
+    for selection in selected {
         let listen = SocketAddr::from((selection.address, plan::DNS_PORT));
         let profiles = vec![selection.profile.relay_profile()];
         let server = DnsServer::bind(
             listen,
             profiles,
             selection.address,
-            shared_upstreams.clone(),
+            upstreams.clone(),
             Arc::clone(&resolver),
         )
         .await?;
         dns_servers.push(server);
     }
-    if options.routing {
-        if let Err(error) = install_rules(&selected) {
-            let _ = remove_rules(&out);
-            return Err(routing_failure(&error));
-        }
-    }
-    out(&describe_start(&selected, &upstreams, options.routing));
-
-    let (stop, stopped) = watch::channel(false);
-    let mut tasks = JoinSet::new();
-    tasks.spawn(relay.run(wait_for_stop(stopped.clone())));
-    for server in dns_servers {
-        tasks.spawn(server.run(wait_for_stop(stopped.clone())));
-    }
-    stop_requested.await;
-    out("stopping");
-    let rules_removed = if options.routing {
-        remove_rules(&out)
-    } else {
-        Ok(())
-    };
-    let _ = stop.send(true);
-    while tasks.join_next().await.is_some() {}
-    rules_removed
+    Ok(Bound {
+        relay,
+        dns_servers,
+        upstreams,
+        first_upstreams,
+    })
 }
 
 async fn wait_for_stop(mut stopped: watch::Receiver<bool>) {
     let _ = stopped.wait_for(|&stop| stop).await;
-}
-
-fn install_rules(selected: &[Selected]) -> io::Result<()> {
-    for selection in selected {
-        let domains: Vec<&str> = selection
-            .profile
-            .domains
-            .iter()
-            .map(String::as_str)
-            .collect();
-        routing::install(&domains, selection.address)?;
-    }
-    routing::flush_cache()
 }
 
 fn routing_failure(error: &io::Error) -> io::Error {
@@ -177,11 +435,9 @@ fn routing_failure(error: &io::Error) -> io::Error {
     )
 }
 
-pub fn remove_rules(out: &Output) -> io::Result<()> {
-    routing::remove_all()?;
-    routing::flush_cache()?;
-    out(&format!("snisplit DNS rules left: {}", routing::count()?));
-    Ok(())
+fn describe_upstream_change(servers: &[SocketAddr]) -> String {
+    let servers: Vec<String> = servers.iter().map(SocketAddr::to_string).collect();
+    format!("upstream DNS now {}", servers.join(", "))
 }
 
 fn event_printer(verbose: bool, out: Output) -> Arc<dyn Fn(Event) + Send + Sync> {

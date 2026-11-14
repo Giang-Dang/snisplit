@@ -5,28 +5,50 @@ use super::*;
 
 const SERVER: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 2);
 
+fn rule<'a>(suffixes: &[&'a str], server: Ipv4Addr) -> ProfileRule<'a> {
+    ProfileRule {
+        suffixes: suffixes.to_vec(),
+        server,
+    }
+}
+
 #[test]
-fn install_script_adds_dotted_and_bare_rule_per_suffix() {
-    let script = install_script(&["medium.com", "steam-chat.com"], SERVER).unwrap();
+fn the_start_script_removes_stale_rules_waits_then_adds_one_rule_per_profile_and_flushes() {
+    let rules = [
+        rule(&["steampowered.com", "steam-chat.com"], SERVER),
+        rule(&["medium.com"], Ipv4Addr::new(127, 0, 0, 3)),
+    ];
     assert_eq!(
-        script,
-        "$ErrorActionPreference = 'Stop'; foreach ($namespace in '.medium.com', 'medium.com', '.steam-chat.com', 'steam-chat.com') { Add-DnsClientNrptRule -Namespace $namespace -NameServers '127.0.0.2' -Comment 'snisplit' | Out-Null }"
+        start_script(&rules).unwrap(),
+        "$ErrorActionPreference = 'Stop'; \
+         Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'snisplit' } | Remove-DnsClientNrptRule -Force; \
+         Write-Output 'stale rules removed'; \
+         if ($null -eq [Console]::In.ReadLine()) { exit }; \
+         Add-DnsClientNrptRule -Namespace '.steampowered.com', 'steampowered.com', '.steam-chat.com', 'steam-chat.com' -NameServers '127.0.0.2' -Comment 'snisplit' | Out-Null; \
+         Add-DnsClientNrptRule -Namespace '.medium.com', 'medium.com' -NameServers '127.0.0.3' -Comment 'snisplit' | Out-Null; \
+         Clear-DnsClientCache"
     );
 }
 
 #[test]
-fn install_script_formats_server_address() {
-    let script = install_script(&["a.com"], Ipv4Addr::new(10, 1, 2, 3)).unwrap();
-    assert_eq!(
-        script,
-        "$ErrorActionPreference = 'Stop'; foreach ($namespace in '.a.com', 'a.com') { Add-DnsClientNrptRule -Namespace $namespace -NameServers '10.1.2.3' -Comment 'snisplit' | Out-Null }"
-    );
+fn the_start_script_formats_the_server_address() {
+    let script = start_script(&[rule(&["a.com"], Ipv4Addr::new(10, 1, 2, 3))]).unwrap();
+    assert!(script.ends_with(
+        "Add-DnsClientNrptRule -Namespace '.a.com', 'a.com' -NameServers '10.1.2.3' -Comment 'snisplit' | Out-Null; Clear-DnsClientCache"
+    ));
 }
 
 #[test]
-fn install_rejects_empty_list() {
-    let error = install_script(&[], SERVER).unwrap_err();
-    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+fn the_start_script_needs_a_profile_and_every_profile_a_suffix() {
+    assert_eq!(
+        start_script(&[]).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    let one_empty = [rule(&["a.com"], SERVER), rule(&[], SERVER)];
+    assert_eq!(
+        start_script(&one_empty).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
 }
 
 #[test]
@@ -50,7 +72,11 @@ fn rejected_names_never_reach_a_script() {
     ];
     assert_eq!(too_long_name.len(), 255);
     for name in rejected {
-        let error = install_script(&["good.com", name], SERVER).unwrap_err();
+        let rules = [
+            rule(&["good.com"], SERVER),
+            rule(&["fine.org", name], SERVER),
+        ];
+        let error = start_script(&rules).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::InvalidInput, "name {name:?}");
     }
 }
@@ -69,40 +95,22 @@ fn accepted_names_at_the_limits() {
     assert_eq!(name_253.len(), 253);
     let name_254 = format!("{name_253}a");
     for name in [label_63.as_str(), name_253.as_str(), "0-9.x--y", "a"] {
-        assert!(install_script(&[name], SERVER).is_ok(), "name {name:?}");
+        assert!(
+            start_script(&[rule(&[name], SERVER)]).is_ok(),
+            "name {name:?}"
+        );
     }
-    assert!(install_script(&[name_254.as_str()], SERVER).is_err());
+    assert!(start_script(&[rule(&[name_254.as_str()], SERVER)]).is_err());
 }
 
 #[test]
-fn remove_script_filters_on_comment() {
+fn the_stop_script_removes_flushes_and_counts_only_snisplit_rules() {
     assert_eq!(
-        remove_script(),
-        "$ErrorActionPreference = 'Stop'; Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'snisplit' } | Remove-DnsClientNrptRule -Force"
-    );
-}
-
-#[test]
-fn count_script_counts_only_comment_matches() {
-    assert_eq!(
-        count_script(),
-        "$ErrorActionPreference = 'Stop'; @(Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'snisplit' }).Count"
-    );
-}
-
-#[test]
-fn flush_script_clears_cache() {
-    assert_eq!(
-        flush_script(),
-        "$ErrorActionPreference = 'Stop'; Clear-DnsClientCache"
-    );
-}
-
-#[test]
-fn dns_servers_script_restricts_to_up_adapters() {
-    assert_eq!(
-        dns_servers_script(),
-        "$ErrorActionPreference = 'Stop'; $up = @(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | ForEach-Object { $_.ifIndex }); Get-DnsClientServerAddress -AddressFamily IPv4 | Where-Object { $up -contains $_.InterfaceIndex } | ForEach-Object { $_.ServerAddresses }"
+        stop_script(),
+        "$ErrorActionPreference = 'Stop'; \
+         Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'snisplit' } | Remove-DnsClientNrptRule -Force; \
+         Clear-DnsClientCache; \
+         @(Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'snisplit' }).Count"
     );
 }
 
@@ -122,33 +130,32 @@ fn parse_count_rejects_garbage() {
 }
 
 #[test]
-fn parse_dns_servers_reads_real_output() {
-    let real = "1.1.1.1\r\n1.0.0.1\r\n";
-    assert_eq!(
-        parse_dns_servers(real).unwrap(),
-        [Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(1, 0, 0, 1)]
-    );
+fn a_start_that_failed_after_the_stale_removal_failed_while_adding() {
+    let stderr = b"Add-DnsClientNrptRule : Access is denied.\r\n";
+    match start_outcome(false, b"stale rules removed\r\n", stderr) {
+        Err(StartFailure::Adding(error)) => assert_eq!(
+            error.to_string(),
+            "powershell: Add-DnsClientNrptRule : Access is denied."
+        ),
+        other => panic!("expected an adding failure, got {other:?}"),
+    }
 }
 
 #[test]
-fn parse_dns_servers_drops_loopback_and_duplicates_keeping_order() {
-    let output = "192.168.1.1\n127.0.0.1\n1.1.1.1\n127.0.0.2\n192.168.1.1\n\n1.1.1.1\n";
-    assert_eq!(
-        parse_dns_servers(output).unwrap(),
-        [Ipv4Addr::new(192, 168, 1, 1), Ipv4Addr::new(1, 1, 1, 1)]
-    );
+fn a_start_that_failed_before_the_marker_failed_removing_stale_rules() {
+    let stderr = b"Remove-DnsClientNrptRule : Access is denied.\r\n";
+    match start_outcome(false, b"", stderr) {
+        Err(StartFailure::RemovingStale(error)) => assert_eq!(
+            error.to_string(),
+            "powershell: Remove-DnsClientNrptRule : Access is denied."
+        ),
+        other => panic!("expected a stale removal failure, got {other:?}"),
+    }
 }
 
 #[test]
-fn parse_dns_servers_empty_output_is_empty_list() {
-    assert!(parse_dns_servers("").unwrap().is_empty());
-    assert!(parse_dns_servers("\r\n\r\n").unwrap().is_empty());
-}
-
-#[test]
-fn parse_dns_servers_rejects_non_address_line() {
-    let error = parse_dns_servers("1.1.1.1\nfe80::1\n").unwrap_err();
-    assert_eq!(error.kind(), ErrorKind::InvalidData);
+fn a_start_with_a_clean_exit_succeeded() {
+    assert!(start_outcome(true, b"stale rules removed\r\n", b"").is_ok());
 }
 
 #[test]
@@ -177,27 +184,64 @@ fn outcome_failure_without_message_is_still_an_error() {
     );
 }
 
+#[cfg(windows)]
+mod gate {
+    use std::thread;
+    use std::time::Duration;
+
+    use super::super::Gated;
+
+    const HARMLESS_GATED: &str = "Write-Output 'first'; if ($null -eq [Console]::In.ReadLine()) { exit }; Write-Output 'second'";
+    const CHILD_REACHES_THE_GATE: Duration = Duration::from_millis(1500);
+
+    #[test]
+    fn a_released_child_runs_past_the_gate() {
+        let child = Gated::spawn(HARMLESS_GATED).unwrap();
+        thread::sleep(CHILD_REACHES_THE_GATE);
+        let output = child.release().unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "first\r\nsecond\r\n"
+        );
+    }
+
+    #[test]
+    fn an_abandoned_child_stops_at_the_gate() {
+        let child = Gated::spawn(HARMLESS_GATED).unwrap();
+        thread::sleep(CHILD_REACHES_THE_GATE);
+        let output = child.abandon().unwrap();
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "first\r\n");
+    }
+
+    #[test]
+    fn a_child_released_before_it_reaches_the_gate_still_runs_past_it() {
+        let output = Gated::spawn(HARMLESS_GATED).unwrap().release().unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "first\r\nsecond\r\n"
+        );
+    }
+}
+
 #[cfg(not(windows))]
 #[test]
-fn operations_are_unsupported_off_windows() {
+fn rule_changes_are_unsupported_off_windows() {
     assert_eq!(remove_all().unwrap_err().kind(), ErrorKind::Unsupported);
-    assert_eq!(count().unwrap_err().kind(), ErrorKind::Unsupported);
-    assert_eq!(flush_cache().unwrap_err().kind(), ErrorKind::Unsupported);
+    let begun = begin_start(&[rule(&["a.com"], SERVER)]);
     assert_eq!(
-        system_dns_servers().unwrap_err().kind(),
-        ErrorKind::Unsupported
-    );
-    assert_eq!(
-        install(&["a.com"], SERVER).unwrap_err().kind(),
-        ErrorKind::Unsupported
+        begun.err().map(|error| error.kind()),
+        Some(ErrorKind::Unsupported)
     );
 }
 
 #[cfg(not(windows))]
 #[test]
-fn install_validates_names_before_platform_check() {
+fn names_are_validated_before_the_platform_check() {
+    let begun = begin_start(&[rule(&["A.com"], SERVER)]);
     assert_eq!(
-        install(&["A.com"], SERVER).unwrap_err().kind(),
-        ErrorKind::InvalidInput
+        begun.err().map(|error| error.kind()),
+        Some(ErrorKind::InvalidInput)
     );
 }
