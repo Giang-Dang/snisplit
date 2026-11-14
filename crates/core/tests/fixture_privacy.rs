@@ -2,6 +2,7 @@ mod common;
 
 use common::{fixture_stems, read_stream};
 
+const EXTENSION_SERVER_NAME: u16 = 0x0000;
 const EXTENSION_PRE_SHARED_KEY: u16 = 0x0029;
 const EXTENSION_EARLY_DATA: u16 = 0x002a;
 const EXTENSIONS_CARRYING_RESUMPTION_SECRETS: [u16; 2] =
@@ -63,20 +64,15 @@ fn fixtures_carry_no_session_resumption_secrets() {
     for stem in fixture_stems() {
         let types = extension_types(&read_stream(&stem))
             .unwrap_or_else(|| panic!("{stem}: extensions cannot be read"));
+        assert!(
+            types.contains(&EXTENSION_SERVER_NAME),
+            "{stem}: server_name not among {types:?}, so the extension walk went wrong"
+        );
         for secret in EXTENSIONS_CARRYING_RESUMPTION_SECRETS {
             assert!(
                 !types.contains(&secret),
                 "{stem} carries extension {secret:#06x}; remove it from the public fixtures"
             );
         }
-    }
-}
-
-#[test]
-fn extension_walker_finds_server_name_in_every_fixture() {
-    const EXTENSION_SERVER_NAME: u16 = 0x0000;
-    for stem in fixture_stems() {
-        let types = extension_types(&read_stream(&stem)).expect("extensions readable");
-        assert!(types.contains(&EXTENSION_SERVER_NAME), "{stem}");
     }
 }
