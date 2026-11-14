@@ -168,7 +168,8 @@ fn describe_start(selected: &[Selected], upstreams: &[SocketAddr], routing: bool
 fn describe_event(event: &Event) -> String {
     match event {
         Event::Forwarded { host, port, pieces } => {
-            format!("relayed {host}:{port} in {pieces} pieces")
+            let noun = if *pieces == 1 { "piece" } else { "pieces" };
+            format!("relayed {host}:{port} in {pieces} {noun}")
         }
         Event::Refused { port, refusal } => {
             format!(
@@ -203,6 +204,12 @@ mod tests {
             pieces: 2,
         };
         assert_eq!(describe_event(&event), "relayed medium.com:443 in 2 pieces");
+        let single = Event::Forwarded {
+            host: "medium.com".to_string(),
+            port: 80,
+            pieces: 1,
+        };
+        assert_eq!(describe_event(&single), "relayed medium.com:80 in 1 piece");
     }
 
     #[test]
