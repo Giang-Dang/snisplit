@@ -68,6 +68,7 @@ they span two packets (1384-1452 + 300-540 bytes).
 | D9 | Distribution | Public GitHub repo with per-OS release binaries; no driver in the release |
 | D10 | Name | `snisplit` (repo and binary) |
 | D11 | Crates (2026-11-14) | `tokio` with features `rt-multi-thread`, `net`, `time`, `signal`, `io-util`, `sync` (no `macros`; `sync` added for milestone 3, measured: no additional crate) for the relay and DNS loop, outside `core`. DNS codec hand-written. Any other crate still needs an explicit decision. Reasons and measured dependency counts: docs/milestone-2-spike.md, Q6 |
+| D12 | Windows API (2026-11-14, owner) | `windows-sys` 0.61, a direct dependency of `crates/cli` under `cfg(windows)` only, on the same line tokio uses (measured: no new package in `Cargo.lock`). Used for the service host and the adapter DNS server lookup. Chosen over hand-written declarations; docs/milestone-5.md decision 1 |
 
 Not in scope: fake-packet strategies, an all-traffic mode, automatic domain
 discovery, general proxy/VPN features, terminating TLS (snisplit never holds a
@@ -241,7 +242,7 @@ packets (synthetic tests only).
 | DoH bypass on Linux and macOS | No NRPT there; Chromium's auto-upgrade needs another answer. | Milestone 10 |
 | Port conflicts on loopback 53/80/443 | On this PC ICS holds 0.0.0.0:53; 127.0.0.2 and 127.0.0.3 are free. A bind failure stops `run` before any rule exists (milestone 3). | Closed for this PC |
 | Listed names that exist only over IPv6 | Milestone 4: a listed name with no A record is forwarded unchanged, so it resolves as without snisplit (checked in the elevated run). | Milestone 4 |
-| Start-up time | 13-21 s before rules exist, mostly PowerShell rule installation. | Milestone 5 |
+| Start-up time | 13-21 s in milestone 3; 3.5 s in milestone 4's elevated run, mostly PowerShell process starts and the DNS server lookup (docs/milestone-5.md). | Milestone 5 |
 | IPv6 and HTTPS records | Done in milestone 3: listed names get empty AAAA and type-65 answers. | Closed |
 | Relay throughput | Every Steam byte, including game downloads, is copied through snisplit. | Milestone 5 |
 | Antivirus reaction to a local DNS server and proxy | Untested; likely milder than a kernel driver. | Milestone 7 |

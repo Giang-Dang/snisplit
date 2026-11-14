@@ -1,0 +1,225 @@
+# Milestone 5 plan: Windows service, crash-safe DNS rules, uninstall
+
+Done when (PLAN.md section 4, made concrete):
+
+1. `snisplit service install` (elevated) installs an auto-start Windows service that
+   relays the chosen profiles; `snisplit service uninstall` removes the service, its
+   files and every snisplit DNS rule.
+2. Killing the service process (`Stop-Process -Force`) leaves non-listed names
+   resolving exactly as before, and the service restarts on its own and relays the
+   listed names again within 15 s.
+3. After a reboot, with zapret removed (a separate step the owner approves when it
+   runs), the service is running, listed names go through the relay, `example.org`
+   resolves as without snisplit, and the Steam client logs in and downloads a game.
+4. Ctrl+C at any moment of `snisplit run` start-up leaves 0 snisplit rules.
+5. A Windows CI job installs, starts, queries, kills (and sees the restart), stops
+   and uninstalls the service. The owner allowed pushing `ci/m5-*` branches for this
+   (2026-11-14); `main` is pushed only when the owner says so.
+
+## Measured before planning (2026-11-14, no admin, zapret running)
+
+| What | Time |
+|---|---|
+| `powershell.exe -Command 1` (process start only) | 171 ms |
+| `Get-DnsClientNrptRule` | 422 ms |
+| `Clear-DnsClientCache` | 417 ms |
+| System DNS servers (`Get-NetAdapter` + `Get-DnsClientServerAddress`, as `serve` does) | 1357 ms |
+| `run --no-routing`, launch to ready line (m4 log) | 1236 ms |
+| `run --profile medium`, routed (m4 log) | 2245 ms |
+| `run`, steam and medium, routed (m4 log) | 3467 ms |
+
+The 13-21 s start-up in PLAN.md section 6 is out of date: milestone 4's run took
+3.5 s. Most of what is left is PowerShell process starts and the DNS server lookup.
+`Add-DnsClientNrptRule -Namespace` takes `System.String[]`, so one rule per profile
+can carry every namespace.
+
+`windows-sys` added to a scratch copy of the workspace (`cargo add windows-sys@0.61
+-p snisplit`): `Cargo.lock` lists no new package. tokio 1.54.1 and mio 1.2.5 already
+pull `windows-sys` 0.61.2.
+
+## Rules for every contributor
+
+Same as docs/milestone-4.md: no comments of any kind, ASCII only, gates
+(`cargo fmt --all --check`; `cargo clippy --workspace --all-targets` with
+`RUSTFLAGS=-D warnings`, for the host and for `--target x86_64-unknown-linux-gnu`;
+`cargo test --workspace`), tests with independent expected values, unit tests over
+about 150 lines in `<module>/tests.rs`.
+
+Added for this milestone:
+
+- No contributor installs the service, adds DNS rules or runs `snisplit run` without
+  `--no-routing` on the owner's PC. Elevated checks run only in the owner's acceptance
+  run and in CI.
+- `unsafe` stays in the `cfg(windows)` modules that call Windows. Each `unsafe` block
+  is one call, its inputs built in safe code right before it.
+- Never stage with `git add -A` or `git add .`; the untracked `sites/` folder stays
+  out of every commit.
+
+## Decisions
+
+1. **windows-sys (PLAN.md D12, owner, 2026-11-14).** `windows-sys` 0.61 is a direct
+   dependency of `crates/cli` only, under `cfg(windows)`, with features
+   `Win32_Foundation`, `Win32_System_Services`, `Win32_NetworkManagement_IpHelper`,
+   `Win32_NetworkManagement_Ndis` and `Win32_Networking_WinSock`. It stays on the line
+   tokio uses, so the tree keeps one copy. Chosen over hand-written declarations
+   because the adapter API's structs have unions and pointers.
+2. **Service shape.** Name `snisplit`, display name `snisplit`, account LocalSystem
+   (NRPT needs admin), start type automatic. Commands:
+   - `snisplit service install [--profile <name>]... [--profile-file <path>]...
+     [--upstream <ipv4>]... [--verbose]`;
+   - `snisplit service uninstall`;
+   - `snisplit service run [same options]`, which only the Service Control Manager
+     starts; run from a terminal it says so and exits with an error.
+   `--no-routing` is not accepted by the service commands.
+3. **Installed files.** Install copies the running executable to
+   `%ProgramFiles%\snisplit\snisplit.exe` and each profile file to
+   `%ProgramFiles%\snisplit\profiles\<n>.profile` (n from 1, in command-line order),
+   parses them first so a bad file fails the install, and registers the copy with a
+   quoted path. A LocalSystem service must not run a binary or read a file that a
+   normal user can replace; Program Files is admin-only by default, so no ACL work is
+   needed. Install refuses when the service already exists ("uninstall first").
+4. **Recovery.** `sc.exe failure snisplit reset= 86400 actions=
+   restart/5000/restart/5000/restart/30000` and `sc.exe failureflag snisplit 1`, so a
+   crash, a kill or a stop with an error exit restarts the service.
+5. **Log file.** `%ProgramFiles%\snisplit\logs\snisplit.log`, one line per message,
+   each prefixed with a UTC time (`2026-11-14T19:23:05Z`). At 10 MiB the file is
+   renamed to `snisplit.old.log` (one old copy). `run` keeps printing to stdout.
+6. **Start-up order** (shared by `run` and the service):
+   1. listen for the stop request (Ctrl+C or the service stop);
+   2. remove stale snisplit rules (any left by a crash or a reboot);
+   3. find upstream DNS servers: `run` fails at once when there are none, as now;
+      the service waits, retrying every 2 s and logging once a minute, since the
+      network may not be up yet at boot;
+   4. bind the relay and the DNS servers;
+   5. add the rules and flush the cache;
+   6. ready line.
+   A stop request at any step ends start-up; if step 2 has begun, every snisplit rule
+   is removed before exit, even when the stop interrupted the PowerShell child (a
+   console Ctrl+C reaches it too). Step 1 uses a listener that is registered when it
+   is created (`tokio::signal::windows::ctrl_c()` returns a registered stream), not a
+   future that registers on first poll. PowerShell children are started with
+   `CREATE_NEW_PROCESS_GROUP` so a console Ctrl+C does not reach them; the acceptance
+   run checks that, and the remove-after-stop rule stays either way.
+7. **Batched routing.** One PowerShell process at start (remove stale rules, add one
+   rule per profile with all its namespaces, flush) and one at stop (remove, flush,
+   count). Blocking calls run on `spawn_blocking`. Target: routed `run` ready in
+   under 1.5 s on this PC.
+8. **System DNS servers natively.** `GetAdaptersAddresses` (IPv4, adapters whose
+   operational status is up, loopback addresses skipped, order kept, duplicates
+   dropped) replaces the PowerShell lookup.
+9. **Upstream refresh.** The relay crate gets a shared `Upstreams` handle used by
+   `UdpResolver` and `DnsServer`. When no `--upstream` is given, `run` and the service
+   re-read the system DNS servers every 30 s and swap the list when it changed (a log
+   line says so). An empty list never replaces a non-empty one.
+10. **Service status.** The service reports `RUNNING` as soon as its control handler
+    is registered, before the upstream wait, so a boot without network does not sit
+    in `START_PENDING`. Status therefore says nothing about readiness: CI and
+    acceptance check behaviour (a snisplit rule exists and `Resolve-DnsName -Server`
+    answers). On stop it reports `STOP_PENDING` with a 30 s wait hint and a rising
+    checkpoint, which covers the PowerShell rule removal, then `STOPPED` with exit
+    code 0, or `ERROR_SERVICE_SPECIFIC_ERROR` and code 1 when `serve` failed.
+11. **Shutdown.** `SERVICE_CONTROL_SHUTDOWN` is handled like stop. If Windows ends the
+    process before the rules are removed, step 2 of the next start removes them.
+12. **zapret removal.** At the end of the acceptance run, after every other check
+    passed with zapret stopped, and only with the owner's approval at that moment:
+    the same commands as the bundle's `steam_service_remove.cmd` (stop and delete
+    `zapret-steam`, stop and delete `windivert`). The bundle folder stays untouched.
+    Rollback: run the bundle's `steam_service_install.cmd` as administrator. The
+    acceptance script prints this command before and after the removal.
+13. **Log text for an empty first write.** `relayed host:80 in 0 pieces` becomes
+    `relayed host:80 with the request head still arriving`, so the second
+    space-separated token stays `host:port` for the acceptance scripts. Service log
+    lines are `<time> <the line run prints>`; scripts match on the text after the
+    first space.
+
+## Contract (lead commit, before the streams fork)
+
+- `windows-sys` added as in decision 1.
+- `crates/cli/src/session.rs`: `serve(options: RunOptions, start: StartPolicy, stop:
+  impl Future<Output = ()> + Send, out: Output) -> io::Result<()>`, moved from
+  `main.rs` together with `install_rules`, `remove_rules`, `routing_failure`, the
+  `describe_*` functions and their tests. `StartPolicy { wait_for_upstreams: bool }`
+  selects decision 6 step 3 behaviour (a bool, so no variant is unused before stream
+  C). `Output` is `Arc<dyn Fn(&str) + Send + Sync>` and receives every line `run`
+  prints today. `session::remove_rules(out: &Output) -> io::Result<()>` is the one
+  entry point for `cleanup`, `service uninstall` and `serve`.
+- `crates/cli/src/system_dns.rs`: `fn servers() -> io::Result<Vec<Ipv4Addr>>`, at
+  first a wrapper around the current PowerShell lookup.
+- `crates/relay/src/upstreams.rs`: `Upstreams` with `new(Vec<SocketAddr>)`,
+  `current() -> Vec<SocketAddr>`, `replace(Vec<SocketAddr>) -> bool`, `Clone`.
+  `UdpResolver::new` and `DnsServer::bind` take it and read `current()` on every
+  query; every call site is updated (decision 9 without the 30 s re-read, which is
+  stream A's).
+- Decision 13 in `describe_event`.
+- `main.rs` keeps only argument dispatch, `run`, `show_profile` and `finish`.
+
+## Streams and file ownership
+
+| Stream | Model, effort | Owns | Done check |
+|---|---|---|---|
+| A: start-up and routing | opus, high | `crates/cli/src/session.rs` (+ tests), `routing.rs`, `routing/tests.rs`, `system_dns.rs` (+ tests), `plan.rs` (+ tests) | decisions 6-9, gates; no routed run |
+| C: service | opus, high | `crates/cli/src/service/**`, `args.rs`, `args/tests.rs`, `main.rs`, `.github/workflows/ci.yml` | decisions 2-5, 10, 11; CI service job green on a `ci/m5-*` push made by the lead |
+| Lead | - | contract (including the relay `Upstreams` change and `windows-sys`), integration, `tools/acceptance/m5.ps1`, docs | acceptance |
+
+A and C fork from the contract commit and touch no common file. C calls
+`session::serve` and `session::remove_rules` only through the contract signatures.
+
+## Blast radius
+
+| Symbol | Callers | Change |
+|---|---|---|
+| `serve` (main.rs) | `run` | moves to `session.rs`, gains `mode`, `stop`, `out` |
+| `UdpResolver::new` | `main.rs`; `relay/tests/dns_server.rs`; `relay/tests/upstream.rs` | takes `Upstreams` |
+| `DnsServer::bind`, `bind_with` | `main.rs`; `relay/tests/dns_server.rs`; `relay/src/dns_server/tests.rs` | take `Upstreams` |
+| `routing::install`, `remove_all`, `flush_cache`, `count` | `main.rs` (`install_rules`, `remove_rules`, `serve`, `cleanup`) | replaced by one start script and one stop script; `cleanup` uses the stop script |
+| `routing::system_dns_servers` | `serve` | moves to `system_dns::servers`, native |
+| `println!` in `serve` and `remove_rules` | `run`, `cleanup` | go through `Output`; stdout text unchanged except decision 12 |
+| `args::Command` | `main` | gains `Service(ServiceCommand)` |
+
+## Risks
+
+| Risk | Handling |
+|---|---|
+| Wrong `SERVICE_STATUS` sequence: SCM marks the service hung or never restarts it | CI job checks `RUNNING` after start, `STOPPED` after stop; acceptance kills the process and checks for a new PID |
+| Kaspersky reacts to a LocalSystem service that answers DNS | Stop and report to the owner; no workaround |
+| Network not up at boot | Decision 6 step 3; acceptance reboot checks it |
+| Ctrl+C kills the PowerShell child mid-install | Decision 6: remove after any stop; acceptance sends Ctrl+C at several delays |
+| After zapret removal and reboot, a broken service leaves Steam unreachable | `snisplit service uninstall` and the rollback command restore the old state in one step each |
+| CI runner already uses loopback port 53 or NRPT | CI job uses `--profile medium` on 127.0.0.3 and checks with `Resolve-DnsName -Server`; failures are investigated, not skipped |
+| A friend's DNS server is a loopback address (a local resolver) | Skipped as today; the service then waits; the log line names the cause |
+
+## Acceptance (lead, `tools/acceptance/m5.ps1`, elevated, the owner runs it)
+
+Part 1, zapret stopped (owner asked first):
+- routed `run`: launch-to-ready time against the baseline table; Ctrl+C sent at
+  0.2, 0.5, 1 and 2 s after launch, 0 rules after each;
+- `service install --profile steam --profile medium` from `target\release`; listed
+  names resolve to the relay; store HTTP and HTTPS and a content server over HTTP
+  pass; `example.org` unchanged;
+- `Stop-Process -Force` on the service: `example.org` resolves during the gap; a new
+  PID within 15 s; listed names relayed again;
+- Steam left running across the service start: the owner confirms the client still
+  works (open since milestone 3);
+- a `Get-DnsClientCache` dump during the Steam window, to name `23.49.104.166`
+  (carried from milestone 4);
+- `service uninstall`: no service, no rules, no Program Files folder; then reinstall.
+
+Part 2, separate approval: zapret removal (decision 12), then a reboot.
+
+Part 3, after the reboot (`m5.ps1 -AfterReboot`): service running; rules present;
+listed names relayed; `example.org` unchanged; Steam logs in and downloads a game;
+received bytes per host from the service log (throughput recorded as in milestone 4,
+not compared with zapret). Whether a Steam client that auto-starts at boot, before
+the service is ready, needs a restart is recorded; nothing is done about it in this
+milestone.
+
+## Dropped
+
+- Reinstall over an existing service (install refuses; uninstall first). Milestone 7
+  may add upgrades.
+- Profile changes without reinstall (edit the files under Program Files and restart
+  the service works, but no command for it).
+- Tray and status command: milestone 9.
+- Linux and macOS services: milestone 10.
+- Writing NRPT rules to the registry directly: undocumented, and PowerShell is fast
+  enough once batched.
