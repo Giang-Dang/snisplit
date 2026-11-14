@@ -13,13 +13,12 @@ Done when (rescoped):
    to 2000 ms in two elevated runs.
 3. Closing the window with X, and restarting the PC while `snisplit run` runs, leave
    0 rules; if a rule is left, the next `run` removes it. Close with X: met (23:20).
-   Restart: not yet checked (owner).
+   Restart: skipped by the owner; if a rule is left, the next `run` removes it.
 4. A killed process breaks only listed names, and the next `run` or `cleanup`
    removes its rules. Shown in milestones 3 and 4.
 5. With zapret removed, the Steam client logs in and downloads a game through
-   `snisplit run`. Removed 2026-11-14; login with Steam left open shown in the
-   owner's trial; a download with zapret removed not yet checked (milestone 4
-   downloaded 1.66 GB with zapret stopped).
+   `snisplit run`. Met: zapret removed 2026-11-14; Steam left open kept working; the
+   owner reports a game download through `snisplit run --verbose` worked.
 
 Dropped with the service: the original done-when items 1 (service install and
 uninstall), 2 (service restart after a kill), 3 (reboot with the service) and 5
@@ -456,3 +455,13 @@ through the relay returned 200.)
   `snisplit` process, 0 rules, the binary on disk.
 - `m5.ps1` now refuses to start while a `snisplit` process runs, since it would
   remove that session's rules.
+
+### Closing milestone 5 (owner, 2026-11-14)
+
+- The owner skipped the restart check and reports that a Steam game download through
+  `snisplit run` works with zapret removed (owner's report; no relay log was kept).
+- Milestone 5 is done as rescoped. Carried forward: start-up time 0.7-2.0 s against
+  the 1.5 s target, cause unknown, awaiting the owner's call; stop at logoff and
+  shutdown implemented but not shown in a real run; the unidentified direct
+  connection to `23.49.104.166:80` from milestone 4 (the DNS cache dumps found
+  nothing).

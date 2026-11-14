@@ -12,7 +12,7 @@ this file says where the work stands and what to do next.
 | 2 Feasibility spike for the driverless design | **Done.** Owner said go on 2026-11-14 (docs/milestone-2-spike.md); crates decided (PLAN.md D11) |
 | 3 Relay + DNS, HTTPS only, foreground | **Done** 2026-11-14 (docs/milestone-3.md): Steam URLs, Chrome, Steam client login and Store, medium.com through the relay with zapret stopped; Ctrl+C, kill and `cleanup` leave no rules |
 | 4 HTTP respelling, profile files, IPv6-only names | **Done** 2026-11-14 (docs/milestone-4.md): every HTTP request respelled to `hoSt:`; Steam HTTP store, content servers and a real game download (1.66 GB, all on port 80) through the relay with zapret stopped; `--profile-file`; IPv6-only names forwarded |
-| 5 Foreground use, crash-safe DNS rules, zapret removed (rescoped) | **In progress** 2026-11-14 (docs/milestone-5.md): the Windows service was built, proven in CI and removed after Kaspersky terminated its install twice; zapret removed by the owner; the foreground build runs with no Kaspersky alert; Ctrl+C at any moment and closing the window with X leave 0 rules; routed start-up 0.7-2.0 s (target 1.5 s missed in two runs); a restart while running and a Steam download with zapret removed not yet checked |
+| 5 Foreground use, crash-safe DNS rules, zapret removed (rescoped) | **Done** 2026-11-14 (docs/milestone-5.md): the Windows service was built, proven in CI and removed after Kaspersky terminated its install twice; zapret removed; the foreground build runs with no Kaspersky alert; Ctrl+C at any moment and closing the window leave 0 rules; Steam login and a game download through `snisplit run` (owner). Carried: start-up 0.7-2.0 s against a 1.5 s target |
 | 6 and later | Not started |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
@@ -22,9 +22,7 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 
 ## Next step
 
-Finish milestone 5 with the owner: a restart while `snisplit run` runs followed by
-an elevated `m5.ps1 -AfterRestart` before any new `run`, and a Steam download
-through `snisplit run`; the owner decides whether about 2 s start-up is acceptable.
+Milestone 5 is done. Open owner call: accept about 2 s start-up or investigate.
 Then milestone 6 (`probe`), which the UI of milestone 9 builds on; the owner wants a
 UI to add blocked sites, and its open decisions are listed in PLAN.md. Kaspersky:
 do not retry a service install or build variants to find one that passes; a
