@@ -10,7 +10,9 @@ use snisplit_gui::state::{Effect, Event, Offer, Probe, ProbeView, Purpose, Site,
 
 const TITLE: &str = "snisplit";
 const WINDOW_SIZE: [f32; 2] = [820.0, 720.0];
-const LOG_HEIGHT: f32 = 180.0;
+const LOG_HEIGHT: f32 = 110.0;
+const LOG_MIN_HEIGHT: f32 = 50.0;
+const LOG_MAX_SHARE: f32 = 0.5;
 const DOMAIN_FIELD_WIDTH: f32 = 260.0;
 const START: &str = "Start";
 
@@ -153,17 +155,23 @@ impl eframe::App for App {
             self.controls(ui, &mut pressed);
             ui.add_space(4.0);
         });
+        let log_max = ui.available_height() * LOG_MAX_SHARE;
         egui::Panel::bottom("log")
             .resizable(true)
             .default_size(LOG_HEIGHT)
+            .size_range(LOG_MIN_HEIGHT..=log_max.max(LOG_MIN_HEIGHT))
             .show(ui, |ui| log_pane(ui, &self.state));
         egui::CentralPanel::default().show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                self.site_list(ui, &mut pressed);
-                ui.separator();
-                self.add_field(ui, &mut pressed);
-                self.probe_result(ui, &mut pressed);
-            });
+            egui::ScrollArea::vertical()
+                .id_salt("main")
+                .auto_shrink([false, false])
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+                .show(ui, |ui| {
+                    self.site_list(ui, &mut pressed);
+                    ui.separator();
+                    self.add_field(ui, &mut pressed);
+                    self.probe_result(ui, &mut pressed);
+                });
         });
         let ctx = ui.ctx().clone();
         for event in pressed {

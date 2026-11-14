@@ -122,7 +122,8 @@ failed, the message on its own wrapped line; the site list (built-ins marked bui
 with Check only, user sites with Check and Remove, a broken site file with its problem
 and Remove); an "Add a site" field with a Check button (Enter works too); the probe table
 with the verdict sentence; and a log pane fed by the session's output lines. Plain default
-egui styling, English text.
+egui styling, English text. The middle of the window scrolls (scrollbar always visible); the
+log pane at the bottom starts 110 px high and can be dragged between 50 px and half the window.
 
 - Check probes the site's first domain and shows the table. The field probes the typed
   domain and offers "Add" when a profile is suggested, otherwise "Not blocked, nothing to
