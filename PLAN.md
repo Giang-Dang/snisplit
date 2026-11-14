@@ -61,7 +61,7 @@ they span two packets (1384-1452 + 300-540 bytes).
 | D8 | Audience | The author and friends on similar ISPs |
 | D9 | Distribution | Public GitHub repo with per-OS release binaries; no driver in the release |
 | D10 | Name | `snisplit` (repo and binary) |
-| D11 | Crates (2026-11-14) | `tokio` with features `rt-multi-thread`, `net`, `time`, `signal`, `io-util` (no `macros`) for the relay and DNS loop, outside `core`. DNS codec hand-written. Any other crate still needs an explicit decision. Reasons and measured dependency counts: docs/milestone-2-spike.md, Q6 |
+| D11 | Crates (2026-11-14) | `tokio` with features `rt-multi-thread`, `net`, `time`, `signal`, `io-util`, `sync` (no `macros`; `sync` added for milestone 3, measured: no additional crate) for the relay and DNS loop, outside `core`. DNS codec hand-written. Any other crate still needs an explicit decision. Reasons and measured dependency counts: docs/milestone-2-spike.md, Q6 |
 
 Not in scope: fake-packet strategies, an all-traffic mode, automatic domain
 discovery, general proxy/VPN features, terminating TLS (snisplit never holds a

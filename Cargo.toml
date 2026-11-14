@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/backend-windows", "crates/cli"]
+members = ["crates/core", "crates/backend-windows", "crates/relay", "crates/cli"]
 
 [workspace.package]
 version = "0.0.0"
@@ -12,6 +12,8 @@ publish = false
 
 [workspace.dependencies]
 snisplit-core = { path = "crates/core" }
+snisplit-relay = { path = "crates/relay" }
+tokio = { version = "1.54.1", default-features = false, features = ["rt-multi-thread", "net", "time", "signal", "io-util", "sync"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
