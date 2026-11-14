@@ -2,12 +2,13 @@
 
 Answers to PLAN.md section 4.1, measured on the owner's PC on 2026-11-14.
 
-## Recommendation: go, conditional on the steamwebhelper DNS result
+## Recommendation: go
 
-Blocking: Steam's embedded browser resolves names over DNS over HTTPS, bypassing the
-system resolver (see "Steam client DNS check"). Go holds only if a rerun with an
-NRPT rule present shows it falling back to the system resolver, or another routing
-(for example the hosts file, also unverified) reaches it.
+Steam's embedded browser resolves names over DNS over HTTPS when no NRPT rule exists,
+bypassing the system resolver; with any NRPT rule present it falls back to the
+system resolver (see "Steam client DNS check"). snisplit's own NRPT rules therefore
+bring it onto the routed path. Milestone 3 must re-check this with the real rules,
+and the design must keep at least one NRPT rule while it runs.
 
 The relay part works on this ISP for HTTPS and HTTP, for the Steam store,
 community, API, login and content hosts, with zapret stopped:
@@ -22,12 +23,9 @@ community, API, login and content hosts, with zapret stopped:
 - DNS: an NRPT rule sends only the listed suffix to a resolver on 127.0.0.2:53; other
   names are unaffected, also with a stale rule after the resolver is gone.
 
-Open before milestone 2 is closed:
-
-- steamwebhelper (Steam's embedded Chromium, which draws the Store and Community
-  pages) does not use the system resolver. See "Steam client DNS check" below. Next
-  test: the same check with a dummy NRPT rule present, since Chromium is believed to
-  fall back to the system resolver when NRPT rules exist (unverified).
+Resolved: steamwebhelper (Steam's embedded Chromium, which draws the Store and
+Community pages) uses DoH without NRPT rules and the system resolver with one. See
+"Steam client DNS check" below.
 
 ## Steam client DNS check (2026-11-14 16:35-16:38)
 
@@ -50,6 +48,23 @@ events by process name and turn the log off again.
   direct and stay blocked, unless the NRPT fallback holds for steamwebhelper.
 - Pass rule for the rerun with the dummy rule (`-WithDummyNrptRule`): steamwebhelper
   makes system lookups of Steam web names while the rule exists.
+
+### Rerun with a dummy NRPT rule (2026-11-14 16:48-16:50)
+
+`steam-dns-check.ps1 -WithDummyNrptRule`: a rule for `.nrpt-probe.example` only (no
+real name affected) was added before Steam started and removed at the end
+(`dummy NRPT rules left: 0`, `dns log enabled after: False`).
+
+| Measure | Without rule (16:35) | With dummy rule (16:48) |
+|---|---|---|
+| steamwebhelper system lookups of Steam web names | 0 | 40 (`store.steampowered.com`, `*.akamai/fastly.steamstatic.com`, `steamcommunity.com`, `api.steampowered.com`) |
+| steamwebhelper connection to the DoH endpoint | 1 (162.159.61.3) | 0 of 22 connections on 443 |
+| steam.exe system lookups | 17 | 22 |
+
+Result: PASS. With any NRPT rule present, steamwebhelper drops DoH and uses the
+system resolver. The user's Chrome also made system lookups of Steam names during
+the rerun. Not covered: a PC where the user or a policy sets DoH explicitly
+("secure DNS" on with a chosen provider); milestone 3 notes it as a known limit.
 
 Carried into milestone 3 as an acceptance check: the port of Steam's plain HTTP
 downloads (Q3).
