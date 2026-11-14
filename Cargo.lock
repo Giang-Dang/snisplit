@@ -58,6 +58,7 @@ dependencies = [
  "snisplit-core",
  "snisplit-relay",
  "tokio",
+ "windows-sys",
 ]
 
 [[package]]

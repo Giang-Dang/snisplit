@@ -11,6 +11,7 @@ use tokio::net::UdpSocket;
 use tokio::time::timeout_at;
 
 use crate::resolve::Resolve;
+use crate::upstreams::Upstreams;
 
 const CACHE_LIFETIME: Duration = Duration::from_secs(30);
 const MAX_DATAGRAM: usize = 4096;
@@ -21,7 +22,7 @@ struct CachedAnswer {
 }
 
 pub struct UdpResolver {
-    servers: Vec<SocketAddr>,
+    servers: Upstreams,
     timeout: Duration,
     cache: Mutex<HashMap<String, CachedAnswer>>,
     queries_sent: AtomicU64,
@@ -29,7 +30,7 @@ pub struct UdpResolver {
 }
 
 impl UdpResolver {
-    pub fn new(servers: Vec<SocketAddr>, timeout: Duration) -> Self {
+    pub fn new(servers: Upstreams, timeout: Duration) -> Self {
         Self {
             servers,
             timeout,
@@ -119,8 +120,8 @@ impl Resolve for UdpResolver {
         if let Some(addresses) = self.cached(&key) {
             return Ok(addresses);
         }
-        for server in &self.servers {
-            if let Some(addresses) = self.ask(*server, id, host, &query).await {
+        for server in self.servers.current() {
+            if let Some(addresses) = self.ask(server, id, host, &query).await {
                 if !addresses.is_empty() {
                     self.remember(key, &addresses);
                 }

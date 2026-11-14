@@ -14,6 +14,7 @@ publish = false
 snisplit-core = { path = "crates/core" }
 snisplit-relay = { path = "crates/relay" }
 tokio = { version = "1.54.1", default-features = false, features = ["rt-multi-thread", "net", "time", "signal", "io-util", "sync"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Services", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

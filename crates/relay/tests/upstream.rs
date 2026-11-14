@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use snisplit_relay::{Resolve, UdpResolver};
+use snisplit_relay::{Resolve, UdpResolver, Upstreams};
 use tokio::net::UdpSocket;
 use tokio::task::JoinHandle;
 
@@ -115,7 +115,10 @@ fn medium_answer_with(id: &[u8]) -> Vec<u8> {
 }
 
 fn resolver(servers: &[&FakeDns], timeout: Duration) -> UdpResolver {
-    UdpResolver::new(servers.iter().map(|server| server.addr).collect(), timeout)
+    UdpResolver::new(
+        Upstreams::new(servers.iter().map(|server| server.addr).collect()),
+        timeout,
+    )
 }
 
 #[test]

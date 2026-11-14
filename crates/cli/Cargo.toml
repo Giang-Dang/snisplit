@@ -13,5 +13,8 @@ snisplit-core.workspace = true
 snisplit-relay.workspace = true
 tokio.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
 [lints]
 workspace = true

@@ -112,7 +112,7 @@ async fn start(
         loopback(),
         vec![steam_profile()],
         ANSWER,
-        upstreams,
+        Upstreams::new(upstreams),
         upstream_timeout,
         Box::new(resolver),
     )

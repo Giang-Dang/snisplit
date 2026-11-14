@@ -13,6 +13,7 @@ use tokio::task::JoinSet;
 use tokio::time::{Instant, timeout_at};
 
 use crate::resolve::{Resolve, ResolveBoxed};
+use crate::upstreams::Upstreams;
 
 const MAX_DATAGRAM: usize = 4096;
 const ANSWER_TTL_SECONDS: u32 = 5;
@@ -23,7 +24,7 @@ const ID_LEN: usize = 2;
 struct Policy {
     profiles: Vec<RelayProfile>,
     answer: Ipv4Addr,
-    upstreams: Vec<SocketAddr>,
+    upstreams: Upstreams,
     upstream_timeout: Duration,
     resolver: Box<dyn ResolveBoxed>,
 }
@@ -39,7 +40,7 @@ impl DnsServer {
         listen: SocketAddr,
         profiles: Vec<RelayProfile>,
         answer: Ipv4Addr,
-        upstreams: Vec<SocketAddr>,
+        upstreams: Upstreams,
         resolver: R,
     ) -> io::Result<DnsServer> {
         Self::bind_with(
@@ -57,7 +58,7 @@ impl DnsServer {
         listen: SocketAddr,
         profiles: Vec<RelayProfile>,
         answer: Ipv4Addr,
-        upstreams: Vec<SocketAddr>,
+        upstreams: Upstreams,
         upstream_timeout: Duration,
         resolver: Box<dyn ResolveBoxed>,
     ) -> io::Result<DnsServer> {
@@ -182,8 +183,8 @@ async fn forward(
     client: SocketAddr,
     query: Vec<u8>,
 ) {
-    for upstream in &policy.upstreams {
-        if let Some(reply) = ask(*upstream, &query, policy.upstream_timeout).await {
+    for upstream in policy.upstreams.current() {
+        if let Some(reply) = ask(upstream, &query, policy.upstream_timeout).await {
             let _ = client_socket.send_to(&reply, client).await;
             return;
         }

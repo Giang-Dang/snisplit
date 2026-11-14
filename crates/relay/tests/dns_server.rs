@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use snisplit_core::domains::DomainList;
 use snisplit_core::first_flight::RelayProfile;
-use snisplit_relay::{DnsServer, UdpResolver};
+use snisplit_relay::{DnsServer, UdpResolver, Upstreams};
 use tokio::net::UdpSocket;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -131,6 +131,10 @@ impl Running {
 }
 
 async fn start(upstreams: Vec<SocketAddr>) -> Running {
+    start_sharing(Upstreams::new(upstreams)).await
+}
+
+async fn start_sharing(upstreams: Upstreams) -> Running {
     let resolver = UdpResolver::new(upstreams.clone(), PATIENCE);
     let server = DnsServer::bind(
         loopback(),
@@ -377,6 +381,27 @@ fn a_listed_name_without_ipv4_gets_the_upstream_answer_for_a_and_aaaa() {
         expected_aaaa[7] = 1;
         expected_aaaa.extend_from_slice(&UPSTREAM_AAAA_RECORD);
         assert_eq!(aaaa, expected_aaaa);
+        running.shut_down().await;
+    });
+}
+
+#[test]
+fn a_replaced_upstream_list_is_used_by_the_next_forwarded_query() {
+    block_on(async {
+        let first = udp_socket().await;
+        let second = udp_socket().await;
+        let upstreams = Upstreams::new(vec![first.local_addr().unwrap()]);
+        let running = start_sharing(upstreams.clone()).await;
+        assert!(upstreams.replace(vec![second.local_addr().unwrap()]));
+        let client = client_to(running.addr).await;
+        client.send(MEDIUM_QUERY).await.unwrap();
+
+        let (forwarded, asker) = receive_with_peer(&second).await;
+        let reply = with_id(MEDIUM_ANSWER, [MEDIUM_QUERY[0], MEDIUM_QUERY[1]]);
+        second.send_to(&reply, asker).await.unwrap();
+
+        assert_eq!(forwarded, MEDIUM_QUERY);
+        assert_eq!(receive(&client).await, reply);
         running.shut_down().await;
     });
 }
