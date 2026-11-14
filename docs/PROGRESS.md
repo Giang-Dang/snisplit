@@ -10,7 +10,7 @@ this file says where the work stands and what to do next.
 | 0 Scaffold, licence, CI, WinDivert spike | Done (PLAN.md 5.1) |
 | 1 Core: parsers, matcher, strategy, segment planner, engine | Done (PLAN.md 5.2, docs/milestone-1.md) |
 | 2 Feasibility spike for the driverless design | **Done.** Owner said go on 2026-11-14 (docs/milestone-2-spike.md); crates decided (PLAN.md D11) |
-| 3 Relay + DNS, HTTPS only, foreground | **Acceptance passed except two checks** (docs/milestone-3.md): Steam URLs, Steam client login, medium.com through the relay with zapret stopped. Pending: the owner confirms pages render in Chrome and the Steam client; a kill-and-cleanup run (`tools/acceptance/m3-cleanup.ps1`) |
+| 3 Relay + DNS, HTTPS only, foreground | **Done** 2026-11-14 (docs/milestone-3.md): Steam URLs, Chrome, Steam client login and Store, medium.com through the relay with zapret stopped; Ctrl+C, kill and `cleanup` leave no rules |
 | 4 and later | Not started |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):

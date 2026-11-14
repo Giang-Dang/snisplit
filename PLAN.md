@@ -12,7 +12,7 @@ Status (current state and next step: docs/PROGRESS.md):
   replaces the WinDivert packet engine. Whether it works on this ISP is unproven: the
   new milestone 2 is a measurement spike with a written go/no-go (section 5).
   Spike done (docs/milestone-2-spike.md); the owner said go on 2026-11-14. Milestone 3
-  (relay + DNS, HTTPS) passed acceptance on 2026-11-14 except two pending checks
+  (relay + DNS, HTTPS) done on 2026-11-14, every acceptance item passed
   (docs/milestone-3.md). Each built-in profile has its own loopback address (steam
   127.0.0.2, medium 127.0.0.3); Steam's TLS ports are 443 and 27015-27030. A built-in medium.com profile was added at the owner's request (TLS cut at
   byte 1, the measured cut; HTTP waits for the `hoSt:` rewrite in milestone 4).

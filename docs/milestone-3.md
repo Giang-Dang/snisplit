@@ -318,7 +318,7 @@ logged in and opened the Store: PASS.
 | 1 | No admin, medium via curl | PASS |
 | 2 | Elevated, medium through NRPT in curl and Chrome; example.org unchanged | PASS |
 | 3 | Elevated, zapret stopped: 4 Steam URLs in curl and Chrome; Steam client login and Store; steamwebhelper on the system resolver | PASS: curl status codes, login 'OK' through 127.0.0.2:27018, resolver routing; pages rendered in Chrome and the Steam client (owner) |
-| 4 | Ctrl+C removes every rule and flushes; names resolve normally again; `cleanup` | PASS for Ctrl+C (three runs). `snisplit cleanup` and the start-time removal of stale rules have not yet met a real leftover rule: pending a kill-and-cleanup run |
+| 4 | Ctrl+C removes every rule and flushes; names resolve normally again; `cleanup` | PASS: Ctrl+C (three runs); kill, stale-rule removal at start and `snisplit cleanup` (kill-and-cleanup run below) |
 
 Open items carried forward: HTTP on port 80 (milestone 4, `hoSt:`), IPv6-only
 listed names, start-up time (milestone 5), Ctrl+C before the handler is registered
@@ -331,3 +331,19 @@ leaves rules (milestone 5).
 - The script then stopped on its own bug (a function named `Kill` is shadowed by
   PowerShell's `kill` alias for Stop-Process); its `finally` removed the 2 rules by
   name server, 0 left. Fixed (`Stop-Hard`) for the rerun; `cleanup` still pending.
+### Kill-and-cleanup rerun, 18:29
+
+A first rerun at 18:27 could not bind (`os error 10048`): the 18:23 process was still
+running because of the script bug, and holding 127.0.0.3. That run added no rule,
+which confirms bind-before-rules. The leftover process was stopped and the script now
+stops leftovers first. Third run: PASS.
+
+| Step | Rules pointing at 127.0.0.3 | medium.com resolves to |
+|---|---|---|
+| first run ready (2.9 s) | 2 | 127.0.0.3 |
+| first run killed (Stop-Process -Force) | 2 (left behind) | nothing (fails fast, as in the spike) |
+| second run ready: stale rules removed at start, then added again | 2 (not 4) | 127.0.0.3 |
+| second run killed | 2 | nothing |
+| `snisplit cleanup`, exit 0, `snisplit DNS rules left: 0` | 0 | 162.159.153.4, 162.159.152.4 |
+
+Milestone 3 is done: every done-when item passed.
