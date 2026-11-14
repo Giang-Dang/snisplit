@@ -85,6 +85,26 @@ Findings:
   as 56. Whether the ISP or local software (the antivirus web scanner) ends them is
   open; the pktmon capture will show whether a RST arrives from the network.
 
+## Q3: do Steam downloads use port 80
+
+Source: the Steam client's own `logs/content_log.txt` (no admin), lines of the form
+`HTTP/2 (SteamCache,N) - cacheN-hkg1.steamcontent.com (IP:443 ...)`.
+
+| Day | HTTP/2 connections (all port 443) | plain HTTP connections |
+|---|---|---|
+| 2026-11-06 | 15 | 6 |
+| 2026-11-10 | 13 | 24 |
+| 2026-11-14 | 30 | 0 |
+
+Findings:
+
+- Downloads use both. The plain HTTP lines log the address as `0.0.0.0:0`, so their
+  port is not recorded; port 80 is the likely one and is still to be confirmed.
+- The content hosts are `*.steamcontent.com`, which is on zapret's Steam list.
+  `cache5-hkg1.steamcontent.com` answers 200 on 80 and 443 with zapret running.
+- HTTP support therefore matters for downloads. The elevated run tests the `hoSt:`
+  method against a content server with zapret stopped.
+
 ## Q4 (partial): loopback DNS on 127.0.0.2:53
 
 A UDP socket bound to 127.0.0.2:53 received the query sent by
