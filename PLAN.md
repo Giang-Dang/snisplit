@@ -12,7 +12,9 @@ Status (current state and next step: docs/PROGRESS.md):
   replaces the WinDivert packet engine. Whether it works on this ISP is unproven: the
   new milestone 2 is a measurement spike with a written go/no-go (section 5).
   Spike done (docs/milestone-2-spike.md); the owner said go on 2026-11-14. Milestone 3
-  is next. A built-in medium.com profile was added at the owner's request (TLS cut at
+  (relay + DNS, HTTPS) passed acceptance on 2026-11-14 except two pending checks
+  (docs/milestone-3.md). Each built-in profile has its own loopback address (steam
+  127.0.0.2, medium 127.0.0.3); Steam's TLS ports are 443 and 27015-27030. A built-in medium.com profile was added at the owner's request (TLS cut at
   byte 1, the measured cut; HTTP waits for the `hoSt:` rewrite in milestone 4).
 - Milestone order after the spike is proposed, not confirmed.
 
@@ -110,7 +112,7 @@ page owned by the repo owner.
 | `core::segment`, `core::checksum`, `core::packet`, `core::flow`, `core::engine`, `core::pump` | Parked: tested and kept, unused by the relay. Revisit only if a packet-level backend returns (for example for HTTP disorder on Linux). |
 | `crates/backend-windows` (on `main`: raw-dylib WinDivert FFI, `sniff` and `capture` examples) | Parked. The `capture` example is still the tool for recording new fixtures, but it needs a WinDivert driver to run. |
 | Local branch `m2/windows` (commits 2c590a5, eb7aec0; never pushed) | Parked: runtime-loaded WinDivert, `Diverter` implementing `pump::PacketIo`, Ctrl+C hook. Two findings to keep if it is ever merged: the receive buffer must be 65575 bytes (`WINDIVERT_MTU_MAX`), not 65535, and `shutdown()` returns a Result the caller must handle. |
-| `crates/cli` on `main` | `snisplit run` is wired to the parked packet engine and currently exits with "unsupported". Rewired to the relay in milestone 3. The built-in Steam profile module is reused. |
+| `crates/cli` on `main` | Rewired to the relay in milestone 3: `run`, `cleanup`, built-in steam and medium profiles, Windows NRPT routing. |
 | docs/milestone-2.md | Superseded (WinDivert plan); kept for the record. |
 
 ## 4. Milestones
@@ -231,10 +233,12 @@ packets (synthetic tests only).
 | Crash leaves DNS broken | System-wide DNS on loopback breaks every lookup if snisplit dies. NRPT per suffix would limit it to listed names. | Milestones 2 and 5 |
 | Browsers with their own secure DNS | They bypass the OS resolver and so snisplit. Measured: Steam's embedded browser auto-upgrades to DoH, and drops it while any NRPT rule exists. Explicit "secure DNS" settings are not covered; needs a README note. | Milestones 3 and 7 |
 | NRPT fallback is machine-wide | While snisplit's rules exist, every Chromium-based app loses automatic DoH for all names, not only listed ones. Users should be told. | Milestone 7 (README) |
-| snisplit started while Steam or Chrome is already open | The DoH fallback was measured only with the rule present before Steam started. | Milestone 3 acceptance |
+| snisplit started while Steam or Chrome is already open | Chrome open before the start went through the relay (milestone 3 acceptance). Not checked for a Steam client left running. | Milestone 5 |
 | DoH bypass on Linux and macOS | No NRPT there; Chromium's auto-upgrade needs another answer. | Milestone 10 |
-| Port conflicts on loopback 53/80/443 | On this PC ICS holds 0.0.0.0:53; 127.0.0.2 is free and receives queries. Other PCs may differ, so snisplit checks at start. | Milestone 3 |
-| IPv6 and HTTPS records | Listed names must get empty AAAA and type-65 answers, or apps go direct or learn ECH config. | Milestone 3 |
+| Port conflicts on loopback 53/80/443 | On this PC ICS holds 0.0.0.0:53; 127.0.0.2 and 127.0.0.3 are free. A bind failure stops `run` before any rule exists (milestone 3). | Closed for this PC |
+| Listed names that exist only over IPv6 | snisplit answers A with the relay and AAAA empty, so such names break (seen: Steam's `ipv6check-http.steamserver.net`, harmless). | Milestone 4 |
+| Start-up time | 13-21 s before rules exist, mostly PowerShell rule installation. | Milestone 5 |
+| IPv6 and HTTPS records | Done in milestone 3: listed names get empty AAAA and type-65 answers. | Closed |
 | Relay throughput | Every Steam byte, including game downloads, is copied through snisplit. | Milestone 5 |
 | Antivirus reaction to a local DNS server and proxy | Untested; likely milder than a kernel driver. | Milestone 7 |
 | New crates (DNS codec, async runtime) | Decided: D11 (tokio, minimal features; DNS codec hand-written). | Closed |

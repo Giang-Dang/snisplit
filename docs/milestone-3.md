@@ -258,7 +258,7 @@ Part 1, medium.com with NRPT, zapret running: PASS.
 - System resolver: medium.com and www.medium.com -> 127.0.0.3 (first answer 59 ms
   after ready); example.org -> its real addresses.
 - curl https://medium.com/ 403 via 127.0.0.3; help.medium.com 302.
-- Headless Chrome without resolver flags: two `relayed medium.com:443` lines.
+- Headless Chrome without resolver flags: two `relayed medium.com:443` lines (logged after `stopping`, so the attribution to Chrome is likely but not certain). `relayed` means the first flight was forwarded in pieces; the relay does not log whether a reply came back.
 - Ctrl+C: exit 0, `snisplit DNS rules left: 0`; independent check by name server:
   0 rules pointing at 127.0.0.2/3; medium.com resolves to 162.159.152.4,
   162.159.153.4 again.
@@ -274,9 +274,9 @@ covered.
   planned for milestone 3.
 - The owner's Chrome, open since before snisplit started, reloaded the store: its
   lookups went through the system resolver (DNS client log: store.steampowered.com,
-  steamcommunity.com, store/shared/cdn `*.steamstatic.com`) and the relay logged 39
-  relayed connections, 0 refused, 0 failed. This covers the "snisplit started while
-  Chrome is open" risk for Chrome.
+  steamcommunity.com, store/shared/cdn `*.steamstatic.com`) and the relay forwarded 39
+  first flights, 0 refused, 0 failed. That shows Chrome's connections reached the
+  relay; whether the page rendered is the owner's observation (pending).
 - The Steam client was not restarted within the 300 s window, so login and the
   client's Store page are not covered yet.
 - After: 0 rules left, zapret Running with winws, store 200 through zapret.
@@ -299,12 +299,12 @@ logged in and opened the Store: PASS.
   CM connection went through the relay; the relay logged `cmp3-hkg1.steamserver.net:27018`,
   `cmp2-sgp1...:27019`, `cmp2-tyo3...:27020` and `cmp2-*:443`.
 - Store in the client: steamwebhelper made 28 system lookups of Steam web names
-  (DNS client log) and the relay logged 132 relayed connections in the run (store,
+  (DNS client log) and the relay forwarded 132 first flights in the run (store,
   community, api, login, the `*.steamstatic.com` CDNs, `cache*-hkg1.steamcontent.com`).
   13 of Steam's 17 established connections at the end went to 127.0.0.2 (ports 443
   and 27018).
 - One failure: `failed ipv6check-http.steamserver.net:80: no address`. That name has
-  no A record; snisplit answers its A query with 127.0.0.2 and its AAAA query empty,
+  no A record (checked: 1.1.1.1 returns only AAAA records); snisplit answers its A query with 127.0.0.2 and its AAAA query empty,
   so Steam's IPv6 connectivity check fails (`TIMEOUT`) and the UDP check finds no
   address. Steam then uses IPv4, which it does anyway on this PC. Recorded against
   decision 1 as a known exception: listed names that exist only over IPv6.
@@ -317,8 +317,8 @@ logged in and opened the Store: PASS.
 |---|---|---|
 | 1 | No admin, medium via curl | PASS |
 | 2 | Elevated, medium through NRPT in curl and Chrome; example.org unchanged | PASS |
-| 3 | Elevated, zapret stopped: 4 Steam URLs in curl and Chrome; Steam client login and Store; steamwebhelper on the system resolver | PASS |
-| 4 | Ctrl+C removes every rule and flushes; names resolve normally again; `cleanup` | PASS for Ctrl+C (three runs). `cleanup` was exercised only with no rules present (it ran inside `remove_rules`); a crash with rules left is milestone 5 |
+| 3 | Elevated, zapret stopped: 4 Steam URLs in curl and Chrome; Steam client login and Store; steamwebhelper on the system resolver | PASS for curl, login and resolver routing; Chrome and the client Store reached the relay, rendering confirmed by the owner (pending) |
+| 4 | Ctrl+C removes every rule and flushes; names resolve normally again; `cleanup` | PASS for Ctrl+C (three runs). `snisplit cleanup` and the start-time removal of stale rules have not yet met a real leftover rule: pending a kill-and-cleanup run |
 
 Open items carried forward: HTTP on port 80 (milestone 4, `hoSt:`), IPv6-only
 listed names, start-up time (milestone 5), Ctrl+C before the handler is registered
