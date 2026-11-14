@@ -4,7 +4,8 @@ param(
   [string[]] $Modes = @('single','split1','splithost','split1+host'),
   [int] $Rounds = 3,
   [int] $GapMs = 30,
-  [string] $Ip
+  [string] $Ip,
+  [int] $TimeoutMs = 8000
 )
 $ErrorActionPreference = 'Stop'
 
@@ -88,8 +89,8 @@ public static class Cuts {
 function Connect-Target {
   $tcp = [System.Net.Sockets.TcpClient]::new()
   $tcp.NoDelay = $true
-  $tcp.ReceiveTimeout = 8000
-  $tcp.SendTimeout = 8000
+  $tcp.ReceiveTimeout = $TimeoutMs
+  $tcp.SendTimeout = $TimeoutMs
   $target = if ($Ip) { $Ip } else { $HostName }
   $port = if ($Proto -eq 'tls') { 443 } else { 80 }
   $tcp.Connect($target, $port)
@@ -101,7 +102,7 @@ function Probe-Tls($mode) {
   try {
     $split = [SplitStream]::new($tcp.GetStream(), [Cuts]::For($mode, $HostName), $GapMs)
     $ssl = [System.Net.Security.SslStream]::new($split, $false)
-    $ssl.ReadTimeout = 8000
+    $ssl.ReadTimeout = $TimeoutMs
     $ssl.AuthenticateAsClient($HostName)
     $req = [Text.Encoding]::ASCII.GetBytes("HEAD / HTTP/1.1`r`nHost: $HostName`r`nConnection: close`r`n`r`n")
     $ssl.Write($req); $ssl.Flush()

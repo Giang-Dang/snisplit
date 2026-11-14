@@ -41,12 +41,32 @@ Dry run against `www.cloudflare.com` (not blocked): all four modes pass.
 Findings:
 
 - Separate user-mode writes do get HTTPS past this ISP. The cut that matters is at
-  byte 1: the first piece then lacks a full TLS record header. A cut only inside the
-  host name does not help.
+  byte 1. A cut only inside the host name does not help. Hypothesis, not tested: the
+  ISP inspects only a segment that starts with a full TLS record header.
 - Not yet proven at wire level: that each write left as its own TCP segment. Single
   write fails and cut-at-1 passes on the same path, so the wire did differ; a pktmon
   capture in the elevated run will record the segment sizes.
 - Still to do: the same table for the Steam hosts with `zapret-steam` stopped.
+
+### Through a loopback relay (the relay design, no DNS change, no admin)
+
+`tools/spike/loopback-relay.ps1 -Upstream medium.com -Mode single|split1` listens on
+127.0.0.2:443, reads the client's first TLS record, connects to the real server, sends
+the record as one write or cut at byte 1, then copies both ways.
+
+Clients:
+
+- Headless Chrome with its own profile and
+  `--host-resolver-rules="MAP medium.com 127.0.0.2"`. It sent a 517-byte ClientHello.
+- `tools/spike/big-hello.py` (Python with OpenSSL 3.5.6, post-quantum key share). It
+  sent a 1517-byte ClientHello record, which is larger than one segment, the same
+  shape as the Chrome and Steam client hellos captured on this PC.
+
+| Client | single write | cut at 1 |
+|---|---|---|
+| headless Chrome, 4 connections | 0 bytes from server on all 4 | server data on all 4 (410 KB on the page load) |
+| Python, 1517-byte hello, 3 rounds | handshake timeout 3/3, 0 bytes from server | TLS 1.3 and HTTP status 3/3 |
+| Python direct, no relay (control) | reset 2/2 | - |
 
 ## Q2: a user-mode HTTP method
 
@@ -63,7 +83,7 @@ means the server sent any status line, so the ISP let the request through.
 | `Host: medium.com.` (hostdot) | 200 | FAIL |
 | `Host: medium.com<TAB>` (hosttab) | 400 | passes the ISP, server answers 400: unusable |
 | `Host:medium.com` (hostnospace) | 200 | FAIL |
-| `Host: MeDiUm.CoM` (domcase) | 200 | FAIL |
+| `Host: MeDiUm.cOm` (domcase) | 200 | FAIL |
 | `HEAD  /` (methodspace) | 200 | FAIL |
 | LF line ends (unixeol) | 200 | FAIL |
 | leading CRLF (methodeol) | 200 | FAIL |

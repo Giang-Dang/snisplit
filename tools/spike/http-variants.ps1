@@ -2,7 +2,8 @@ param(
   [Parameter(Mandatory)] [string] $HostName,
   [int] $Rounds = 2,
   [int] $GapMs = 30,
-  [string] $Only
+  [string] $Only,
+  [int] $TimeoutMs = 8000
 )
 $ErrorActionPreference = 'Stop'
 
@@ -52,7 +53,7 @@ function Send-Variant($v) {
   $cuts = @(if ($v.cuts) { Resolve-Cuts $bytes $v.cuts }) + $bytes.Length
   $tcp = [System.Net.Sockets.TcpClient]::new()
   $tcp.NoDelay = $true
-  $tcp.ReceiveTimeout = 8000
+  $tcp.ReceiveTimeout = $TimeoutMs
   try {
     $tcp.Connect($h, 80)
     $s = $tcp.GetStream()

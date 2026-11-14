@@ -166,8 +166,11 @@ Each answer needs a command and its output, not a recollection.
        (tested with .NET UdpClient and TcpListener).
      - Nothing listens on TCP 80 or 443 on any address.
      - There are no NRPT rules configured.
-     - A dedicated address such as 127.0.0.2 avoids the conflicts on this PC. Whether
-       ICS answers queries sent to 127.0.0.2:53 is not tested.
+     - A dedicated address such as 127.0.0.2 avoids the conflicts on this PC. A
+       socket on 127.0.0.2:53 receives the queries sent there; ICS does not take
+       them (docs/milestone-2-spike.md).
+
+Results for questions 1-4 and 6 so far: docs/milestone-2-spike.md.
 6. **Crates.** A DNS codec and a relay raise the no-new-crates rule: threads with
    std only, or an async runtime. Recorded as an open decision with a proposal.
 
