@@ -5,7 +5,7 @@ splitting the TLS ClientHello (and HTTP request) across TCP segments. It works f
 every app on the machine, only touches domains listed in profiles, and is written
 in Rust as an original implementation (no zapret code or binaries).
 
-Status:
+Status (current state and next step: docs/PROGRESS.md):
 
 - Milestones 0 and 1 done 2026-11-14 (sections 5.1, 5.2).
 - 2026-11-14: the owner chose a driverless design (section 2, decision D1). It
