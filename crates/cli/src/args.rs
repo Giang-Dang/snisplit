@@ -1,16 +1,33 @@
 use std::fmt;
+use std::net::Ipv4Addr;
+
+use crate::profile;
 
 pub const USAGE: &str = "usage:
-    snisplit run [--verbose]    divert and split traffic of the listed domains
+    snisplit run [options]      relay the listed domains until Ctrl+C
+    snisplit cleanup            remove snisplit's DNS rules (after a crash)
     snisplit --version          print the version
     snisplit help               print this text
 
-options:
-    -v, --verbose               log every split packet";
+run options:
+    --profile <name>            relay only this profile (steam, medium); repeatable
+    --no-routing                do not add DNS rules; only the relay and DNS server run
+    --upstream <ipv4>           DNS server used to find real addresses; repeatable
+                                (default: the system's DNS servers)
+    -v, --verbose               log every relayed connection";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunOptions {
+    pub verbose: bool,
+    pub profiles: Vec<&'static str>,
+    pub routing: bool,
+    pub upstreams: Vec<Ipv4Addr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    Run { verbose: bool },
+    Run(RunOptions),
+    Cleanup,
     Version,
     Help,
 }
@@ -21,6 +38,9 @@ pub enum UsageError {
     UnknownCommand(String),
     UnknownOption(String),
     UnexpectedArgument(String),
+    MissingValue(String),
+    UnknownProfile(String),
+    InvalidAddress(String),
 }
 
 impl fmt::Display for UsageError {
@@ -30,6 +50,9 @@ impl fmt::Display for UsageError {
             Self::UnknownCommand(name) => write!(f, "unknown command: {name}"),
             Self::UnknownOption(name) => write!(f, "unknown option: {name}"),
             Self::UnexpectedArgument(name) => write!(f, "unexpected argument: {name}"),
+            Self::MissingValue(option) => write!(f, "{option} needs a value"),
+            Self::UnknownProfile(name) => write!(f, "unknown profile: {name}"),
+            Self::InvalidAddress(value) => write!(f, "not an IPv4 address: {value}"),
         }
     }
 }
@@ -38,7 +61,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, UsageErr
     let mut args = args.into_iter();
     let command = args.next().ok_or(UsageError::MissingCommand)?;
     let parsed = match command.as_str() {
-        "run" => return parse_run_options(args),
+        "run" => return parse_run_options(args).map(Command::Run),
+        "cleanup" => Command::Cleanup,
         "help" | "--help" | "-h" => Command::Help,
         "--version" | "-V" => Command::Version,
         _ if command.starts_with('-') => return Err(UsageError::UnknownOption(command)),
@@ -50,86 +74,44 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, UsageErr
     }
 }
 
-fn parse_run_options(args: impl Iterator<Item = String>) -> Result<Command, UsageError> {
-    let mut verbose = false;
-    for arg in args {
+fn parse_run_options(mut args: impl Iterator<Item = String>) -> Result<RunOptions, UsageError> {
+    let mut options = RunOptions {
+        verbose: false,
+        profiles: Vec::new(),
+        routing: true,
+        upstreams: Vec::new(),
+    };
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--verbose" | "-v" => verbose = true,
+            "--verbose" | "-v" => options.verbose = true,
+            "--no-routing" => options.routing = false,
+            "--profile" => {
+                let name = value_of(&arg, args.next())?;
+                let built_in = profile::find(&name).ok_or(UsageError::UnknownProfile(name))?;
+                if !options.profiles.contains(&built_in.name) {
+                    options.profiles.push(built_in.name);
+                }
+            }
+            "--upstream" => {
+                let value = value_of(&arg, args.next())?;
+                let address = value
+                    .parse()
+                    .map_err(|_| UsageError::InvalidAddress(value))?;
+                options.upstreams.push(address);
+            }
             _ if arg.starts_with('-') => return Err(UsageError::UnknownOption(arg)),
             _ => return Err(UsageError::UnexpectedArgument(arg)),
         }
     }
-    Ok(Command::Run { verbose })
+    if options.profiles.is_empty() {
+        options.profiles = profile::BUILT_IN.iter().map(|b| b.name).collect();
+    }
+    Ok(options)
+}
+
+fn value_of(option: &str, value: Option<String>) -> Result<String, UsageError> {
+    value.ok_or_else(|| UsageError::MissingValue(option.to_string()))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn parsed(args: &[&str]) -> Result<Command, UsageError> {
-        parse(args.iter().map(|arg| arg.to_string()))
-    }
-
-    #[test]
-    fn run_is_quiet_unless_verbose_is_given() {
-        assert_eq!(parsed(&["run"]), Ok(Command::Run { verbose: false }));
-        assert_eq!(
-            parsed(&["run", "--verbose"]),
-            Ok(Command::Run { verbose: true })
-        );
-        assert_eq!(parsed(&["run", "-v"]), Ok(Command::Run { verbose: true }));
-    }
-
-    #[test]
-    fn version_and_help_have_their_spellings() {
-        assert_eq!(parsed(&["--version"]), Ok(Command::Version));
-        assert_eq!(parsed(&["-V"]), Ok(Command::Version));
-        assert_eq!(parsed(&["help"]), Ok(Command::Help));
-        assert_eq!(parsed(&["--help"]), Ok(Command::Help));
-        assert_eq!(parsed(&["-h"]), Ok(Command::Help));
-    }
-
-    #[test]
-    fn no_arguments_is_a_usage_error() {
-        assert_eq!(parsed(&[]), Err(UsageError::MissingCommand));
-    }
-
-    #[test]
-    fn unknown_commands_and_options_are_usage_errors() {
-        assert_eq!(
-            parsed(&["start"]),
-            Err(UsageError::UnknownCommand("start".to_string()))
-        );
-        assert_eq!(
-            parsed(&["--bogus"]),
-            Err(UsageError::UnknownOption("--bogus".to_string()))
-        );
-        assert_eq!(
-            parsed(&["run", "--quiet"]),
-            Err(UsageError::UnknownOption("--quiet".to_string()))
-        );
-    }
-
-    #[test]
-    fn extra_arguments_are_usage_errors_not_ignored() {
-        assert_eq!(
-            parsed(&["run", "now"]),
-            Err(UsageError::UnexpectedArgument("now".to_string()))
-        );
-        assert_eq!(
-            parsed(&["--version", "run"]),
-            Err(UsageError::UnexpectedArgument("run".to_string()))
-        );
-        assert_eq!(
-            parsed(&["help", "run"]),
-            Err(UsageError::UnexpectedArgument("run".to_string()))
-        );
-    }
-
-    #[test]
-    fn usage_text_names_every_command() {
-        for word in ["snisplit run", "--verbose", "--version", "snisplit help"] {
-            assert!(USAGE.contains(word), "{word}");
-        }
-    }
-}
+mod tests;

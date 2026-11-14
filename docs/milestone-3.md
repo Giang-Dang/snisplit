@@ -2,8 +2,8 @@
 
 Done when (PLAN.md section 4, made concrete):
 
-1. Without admin, `snisplit run --no-routing --listen 127.0.0.1` relays a curl
-   request made with `--resolve medium.com:443:127.0.0.1`, and medium.com answers.
+1. Without admin, `snisplit run --no-routing --profile medium` relays a curl
+   request made with `--resolve medium.com:443:127.0.0.3`, and medium.com answers.
 2. Elevated, `snisplit run --profile medium` (zapret left running: medium is not on
    its list) makes `https://medium.com/` load in curl and Chrome through normal name
    resolution; `example.org` resolves exactly as before.
@@ -34,14 +34,19 @@ plausible bug that makes it fail.
    drops a working path. Hence decisions 2-4.
 2. **Ports.** A listed name resolves to the relay address for every port, so the
    relay listens on every TCP port its profiles declare. Steam: TLS on 443 and
-   27015-27050 (Valve's published client range; the CM websocket endpoints observed
-   use 443, 27018, 27019, 27020, 27024), HTTP on 80. Medium: TLS 443, HTTP 80. UDP to
+   27015-27030 (the CM websocket endpoints observed use 443, 27018, 27019, 27020,
+   27024; the range stops before 27036, which the Steam client itself listens on for
+   local streaming), HTTP on 80. Medium: TLS 443, HTTP 80. UDP to
    listed names (QUIC, Steam's UDP checks) gets no listener and falls back or fails;
    recorded as a risk, measured in milestone 8.
-3. **Routing by name, one relay address.** The relay finds the target from the TLS
-   SNI or the HTTP Host header, matches it against the profile that owns the local
-   port, resolves it upstream and connects to the same port. A connection without a
-   host, or with an unlisted host, is closed and logged.
+3. **Routing by name, one loopback address per profile.** A `Listener` serves one
+   profile, and Steam and Medium both need port 443, so each built-in profile gets
+   its own address by its position in the built-in list: steam 127.0.0.2, medium
+   127.0.0.3 (fixed, whatever is selected). Each profile has its own DNS server on
+   `<address>:53` answering with that address, and its NRPT rules point there. The
+   relay finds the target from the TLS SNI or the HTTP Host header, matches it
+   against the listener's profile, resolves it upstream and connects to the same
+   port. A connection without a host, or with an unlisted host, is closed and logged.
 4. **HTTP in milestone 3 is pass-through.** Port 80 is relayed unchanged by Host; the
    `hoSt:` rewrite is milestone 4.
 5. **TLS cut.** The profile's positions are applied as separate writes in order, with

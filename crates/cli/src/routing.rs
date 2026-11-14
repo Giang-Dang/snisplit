@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![cfg_attr(not(windows), allow(dead_code))]
 
 use std::io;
 use std::net::Ipv4Addr;

@@ -1,6 +1,6 @@
 [package]
 name = "snisplit"
-description = "Gets blocked domains through SNI-based DPI by splitting the TLS ClientHello."
+description = "Relays listed domains through a local DNS server and relay that splits the TLS ClientHello."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,9 +10,8 @@ publish.workspace = true
 
 [dependencies]
 snisplit-core.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-snisplit-backend-windows = { path = "../backend-windows" }
+snisplit-relay.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true
