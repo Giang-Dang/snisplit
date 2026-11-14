@@ -18,8 +18,8 @@ Status (current state and next step: docs/PROGRESS.md):
   byte 1, the measured cut; HTTP waits for the `hoSt:` rewrite in milestone 4).
 - Milestone 4 (docs/milestone-4.md) measured that the ISP inspects every HTTP request
   on a keep-alive connection, so the relay respells every request head to `hoSt:`.
-  Done 2026-11-14: Steam game downloads use plain HTTP on port 80 on this PC, and a
-  1.66 GB download went through the relay with zapret stopped.
+  Done 2026-11-14: a 1.66 GB Steam game download went through the relay with zapret
+  stopped, entirely over plain HTTP on port 80.
 - Milestone order after the spike is proposed, not confirmed.
 
 ## 1. What was measured
