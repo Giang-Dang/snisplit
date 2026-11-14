@@ -1,6 +1,14 @@
 use core::ops::Range;
 
+use crate::inspect::Inspection;
 use crate::reader::Reader;
+
+pub fn inspect_client_hello(stream_start: &[u8]) -> Inspection {
+    match client_hello_sni(stream_start) {
+        Some(host) => Inspection::Host(host),
+        None => Inspection::NeedMoreData,
+    }
+}
 
 const CONTENT_TYPE_HANDSHAKE: u8 = 0x16;
 const HANDSHAKE_TYPE_CLIENT_HELLO: u8 = 0x01;
