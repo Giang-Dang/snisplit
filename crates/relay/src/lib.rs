@@ -5,6 +5,7 @@ mod connection;
 pub mod dns_server;
 mod event;
 mod pieces;
+pub mod probe;
 mod relay;
 mod resolve;
 pub mod upstream;
