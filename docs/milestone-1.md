@@ -83,8 +83,13 @@ pub enum Order { InSequence, Reversed }
 pub fn split(packet: &[u8], payload_offsets: &[usize], order: Order) -> Option<Vec<Vec<u8>>>;
 ```
 
-`split` returns `None` if the packet is not TCP over IPv4/IPv6 or no offset falls
-strictly inside the payload; offsets outside `(0, payload_len)` are ignored.
+`split` returns `None` if the packet is not TCP over IPv4/IPv6, no offset falls
+strictly inside the payload, or splitting would change what the receiver sees: SYN,
+URG or RST set, an IPv4 fragment, or IPv6 extension headers. Offsets outside
+`(0, payload_len)` are ignored. Callers must treat `None` as "pass unchanged".
+
+Known limit: split segments take IPv4 IDs `original + index`, which the OS may reuse
+for its next packets. Harmless with DF set (RFC 6864), which is the norm for TCP.
 
 ## Streams and file ownership
 

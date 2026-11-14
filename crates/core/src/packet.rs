@@ -67,9 +67,7 @@ fn parse_ipv4_header(packet: &[u8]) -> Option<IpHeader> {
     let src = Ipv4Addr::from(reader.array::<4>()?);
     let dst = Ipv4Addr::from(reader.array::<4>()?);
 
-    let is_valid = header_len >= IPV4_MIN_HEADER_LEN
-        && protocol == PROTOCOL_TCP
-        && (header_len..=packet.len()).contains(&total_len);
+    let is_valid = header_len >= IPV4_MIN_HEADER_LEN && protocol == PROTOCOL_TCP;
     is_valid.then_some(IpHeader {
         src: src.into(),
         dst: dst.into(),
@@ -87,13 +85,11 @@ fn parse_ipv6_header(packet: &[u8]) -> Option<IpHeader> {
     let src = Ipv6Addr::from(reader.array::<16>()?);
     let dst = Ipv6Addr::from(reader.array::<16>()?);
 
-    let total_len = IPV6_HEADER_LEN + payload_len;
-    let is_valid = next_header == PROTOCOL_TCP && total_len <= packet.len();
-    is_valid.then_some(IpHeader {
+    (next_header == PROTOCOL_TCP).then_some(IpHeader {
         src: src.into(),
         dst: dst.into(),
         header_len: IPV6_HEADER_LEN,
-        total_len,
+        total_len: IPV6_HEADER_LEN + payload_len,
     })
 }
 

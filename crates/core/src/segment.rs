@@ -18,10 +18,11 @@ const TCP_FLAGS_OFFSET: usize = 13;
 const TCP_CHECKSUM_OFFSET: usize = 16;
 const TCP_FLAG_FIN: u8 = 0x01;
 const TCP_FLAG_SYN: u8 = 0x02;
+const TCP_FLAG_RST: u8 = 0x04;
 const TCP_FLAG_PSH: u8 = 0x08;
 const TCP_FLAG_URG: u8 = 0x20;
 const TCP_FLAGS_ONLY_ON_FINAL_SEGMENT: u8 = TCP_FLAG_PSH | TCP_FLAG_FIN;
-const TCP_FLAGS_TIED_TO_SEQUENCE_POSITION: u8 = TCP_FLAG_SYN | TCP_FLAG_URG;
+const TCP_FLAGS_THAT_PREVENT_SPLITTING: u8 = TCP_FLAG_SYN | TCP_FLAG_URG | TCP_FLAG_RST;
 
 const UNFILLED_CHECKSUM: [u8; 2] = [0, 0];
 const FIRST_OFFSET_INSIDE_PAYLOAD: usize = 1;
@@ -38,7 +39,7 @@ pub fn split(packet: &[u8], payload_offsets: &[usize], order: Order) -> Option<V
     let pieces = bounds.iter().zip(bounds.iter().skip(1));
     let mut segments = pieces
         .enumerate()
-        .map(|(index, (&start, &end))| original.segment(index, start..end))
+        .map(|(segment_index, (&start, &end))| original.segment(segment_index, start..end))
         .collect::<Option<Vec<_>>>()?;
     if order == Order::Reversed {
         segments.reverse();
@@ -75,7 +76,7 @@ impl<'a> Original<'a> {
         let tcp_start = tcp.ip_header_len;
         let headers = packet.get(..tcp_start.checked_add(tcp.tcp_header_len)?)?;
         let flags = *headers.get(tcp_start.checked_add(TCP_FLAGS_OFFSET)?)?;
-        if has_flags_tied_to_sequence_position(flags) {
+        if prevents_splitting(flags) {
             return None;
         }
         Some(Self {
@@ -88,7 +89,7 @@ impl<'a> Original<'a> {
         })
     }
 
-    fn segment(&self, index: usize, piece: Range<usize>) -> Option<Vec<u8>> {
+    fn segment(&self, segment_index: usize, piece: Range<usize>) -> Option<Vec<u8>> {
         let sequence_number = self
             .sequence_number
             .wrapping_add(u32::try_from(piece.start).ok()?);
@@ -106,7 +107,7 @@ impl<'a> Original<'a> {
         write(&mut segment, flags_at, [flags])?;
         write(&mut segment, checksum_at, UNFILLED_CHECKSUM)?;
         self.ip
-            .rewrite_header(&mut segment, self.tcp_start, index)?;
+            .rewrite_header(&mut segment, self.tcp_start, segment_index)?;
 
         let tcp_segment = segment.get(self.tcp_start..)?;
         let pseudo_header_sum = self.ip.pseudo_header_sum(tcp_segment.len())?;
@@ -124,8 +125,8 @@ impl<'a> Original<'a> {
     }
 }
 
-fn has_flags_tied_to_sequence_position(flags: u8) -> bool {
-    flags & TCP_FLAGS_TIED_TO_SEQUENCE_POSITION != 0
+fn prevents_splitting(flags: u8) -> bool {
+    flags & TCP_FLAGS_THAT_PREVENT_SPLITTING != 0
 }
 
 enum Ip {
@@ -157,11 +158,17 @@ impl Ip {
         }
     }
 
-    fn rewrite_header(&self, segment: &mut [u8], header_len: usize, index: usize) -> Option<()> {
+    fn rewrite_header(
+        &self,
+        segment: &mut [u8],
+        header_len: usize,
+        segment_index: usize,
+    ) -> Option<()> {
         match *self {
             Ip::V4 { identification, .. } => {
                 let total_len = u16::try_from(segment.len()).ok()?;
-                let identification = identification.wrapping_add(u16::try_from(index).ok()?);
+                let identification =
+                    identification.wrapping_add(u16::try_from(segment_index).ok()?);
                 write(segment, IPV4_TOTAL_LEN_OFFSET, total_len.to_be_bytes())?;
                 write(
                     segment,
@@ -258,7 +265,7 @@ mod tests {
     const TCP_FLAG_URG: u8 = 0x20;
     const TCP_FLAG_ECE: u8 = 0x40;
     const TCP_FLAG_CWR: u8 = 0x80;
-    const TCP_FLAGS_THAT_PREVENT_SPLITTING: u8 = TCP_FLAG_SYN | TCP_FLAG_URG;
+    const TCP_FLAGS_THAT_PREVENT_SPLITTING: u8 = TCP_FLAG_SYN | TCP_FLAG_URG | TCP_FLAG_RST;
     const TCP_OPTIONS_NOP_NOP_TIMESTAMP: [u8; 12] = [
         0x01, 0x01, 0x08, 0x0a, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
     ];
@@ -841,7 +848,7 @@ mod tests {
 
     #[test]
     fn other_flags_are_copied_to_every_segment() {
-        let copied = TCP_FLAG_ACK | TCP_FLAG_RST | TCP_FLAG_ECE | TCP_FLAG_CWR;
+        let copied = TCP_FLAG_ACK | TCP_FLAG_ECE | TCP_FLAG_CWR;
         let tcp = Tcp {
             flags: copied | TCP_FLAG_PSH,
             ..Tcp::carrying(b"0123456789")
@@ -853,10 +860,10 @@ mod tests {
     }
 
     #[test]
-    fn syn_or_urg_packets_are_not_split() {
-        for tied_flag in [TCP_FLAG_SYN, TCP_FLAG_URG] {
+    fn syn_urg_or_rst_packets_are_not_split() {
+        for refused_flag in [TCP_FLAG_SYN, TCP_FLAG_URG, TCP_FLAG_RST] {
             let tcp = Tcp {
-                flags: TCP_FLAG_ACK | tied_flag,
+                flags: TCP_FLAG_ACK | refused_flag,
                 urgent_pointer: 4,
                 ..Tcp::carrying(b"0123456789")
             };
