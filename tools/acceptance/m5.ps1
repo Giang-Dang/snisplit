@@ -23,7 +23,7 @@ Add-Type -Namespace Win -Name Console -MemberDefinition @'
 
 function Log {
   param([Parameter(ValueFromPipeline)] $Line)
-  process { "$Line" | Tee-Object -FilePath $log -Append }
+  process { Add-Content -Path $log -Value "$Line"; Write-Host "$Line" }
 }
 function Say($text) { Write-Host "`n>>> $text`n" -ForegroundColor Yellow; Log ">>> $text" }
 function Winws { [bool](Get-Process winws -ErrorAction SilentlyContinue) }
@@ -111,9 +111,20 @@ function Save-ServiceLogs {
   }
 }
 function Http-Code([string] $url) { curl.exe -s -o NUL -w '%{http_code}' --max-time 20 $url }
+function Remove-ServiceWithoutBinary {
+  Log 'removing the service without the snisplit binary: sc stop, sc delete, rules by comment and name server, the install folder'
+  sc.exe stop snisplit | Out-Null
+  $deadline = (Get-Date).AddSeconds(35)
+  while ((Service) -and (Service).Status -ne 'Stopped' -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+  sc.exe delete snisplit | ForEach-Object { "  sc delete: $_" } | Log
+  @(Rules) + @(RulesToRelay) | Sort-Object Name -Unique | ForEach-Object { Remove-DnsClientNrptRule -Name $_.Name -Force }
+  Clear-DnsClientCache
+  if ([IO.Path]::IsPathFullyQualified($installDir) -and (Test-Path $installDir)) { Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction Continue }
+}
 function Uninstall-Service {
   Save-ServiceLogs
-  & $built service uninstall 2>&1 | ForEach-Object { "  uninstall: $_" } | Log
+  if (Test-Path $built) { & $built service uninstall 2>&1 | ForEach-Object { "  uninstall: $_" } | Log }
+  if ((Service) -or (Test-Path $installDir) -or (Rules).Count -gt 0) { Remove-ServiceWithoutBinary }
   Clear-DnsClientCache
   Log "after uninstall: service present=$([bool](Service)), folder present=$(Test-Path $installDir), snisplit rules=$((Rules).Count), store.steampowered.com -> $(Resolve 'store.steampowered.com')"
 }
@@ -190,7 +201,7 @@ if (-not $SwitchToSnisplit -and -not $AfterReboot) {
   catch { Log "error: $_" }
   finally {
     if (Service) { Log 'service still installed; uninstalling'; Uninstall-Service }
-    if ((Rules).Count -gt 0) { & $built cleanup | Log }
+    if ((Rules).Count -gt 0 -and (Test-Path $built)) { & $built cleanup | Log }
     if ((RulesToRelay).Count -gt 0) { Log 'rules pointing at the relay remain; removing by name server'; Remove-RelayRules }
     Start-Service zapret-steam
     Start-Sleep 2

@@ -285,12 +285,25 @@ milestone.
   arrived; the script killed the process and ran `cleanup` (0 rules). A test artefact,
   not a snisplit failure.
 - `service install --profile steam --profile medium --verbose` registered the
-  service, then Kaspersky's behaviour detection flagged
-  `target\release\snisplit.exe` as `PDM:Trojan.Win32.Generic` and removed it. The
-  service never ran (no log file, state Stopped, PID 0), the store checks returned
-  `000`, and the script stopped before its cleanup. Left behind: zapret stopped, the
-  `snisplit` service registered (automatic start) with its copy in
-  `C:\Program Files\snisplit`, 0 snisplit rules. Kaspersky was not worked around;
-  the owner decides what happens next.
-- Not reached: the kill check, Steam left running, the DNS cache dump, stop/start,
+  service (System event 7045, 22:11:01), but its start failed with "Access is
+  denied" (event 7000, same second). Kaspersky's behaviour detection flagged
+  `target\release\snisplit.exe` as `PDM:Trojan.Win32.Generic` and later removed that
+  file. The copy in `C:\Program Files\snisplit` was not removed. Which behaviour
+  triggered it is not known yet; the same file had just done ten routed runs without
+  an alert. Kaspersky was not worked around; the owner decides what happens next.
+- A script bug hid the failure: `Log` wrote to the pipeline, so `Install-Service`
+  returned its log lines along with `$false`, and `if (-not (Install-Service))` never
+  threw. The script went on: store and content checks `000` (no service, zapret
+  stopped), the kill step found PID 0, so the kill and recovery checks did not run.
+- `Start-Service snisplit` at 22:15 then worked: the Program Files copy ran as
+  LocalSystem, added its rules and printed its ready line (store relayed after
+  1545 ms). Not checked in that run: traffic through it.
+- Uninstall failed because the release binary was gone. The `finally` block removed
+  the rules by name server and restarted zapret, but the `snisplit` service stayed
+  installed and running (automatic start, no rules) with its folder.
+- Not reached: kill and recovery, Steam left running, the DNS cache dump (empty),
   uninstall. The switch from zapret (approved by the owner) is on hold.
+- Script fixes after this run: `Log` writes to the file and the host only; uninstall
+  falls back to `sc.exe stop`/`delete`, rule removal by comment and name server, and
+  folder removal when the binary is missing; `tools/acceptance/m5-restore.ps1` does
+  the same on its own and starts zapret.
