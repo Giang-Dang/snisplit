@@ -9,6 +9,12 @@ pub const USAGE: &str = "usage:
     snisplit cleanup            remove snisplit's DNS rules (after a crash)
     snisplit show-profile <name>
                                 print a built-in profile's file, as a template
+    snisplit service install [service options]
+                                install and start the snisplit Windows service
+                                (administrator terminal; it starts with Windows)
+    snisplit service uninstall  stop and remove the service, its files and its DNS rules
+    snisplit service run [service options]
+                                the service itself; only the Service Control Manager starts it
     snisplit --version          print the version
     snisplit help               print this text
 
@@ -19,7 +25,10 @@ run options:
     --no-routing                do not add DNS rules; only the relay and DNS server run
     --upstream <ipv4>           DNS server used to find real addresses; repeatable
                                 (default: the system's DNS servers)
-    -v, --verbose               log every relayed connection";
+    -v, --verbose               log every relayed connection
+
+service options: the run options without --no-routing; the service logs to
+    %ProgramFiles%\\snisplit\\logs\\snisplit.log";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunOptions {
@@ -31,8 +40,16 @@ pub struct RunOptions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServiceCommand {
+    Install(RunOptions),
+    Uninstall,
+    Run(RunOptions),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Run(RunOptions),
+    Service(ServiceCommand),
     Cleanup,
     ShowProfile(&'static str),
     Version,
@@ -49,6 +66,9 @@ pub enum UsageError {
     UnknownProfile(String),
     DuplicateProfileFile(String),
     InvalidAddress(String),
+    MissingServiceCommand,
+    UnknownServiceCommand(String),
+    NotForService(&'static str),
 }
 
 impl fmt::Display for UsageError {
@@ -62,6 +82,11 @@ impl fmt::Display for UsageError {
             Self::UnknownProfile(name) => write!(f, "unknown profile: {name}"),
             Self::DuplicateProfileFile(path) => write!(f, "profile file given twice: {path}"),
             Self::InvalidAddress(value) => write!(f, "not an IPv4 address: {value}"),
+            Self::MissingServiceCommand => {
+                write!(f, "service needs a command: install, uninstall or run")
+            }
+            Self::UnknownServiceCommand(name) => write!(f, "unknown service command: {name}"),
+            Self::NotForService(option) => write!(f, "{option} is not a service option"),
         }
     }
 }
@@ -71,6 +96,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, UsageErr
     let command = args.next().ok_or(UsageError::MissingCommand)?;
     let parsed = match command.as_str() {
         "run" => return parse_run_options(args).map(Command::Run),
+        "service" => return parse_service(args).map(Command::Service),
         "cleanup" => Command::Cleanup,
         "show-profile" => return parse_show_profile(args),
         "help" | "--help" | "-h" => Command::Help,
@@ -129,6 +155,28 @@ fn parse_run_options(mut args: impl Iterator<Item = String>) -> Result<RunOption
         options.profiles = profile::BUILT_IN.iter().map(|b| b.name).collect();
     }
     Ok(options)
+}
+
+fn parse_service(mut args: impl Iterator<Item = String>) -> Result<ServiceCommand, UsageError> {
+    let command = args.next().ok_or(UsageError::MissingServiceCommand)?;
+    match command.as_str() {
+        "install" => parse_service_options(args).map(ServiceCommand::Install),
+        "run" => parse_service_options(args).map(ServiceCommand::Run),
+        "uninstall" => match args.next() {
+            Some(extra) => Err(UsageError::UnexpectedArgument(extra)),
+            None => Ok(ServiceCommand::Uninstall),
+        },
+        _ => Err(UsageError::UnknownServiceCommand(command)),
+    }
+}
+
+fn parse_service_options(args: impl Iterator<Item = String>) -> Result<RunOptions, UsageError> {
+    let options = parse_run_options(args)?;
+    if options.routing {
+        Ok(options)
+    } else {
+        Err(UsageError::NotForService("--no-routing"))
+    }
 }
 
 fn parse_show_profile(mut args: impl Iterator<Item = String>) -> Result<Command, UsageError> {

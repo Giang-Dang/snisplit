@@ -3,6 +3,7 @@ mod plan;
 mod profile;
 mod profile_file;
 mod routing;
+mod service;
 mod session;
 mod system_dns;
 
@@ -34,6 +35,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(Command::Run(options)) => finish(run(options)),
+        Ok(Command::Service(command)) => finish(service::execute(command)),
         Ok(Command::Cleanup) => finish(session::remove_rules(&session::stdout())),
         Ok(Command::ShowProfile(name)) => finish(show_profile(name)),
         Err(error) => {

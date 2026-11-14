@@ -230,3 +230,91 @@ fn a_profile_file_option_without_a_path_is_a_usage_error() {
         Err(UsageError::MissingValue("--profile-file".to_string()))
     );
 }
+
+#[test]
+fn service_install_takes_the_run_options_in_the_order_given() {
+    assert_eq!(
+        parsed(&[
+            "service",
+            "install",
+            "--profile-file",
+            "a.profile",
+            "--profile",
+            "medium",
+            "--upstream",
+            "9.9.9.9",
+            "--verbose",
+        ]),
+        Ok(Command::Service(ServiceCommand::Install(RunOptions {
+            verbose: true,
+            profiles: vec!["medium"],
+            profile_files: vec![PathBuf::from("a.profile")],
+            routing: true,
+            upstreams: vec![Ipv4Addr::new(9, 9, 9, 9)],
+        })))
+    );
+}
+
+#[test]
+fn service_run_without_options_relays_every_built_in_profile_with_routing() {
+    assert_eq!(
+        parsed(&["service", "run"]),
+        Ok(Command::Service(ServiceCommand::Run(RunOptions {
+            verbose: false,
+            profiles: vec!["steam", "medium"],
+            profile_files: vec![],
+            routing: true,
+            upstreams: vec![],
+        })))
+    );
+}
+
+#[test]
+fn service_commands_refuse_no_routing() {
+    assert_eq!(
+        parsed(&["service", "install", "--no-routing"]),
+        Err(UsageError::NotForService("--no-routing"))
+    );
+    assert_eq!(
+        parsed(&["service", "run", "--profile", "medium", "--no-routing"]),
+        Err(UsageError::NotForService("--no-routing"))
+    );
+}
+
+#[test]
+fn service_uninstall_takes_no_arguments() {
+    assert_eq!(
+        parsed(&["service", "uninstall"]),
+        Ok(Command::Service(ServiceCommand::Uninstall))
+    );
+    assert_eq!(
+        parsed(&["service", "uninstall", "--profile", "medium"]),
+        Err(UsageError::UnexpectedArgument("--profile".to_string()))
+    );
+}
+
+#[test]
+fn service_needs_a_known_command() {
+    assert_eq!(parsed(&["service"]), Err(UsageError::MissingServiceCommand));
+    assert_eq!(
+        parsed(&["service", "start"]),
+        Err(UsageError::UnknownServiceCommand("start".to_string()))
+    );
+    assert_eq!(
+        parsed(&["service", "install", "--bogus"]),
+        Err(UsageError::UnknownOption("--bogus".to_string()))
+    );
+}
+
+#[test]
+fn usage_text_names_every_service_command_and_the_log_file() {
+    for word in [
+        "snisplit service install",
+        "snisplit service uninstall",
+        "snisplit service run",
+        "Service Control Manager",
+        r"%ProgramFiles%\snisplit\logs\snisplit.log",
+    ] {
+        assert!(USAGE.contains(word), "{word}");
+    }
+}
