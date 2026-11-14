@@ -124,7 +124,12 @@ for `ab.cd` with a byte vector written by hand from RFC 8446 section 4.1.2 and R
    as is, because a profile always splits TLS on its ports.
 6. **The domain must pass the profile-file domain rules** (two labels or more, a-z,
    0-9, `-`, `.`), so the printed profile always parses. `parse_domain` in
-   `profile_file.rs` became `pub` for this.
+   `profile_file.rs` became `pub` for this, and `plan::PIECE_GAP` became `pub` so the
+   probe uses the relay's gap.
+7. **Four verdicts, not three:** `NotBlocked`, `ProfileSuggested`, `NothingWorked`,
+   and `NoProfileHelps` for "something failed, and no snisplit profile fixes it".
+8. **`http-method host-spell` also when neither HTTP attempt worked**, because
+   respelling is never worse than passing through.
 
 ## Limits
 
@@ -136,9 +141,15 @@ for `ab.cd` with a byte vector written by hand from RFC 8446 section 4.1.2 and R
 - `domain-mid` cuts the first label of the probed name, as the suggested profile
   would: for `store.steampowered.com` that is `store`, not `steampowered` as in the
   built-in steam profile.
-- `host-start` is not section 1's "right after the start of the SNI extension"
-  position (that one is about 9 bytes earlier, near the extension type); `core::strategy` has
-  no such position, so it was not probed. Section 1's row is not contradicted.
+- Possible contradiction with section 1, row 4 ("one split right after the start of
+  the SNI extension: works"). The exact position of that row is not recorded in the
+  repo (no zapret option for it in PLAN.md, docs or tools), so it could not be
+  reproduced. The nearest attempt, `tls-split host-start` (one cut just before the
+  host name, inside the SNI extension), was reset 2/2 on store.steampowered.com,
+  medium.com and steamcommunity.com, and so was `tls-split domain-mid`; only cuts that
+  include byte 1 answered. The milestone 2 spike agrees with the probe ("cut mid-host
+  only: FAIL"). Either row 4 used an earlier position than `host-start`, or it no
+  longer holds; not investigated, and no attempt was added for it.
 - IPv4 only, TCP only (QUIC: docs/milestone-8.md), ports 443 and 80 only (not Steam's
   27015-27030).
 - Not run here: probe while `snisplit run` is active (needs elevation for the NRPT
@@ -178,10 +189,11 @@ http-method host-spell
 exit code: 0
 ```
 
-As predicted: the whole hello is reset (section 1 "no bypass"), the splits at byte 1
-answer (section 1 split row), plain HTTP is reset and `hoSt:` passes (milestone 4).
-A cut inside the host alone is reset, as in the milestone 2 spike ("cut mid-host
-only: FAIL"); it does not appear in section 1.
+The whole hello is reset (section 1 "no bypass"), the splits that include byte 1
+answer (section 1 row 2, "byte 1 + mid-domain"), plain HTTP is reset and `hoSt:`
+passes (milestone 4), as predicted. One single cut that does not include byte 1
+(`host-start`, `domain-mid`) is reset, as in the milestone 2 spike ("cut mid-host
+only: FAIL"); see Limits for how this sits with section 1 row 4.
 
 ### `snisplit probe medium.com`
 

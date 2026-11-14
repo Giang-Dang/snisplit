@@ -24,7 +24,7 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 ## Next step
 
 Milestones 6 to 9 are delegated to the lead, Windows only (PLAN.md D13 to D15):
-`probe` (6) and the QUIC measurement (8) first, then the egui UI (9), then the draft
+`probe` (6, done: docs/milestone-6.md) and the QUIC measurement (8) first, then the egui UI (9), then the draft
 release (7). Nothing overnight may need elevation: checks run with `--no-routing`
 or directly against the network, and routed checks go into one script for the owner.
 Kaspersky: do not retry a service install or build variants to find one that passes; a
