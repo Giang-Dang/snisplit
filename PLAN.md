@@ -7,7 +7,7 @@ in Rust as an original implementation (no zapret code or binaries).
 
 Status: approach agreed 2026-11-14; milestone order proposed, not yet confirmed
 (QUIC and the tray were requested for v1 and are placed after the first release
-here). Milestone 0 done 2026-11-14 (see section 4.1); CI green on Windows, Linux and macOS.
+here). Milestones 0 and 1 done 2026-11-14 (sections 4.1 and 4.2).
 
 ## 1. Why this is feasible: what was measured
 
@@ -93,7 +93,9 @@ snisplit/
   Output: the list of IP packets to send instead, in order, with sequence numbers,
   lengths, IP IDs and checksums fixed. IPv4 and IPv6.
 - **Strategies (v1)**: `split` (in order) and `disorder` (reversed order), each with
-  named positions: `sni-mid`, `sni-start`, `host-mid`, and a fixed byte offset.
+  positions `HostStart`, `DomainMid` (middle of the first label of the matched listed
+  domain, zapret's `midsld`) and a fixed byte offset. Profile spellings are settled in
+  milestone 3 (see docs/milestone-1.md, decision 2).
 - **Profiles**: TOML. Example:
 
 ```toml
@@ -183,12 +185,50 @@ Ordering notes:
   "no SNI in first packet"; that is milestone 1-2 work.
 - CI: fmt, clippy (`-D warnings`) and tests on Windows, Linux and macOS.
 
+### 4.2 Milestone 1 result (2026-11-14)
+
+Plan, decisions and contract: docs/milestone-1.md. `crates/core` now holds:
+
+- `tls::inspect_client_hello` and `http::inspect_request`: return the host's byte
+  range, "need more data" or "no host"; never panic.
+- `domains::DomainList`: suffix match at label boundaries, returns where the matched
+  listed domain sits in the host.
+- `segment::split`: one packet into checksummed segments (IPv4/IPv6, options kept,
+  PSH/FIN on the last segment; refuses SYN, URG, RST, fragments, IPv6 extension headers).
+- `strategy`, `flow`, `engine`: `Engine::process(packet, now_ms)` returns pass or the
+  replacement packets. TLS is tracked per connection across packets, bounded in
+  entries, bytes and idle time; every HTTP request is inspected on its own.
+
+Evidence:
+
+- 134 tests. Every expected value is independent of the code under test: published
+  vectors (RFC 1071, a published IPv4 header, Wireshark sample `http.cap` frame 4 with
+  its checksums checked against the file), hand-derived offsets, round-trips, and 12 real
+  Steam ClientHellos captured on this PC (curl, Chrome, Steam client) in
+  `crates/core/tests/fixtures`.
+- A test audit planted deliberate bugs in the code; 18 tests that would not have caught them
+  were rewritten or removed, and each rewrite was shown to fail on its planted bug.
+- Mutation tests over the real captures (every truncation, every bit flip, corrupted
+  length fields, random overwrites) find no panic.
+- An independent review of the segment planner found no high or medium defects; it
+  led to refusing RST packets.
+- A test fails if any fixture carries a session-resumption ticket.
+
+Not covered:
+
+- Firefox ClientHellos (not installed on this PC).
+- A real capture with the host name straddling two packets (none of the 80 captured
+  did); covered by synthetic tests only.
+- IPv6 through the engine; nothing has run against WinDivert yet (milestone 2).
+- The first packet of a two-packet ClientHello is never held back, so an offset that
+  falls in it after it was sent is dropped (docs/milestone-1.md, decision 7).
+
 ## 5. Open questions and risks
 
 | Item | Why it matters | Resolved in |
 |---|---|---|
 | Which WinDivert binding to use | Resolved: hand-written FFI with `raw-dylib` (section 4.1). | Done |
-| ClientHello spanning two packets | Browsers with post-quantum key shares do this, and the SNI can land in either packet. Untested with split-only on this ISP. | Milestones 1-2 |
+| ClientHello spanning two packets | Confirmed on this PC: Chrome and the Steam client send 1384-1452 + 300-540 byte hellos, with the host in either packet. The core handles both (milestone 1). Whether split-only gets them past this ISP is untested. | Milestone 2 |
 | Is the bundled zapret driver the upstream WinDivert build? | It is signed by a third party, not the WinDivert author. A hash comparison against the official 2.2.2 release was blocked by the antivirus on download. Irrelevant once snisplit ships the official build, but development needs the official zip, which needs the user to allow it past the antivirus. | Milestone 2 |
 | `nfq` crate: can it return a modified payload, and is it maintained? | Last release 2022. A fork and a libnetfilter_queue binding exist. | Milestone 6 |
 | Linux test machine | WSL2 on this PC may work for NFQUEUE; unverified. Otherwise a VM. | Milestone 6 |
