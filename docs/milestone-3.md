@@ -287,3 +287,39 @@ Findings:
   for a foreground run; milestone 5 (service) should batch the rule installation.
 - Headless Chrome `--dump-dom` prints nothing on Windows (GUI subsystem); the relay
   log is the evidence instead.
+
+### Steam client rerun, `m3.ps1 -SteamClientOnly`, 2026-11-14 18:05-18:10
+
+Zapret stopped, control without snisplit fails, ready after 12.7 s, the same four
+URLs 200/200/200/302 via 127.0.0.2. The owner exited and restarted Steam at 18:08:00,
+logged in and opened the Store: PASS.
+
+- Login: Steam's `connection_log.txt` shows `ConnectionCompleted() (127.0.0.2:27018,
+  WebSocket)` followed by `RecvMsgClientLogOnResponse() ... 'OK'` at 18:08:06. The
+  CM connection went through the relay; the relay logged `cmp3-hkg1.steamserver.net:27018`,
+  `cmp2-sgp1...:27019`, `cmp2-tyo3...:27020` and `cmp2-*:443`.
+- Store in the client: steamwebhelper made 28 system lookups of Steam web names
+  (DNS client log) and the relay logged 132 relayed connections in the run (store,
+  community, api, login, the `*.steamstatic.com` CDNs, `cache*-hkg1.steamcontent.com`).
+  13 of Steam's 17 established connections at the end went to 127.0.0.2 (ports 443
+  and 27018).
+- One failure: `failed ipv6check-http.steamserver.net:80: no address`. That name has
+  no A record; snisplit answers its A query with 127.0.0.2 and its AAAA query empty,
+  so Steam's IPv6 connectivity check fails (`TIMEOUT`) and the UDP check finds no
+  address. Steam then uses IPv4, which it does anyway on this PC. Recorded against
+  decision 1 as a known exception: listed names that exist only over IPv6.
+- After: 0 rules (by comment and by name server), zapret Running with winws, store
+  200 through zapret.
+
+### Done-when status
+
+| # | Item | Result |
+|---|---|---|
+| 1 | No admin, medium via curl | PASS |
+| 2 | Elevated, medium through NRPT in curl and Chrome; example.org unchanged | PASS |
+| 3 | Elevated, zapret stopped: 4 Steam URLs in curl and Chrome; Steam client login and Store; steamwebhelper on the system resolver | PASS |
+| 4 | Ctrl+C removes every rule and flushes; names resolve normally again; `cleanup` | PASS for Ctrl+C (three runs). `cleanup` was exercised only with no rules present (it ran inside `remove_rules`); a crash with rules left is milestone 5 |
+
+Open items carried forward: HTTP on port 80 (milestone 4, `hoSt:`), IPv6-only
+listed names, start-up time (milestone 5), Ctrl+C before the handler is registered
+leaves rules (milestone 5).

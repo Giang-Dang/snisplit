@@ -10,7 +10,7 @@ this file says where the work stands and what to do next.
 | 0 Scaffold, licence, CI, WinDivert spike | Done (PLAN.md 5.1) |
 | 1 Core: parsers, matcher, strategy, segment planner, engine | Done (PLAN.md 5.2, docs/milestone-1.md) |
 | 2 Feasibility spike for the driverless design | **Done.** Owner said go on 2026-11-14 (docs/milestone-2-spike.md); crates decided (PLAN.md D11) |
-| 3 Relay + DNS, HTTPS only, foreground | **In progress** (docs/milestone-3.md): relay, DNS server, upstream resolver, NRPT routing and `run`/`cleanup` merged; done-when 1 (no admin, medium via curl) passed; elevated acceptance (`tools/acceptance/m3.ps1`) pending |
+| 3 Relay + DNS, HTTPS only, foreground | **Done** 2026-11-14 (docs/milestone-3.md, acceptance results): Steam URLs, Chrome, Steam client login and Store, medium.com, all through the relay with zapret stopped |
 | 4 and later | Not started |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
@@ -20,9 +20,8 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 
 ## Next step
 
-Run the elevated milestone 3 acceptance with the owner (`tools/acceptance/m3.ps1`;
-it stops `zapret-steam` for the Steam part, so ask first), record the result in
-docs/milestone-3.md, then milestone 4 (`hoSt:` for HTTP). The notes below are the original plan
+Milestone 4: HTTP through the relay with the `hoSt:` rewrite, profile files, and
+the open items at the end of docs/milestone-3.md. The notes below are the original plan
 for the spike questions, kept for reference.
 
 - Question 1 (do two writes get HTTPS through where one write fails) and question 2
