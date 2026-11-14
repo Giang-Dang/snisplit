@@ -8,6 +8,7 @@ pub mod http;
 pub mod http_stream;
 pub mod inspect;
 pub mod packet;
+pub mod probe;
 pub mod pump;
 pub mod segment;
 pub mod strategy;
