@@ -346,9 +346,11 @@ milestone.
 
 ### Owner's foreground trial, 2026-11-14 evening
 
-- The owner stopped `zapret-steam` and ran `snisplit run --verbose` from an
-  administrator terminal with the Steam client already open. Steam worked without a
-  restart (owner). Checked by the lead while it ran: one `snisplit` process, no
+- The owner stopped `zapret-steam` and ran `snisplit run` from an administrator
+  terminal with the Steam client already open. The owner reports that Steam worked
+  without a restart and that Kaspersky raised no alert. Checked by the lead while it ran: one `snisplit` process, no
   service, 2 snisplit rules, `store.steampowered.com` resolves to 127.0.0.2, store
-  HTTPS `200`, zapret stopped, no `winws`. This closes the open question from
-  milestone 3 about a Steam client left running.
+  HTTPS `200`, zapret stopped, no `winws`. One trial; it answers the milestone 3
+  question about a Steam client left running for this PC, as far as one run can.
+- The owner chose foreground use: snisplit runs only when needed. Whether zapret is
+  first set to Manual or removed is still the owner's open decision.

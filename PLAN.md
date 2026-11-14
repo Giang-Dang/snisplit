@@ -238,7 +238,7 @@ packets (synthetic tests only).
 | Crash leaves DNS broken | System-wide DNS on loopback breaks every lookup if snisplit dies. NRPT per suffix would limit it to listed names. | Milestones 2 and 5 |
 | Browsers with their own secure DNS | They bypass the OS resolver and so snisplit. Measured: Steam's embedded browser auto-upgrades to DoH, and drops it while any NRPT rule exists. Explicit "secure DNS" settings are not covered; needs a README note. | Milestones 3 and 7 |
 | NRPT fallback is machine-wide | While snisplit's rules exist, every Chromium-based app loses automatic DoH for all names, not only listed ones. Users should be told. | Milestone 7 (README) |
-| snisplit started while Steam or Chrome is already open | Chrome open before the start went through the relay (milestone 3 acceptance). Not checked for a Steam client left running. | Milestone 5 |
+| snisplit started while Steam or Chrome is already open | Chrome open before the start went through the relay (milestone 3 acceptance). A Steam client left open worked without a restart in the owner's foreground trial (one run, 2026-11-14, docs/milestone-5.md). | Closed for this PC |
 | DoH bypass on Linux and macOS | No NRPT there; Chromium's auto-upgrade needs another answer. | Milestone 10 |
 | Port conflicts on loopback 53/80/443 | On this PC ICS holds 0.0.0.0:53; 127.0.0.2 and 127.0.0.3 are free. A bind failure stops `run` before any rule exists (milestone 3). | Closed for this PC |
 | Listed names that exist only over IPv6 | Milestone 4: a listed name with no A record is forwarded unchanged, so it resolves as without snisplit (checked in the elevated run). | Milestone 4 |

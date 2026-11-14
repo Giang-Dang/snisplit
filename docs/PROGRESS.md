@@ -23,8 +23,10 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 ## Next step
 
 Milestone 5 waits for the owner: Kaspersky terminates `snisplit service install`
-on this PC, so the switch from zapret is cancelled under the current design and
-zapret stays. Open choices: pause and use foreground `run` when needed; a
+on this PC, so the service is not used here. The owner chose foreground use
+(`snisplit run` when needed; a trial with zapret stopped and Steam open worked, no
+alert). Open: whether zapret is set to Manual first or removed, and handling a
+closed window or shutdown, which today leaves the rules behind. Open choices: pause and use foreground `run` when needed; a
 false-positive report to Kaspersky (sample from a CI build); anything that changes
 the antivirus setup is the owner's alone. Do not retry the install or build variants
 to find one that passes. The notes below are the original plan for the spike
