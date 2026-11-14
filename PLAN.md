@@ -68,7 +68,7 @@ they span two packets (1384-1452 + 300-540 bytes).
 | D9 | Distribution | Public GitHub repo with per-OS release binaries; no driver in the release |
 | D10 | Name | `snisplit` (repo and binary) |
 | D11 | Crates (2026-11-14) | `tokio` with features `rt-multi-thread`, `net`, `time`, `signal`, `io-util`, `sync` (no `macros`; `sync` added for milestone 3, measured: no additional crate) for the relay and DNS loop, outside `core`. DNS codec hand-written. Any other crate still needs an explicit decision. Reasons and measured dependency counts: docs/milestone-2-spike.md, Q6 |
-| D12 | Windows API (2026-11-14, owner) | `windows-sys` 0.61, a direct dependency of `crates/cli` under `cfg(windows)` only, on the same line tokio uses (measured: no new package in `Cargo.lock`). Used for the service host and the adapter DNS server lookup. Chosen over hand-written declarations; docs/milestone-5.md decision 1 |
+| D12 | Windows API (2026-11-14, owner) | `windows-sys` 0.61, a direct dependency of `crates/cli` under `cfg(windows)` only, on the same line tokio uses (measured: no new package in `Cargo.lock`). Used for the adapter DNS server lookup (the service host that also used it was removed with the service, 2026-11-14). Chosen over hand-written declarations; docs/milestone-5.md decision 1 |
 
 Not in scope: fake-packet strategies, an all-traffic mode, automatic domain
 discovery, general proxy/VPN features, terminating TLS (snisplit never holds a
@@ -106,7 +106,7 @@ page owned by the repo owner.
   decides, match with `DomainList`, compute cut offsets with `Strategy`, then write
   the pieces to the upstream socket with Nagle disabled and relay both directions.
   Upstream addresses come from a direct upstream DNS query, not from the OS resolver.
-- **cli.** `snisplit run` (foreground), later `service`, `probe`, `profile`.
+- **cli.** `snisplit run` (foreground, started when needed), `cleanup`, `show-profile`; later `probe`. A Windows service was built in milestone 5 and removed (docs/milestone-5.md).
 
 ### Existing work and where it goes
 
@@ -132,12 +132,12 @@ on this PC with the `zapret-steam` service stopped for the duration, after askin
 | 2 | **Feasibility spike (go/no-go)** | A written result in `docs/` for every question in section 4.1, with the commands run and their output; and a go or no-go recommendation |
 | 3 | Relay + DNS, HTTPS only, foreground (if go) | With zapret stopped, `snisplit run` makes the 4 HTTPS Steam URLs return 200/302 from curl and from Chrome, through normal name resolution |
 | 4 | HTTP method, profile files, Steam profile | The HTTP Steam URL works (method chosen in the spike); a non-listed name resolves exactly as without snisplit |
-| 5 | Windows service, crash-safe DNS cleanup, uninstall | Survives reboot and a killed process without breaking non-listed names; Steam client logs in and downloads a game with zapret removed |
+| 5 | Foreground use on this PC, crash-safe DNS cleanup, zapret removed (rescoped 2026-11-14: the Windows service was built, then dropped because Kaspersky terminates its install) | Start-up under 1.5 s; Ctrl+C, a closed window and a restart leave no rule, or the next `run` removes it; a killed process breaks only listed names; Steam logs in and downloads a game with zapret removed |
 | 6 | `probe` command | Reproduces the no-bypass and split rows of section 1 for a domain and prints a suggested profile |
 | 7 | Releases: CI-built archives, README | A friend installs from the GitHub release and reaches Steam without help |
 | 8 | QUIC: measure first, then decide | A written result on whether this ISP blocks QUIC by SNI. With DNS pointing listed names at loopback, QUIC to them fails and apps fall back to TCP, which may already be enough |
-| 9 | Tray icon | Works on Windows; talks to the service, holds no engine logic |
-| 10 | Linux and macOS (D4) | The relay and DNS run on both; resolver routing per OS; the milestone 3-5 checks pass on a Linux machine and a Mac |
+| 9 | UI (redefined 2026-11-14): start and stop the relay, add and remove sites | The owner adds a site, sees whether it works, and starts and stops snisplit without a terminal. Open owner decisions: the UI technology (new crates or `windows-sys` features), one elevated app or a split with a privilege boundary, Linux and macOS under D4. Needs a per-user profile folder that `run` loads, and `probe` (milestone 6) to say whether a site will work |
+| 10 | Linux and macOS (D4) | The relay and DNS run on both; resolver routing per OS; the milestone 3-5 checks pass on a Linux machine and a Mac, as foreground runs |
 
 Ordering notes:
 
@@ -145,8 +145,9 @@ Ordering notes:
   back to the owner before milestone 4: HTTPS-only, or a packet-level piece for HTTP.
 - Milestone 5's "downloads a game" depends on HTTP if Steam downloads use port 80 on
   this PC; the spike checks which ports a real download uses.
-- Milestone 5 is where this PC switches from zapret to snisplit. Removing the zapret
-  service is a separate, explicit step.
+- Milestone 5 is where this PC switched from zapret to snisplit: the owner removed
+  the `zapret-steam` and `windivert` services on 2026-11-14 and starts `snisplit run`
+  when needed.
 - The repo is public on GitHub from the start; milestone 7 is the first release meant
   for others to install.
 
@@ -242,7 +243,7 @@ packets (synthetic tests only).
 | DoH bypass on Linux and macOS | No NRPT there; Chromium's auto-upgrade needs another answer. | Milestone 10 |
 | Port conflicts on loopback 53/80/443 | On this PC ICS holds 0.0.0.0:53; 127.0.0.2 and 127.0.0.3 are free. A bind failure stops `run` before any rule exists (milestone 3). | Closed for this PC |
 | Listed names that exist only over IPv6 | Milestone 4: a listed name with no A record is forwarded unchanged, so it resolves as without snisplit (checked in the elevated run). | Milestone 4 |
-| Start-up time | 13-21 s in milestone 3; 3.5 s in milestone 4's elevated run, mostly PowerShell process starts and the DNS server lookup (docs/milestone-5.md). | Milestone 5 |
+| Start-up time | 13-21 s in milestone 3, 3.5 s in milestone 4, 0.7-1.3 s routed in milestone 5 (one gated PowerShell child, native DNS server lookup). | Closed |
 | IPv6 and HTTPS records | Done in milestone 3: listed names get empty AAAA and type-65 answers. | Closed |
 | Relay throughput | Every Steam byte, including game downloads, is copied through snisplit. | Milestone 5 |
 | Antivirus reaction | Kaspersky on the owner's PC (2026-11-14): 19 routed foreground runs passed; `snisplit service install` was terminated as `PDM:Trojan.Win32.Generic` twice, in the second it created the service, and the file was deleted; one stream C build was deleted on disk as `VHO:Backdoor.Win64.Agent.gen`. Milestone 5 is blocked on this PC (docs/milestone-5.md). | Owner decision; milestone 7 |
@@ -254,7 +255,7 @@ packets (synthetic tests only).
 
 ## 7. References
 
-- Current working setup, in the local zapret-win-bundle checkout: `zapret-winws/steam_service_install.cmd`
+- Former setup, removed 2026-11-14 (rollback: run as administrator after `snisplit cleanup`), in the local zapret-win-bundle checkout: `zapret-winws/steam_service_install.cmd`
 - Steam domain list to seed `profiles/steam.toml`: `zapret-winws/files/list-steam.txt`
 - zapret, including the user-mode `tpws` proxy documentation: https://github.com/bol-van/zapret
 - Windows NRPT: `Add-DnsClientNrptRule` in the DnsClient PowerShell module

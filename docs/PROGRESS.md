@@ -12,7 +12,7 @@ this file says where the work stands and what to do next.
 | 2 Feasibility spike for the driverless design | **Done.** Owner said go on 2026-11-14 (docs/milestone-2-spike.md); crates decided (PLAN.md D11) |
 | 3 Relay + DNS, HTTPS only, foreground | **Done** 2026-11-14 (docs/milestone-3.md): Steam URLs, Chrome, Steam client login and Store, medium.com through the relay with zapret stopped; Ctrl+C, kill and `cleanup` leave no rules |
 | 4 HTTP respelling, profile files, IPv6-only names | **Done** 2026-11-14 (docs/milestone-4.md): every HTTP request respelled to `hoSt:`; Steam HTTP store, content servers and a real game download (1.66 GB, all on port 80) through the relay with zapret stopped; `--profile-file`; IPv6-only names forwarded |
-| 5 Windows service, crash-safe DNS rules, uninstall | **Blocked** 2026-11-14 (docs/milestone-5.md): implemented and proven in CI (install, kill and recovery, stop, uninstall); routed start-up 0.7-1.3 s, Ctrl+C at any moment leaves 0 rules; Kaspersky terminates `service install` on the owner's PC (twice), so zapret stays; next step is the owner's decision |
+| 5 Foreground use, crash-safe DNS rules, zapret removed (rescoped) | **In progress** 2026-11-14 (docs/milestone-5.md): the Windows service was built, proven in CI and removed after Kaspersky terminated its install twice; zapret removed by the owner; routed start-up 0.7-1.3 s; Ctrl+C at any moment leaves 0 rules; stop on a closed window, logoff and shutdown implemented, not yet checked; a Steam download with zapret removed not yet checked |
 | 6 and later | Not started |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
@@ -22,14 +22,13 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 
 ## Next step
 
-Milestone 5 waits for the owner: Kaspersky terminates `snisplit service install`
-on this PC, so the service is not used here. The owner chose foreground use
-(`snisplit run` when needed; a trial with zapret stopped and Steam open worked, no
-alert). Open: whether zapret is set to Manual first or removed, and handling a
-closed window or shutdown, which today leaves the rules behind. Open choices: pause and use foreground `run` when needed; a
-false-positive report to Kaspersky (sample from a CI build); anything that changes
-the antivirus setup is the owner's alone. Do not retry the install or build variants
-to find one that passes. The notes below are the original plan for the spike
+Finish milestone 5 with the owner: an elevated `tools/acceptance/m5.ps1` run
+(start-up, Ctrl+C, closing the window with X), a restart while `snisplit run` runs
+followed by `m5.ps1 -AfterRestart`, and a Steam download through `snisplit run`.
+Then milestone 6 (`probe`), which the UI of milestone 9 builds on; the owner wants a
+UI to add blocked sites, and its open decisions are listed in PLAN.md. Kaspersky:
+do not retry a service install or build variants to find one that passes; a
+false-positive report needs the owner's go. The notes below are the original plan for the spike
 questions, kept for reference.
 
 - Question 1 (do two writes get HTTPS through where one write fails) and question 2
@@ -57,7 +56,8 @@ for it was removed; no code from it exists.
   `hoSt:`; a `closed` event per connection), per-profile DNS server (listed names with
   no A record are forwarded unchanged), UDP upstream resolver shared by both.
 - `crates/cli`: `snisplit run [--profile] [--profile-file] [--no-routing] [--upstream]
-  [--verbose]`, `cleanup`, `show-profile`, `--version`, `help`; built-in profiles are
+  [--verbose]` (stops on Ctrl+C, a closed window, logoff and shutdown), `cleanup`,
+  `show-profile`, `--version`, `help`; built-in profiles are
   files in `crates/cli/profiles/` (steam 127.0.0.2, medium 127.0.0.3), profile files
   from 127.0.0.4; Windows NRPT routing through PowerShell.
 - `crates/backend-windows`: WinDivert FFI and the `sniff` / `capture` examples
@@ -82,7 +82,7 @@ for it was removed; no code from it exists.
 - Commit locally; push only when the owner says so. Watch CI after each push.
 - Subagents: pick and announce model and effort per agent; brief them with the rules
   above; verify their claims before reporting.
-- Never stop or change the `zapret-steam` service or its files without asking.
-  Do not work around the antivirus.
+- zapret was removed from this PC on 2026-11-14; reinstalling it is the owner's
+  call. Do not work around the antivirus.
 - Fixtures: TCP payload only, allowlisted Steam hosts only, no session-resumption
   tickets (a test enforces this).

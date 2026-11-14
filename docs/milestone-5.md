@@ -1,6 +1,29 @@
-# Milestone 5 plan: Windows service, crash-safe DNS rules, uninstall
+# Milestone 5: foreground use, crash-safe DNS rules, zapret removed
 
-Done when (PLAN.md section 4, made concrete):
+Rescoped on 2026-11-14 by the owner after Kaspersky terminated `snisplit service
+install` twice: "foreground, bật khi cần. bỏ service" (foreground, started when
+needed; drop the service). The plan below is kept as written; the service it
+describes was built, proven in CI, and removed (see "Rescoped" at the end).
+
+Done when (rescoped):
+
+1. Routed `snisplit run` is ready in under 1.5 s on this PC. Met: 0.7-1.3 s.
+2. Ctrl+C at any moment of start-up or later leaves 0 snisplit rules. Met at 50 ms
+   to 2000 ms in two elevated runs.
+3. Closing the window with X, and restarting the PC while `snisplit run` runs, leave
+   0 rules; if a rule is left, the next `run` removes it. Not yet checked (owner).
+4. A killed process breaks only listed names, and the next `run` or `cleanup`
+   removes its rules. Shown in milestones 3 and 4.
+5. With zapret removed, the Steam client logs in and downloads a game through
+   `snisplit run`. Removed 2026-11-14; login with Steam left open shown in the
+   owner's trial; a download with zapret removed not yet checked (milestone 4
+   downloaded 1.66 GB with zapret stopped).
+
+Dropped with the service: the original done-when items 1 (service install and
+uninstall), 2 (service restart after a kill), 3 (reboot with the service) and 5
+(the CI service job).
+
+Original done-when (the service plan):
 
 1. `snisplit service install` (elevated) installs an auto-start Windows service that
    relays the chosen profiles; `snisplit service uninstall` removes the service, its
@@ -354,3 +377,52 @@ milestone.
   question about a Steam client left running for this PC, as far as one run can.
 - The owner chose foreground use: snisplit runs only when needed. Whether zapret is
   first set to Manual or removed is still the owner's open decision.
+
+### zapret removed, 2026-11-14 22:59 (owner's decision, `tools/acceptance/remove-zapret.ps1`)
+
+- Before: `zapret-steam` running, `windivert` present, `winws` running, the snisplit
+  binary present, 0 snisplit rules. Read-only check beforehand: only `zapret-steam`
+  ran `winws`; no service depended on `windivert`.
+- `net stop zapret-steam` and `sc.exe delete zapret-steam` succeeded. `sc.exe stop
+  windivert` reported the driver STOPPED; `sc.exe delete windivert` then returned
+  1060 (the service does not exist). After: neither service present, no `winws`.
+- Checked by the lead afterwards: both services gone, the binary present, 0 rules;
+  with snisplit not running, store HTTPS fails (`000`), as expected.
+- Rollback: `snisplit cleanup`, then the bundle's `steam_service_install.cmd` as
+  administrator. The bundle folder was not touched.
+
+## Rescoped: the service removed, the run stops on every console event
+
+- Commit `6de6196` removes the service module, its commands and tests, the CI service
+  job and its `ci/**` trigger, the `Win32_System_Services` feature, the upstream wait
+  only the service used, and the service parts of `m5.ps1`. Its parent is the last
+  commit with the service. `m5-restore.ps1` stays as the binary-free rule cleanup.
+- Commit `4da1a44`: `run` stops through the same rule-removing path on Ctrl+C,
+  Ctrl+Break, a closed console window, logoff and shutdown (SIGINT, SIGTERM, SIGHUP
+  on Unix). tokio's console handler keeps the process alive after a close, logoff
+  or shutdown event until it exits (read in its source), so the stop path can run;
+  how long Windows waits is not assumed. PowerShell children now get
+  `CREATE_NO_WINDOW`, so a closing console does not take the rule removal with it.
+  Not checked yet: a routed close with X and a restart while running (both in
+  `m5.ps1`, the second with `-AfterRestart`). The lead could not automate an X close
+  here: conhost hands new windows to Windows Terminal.
+
+## Adding a site today
+
+A profile file adds sites without code changes; built-ins print a template:
+
+```
+snisplit show-profile medium > my-sites.profile
+```
+
+Edit `name` and the `domains` lines (for example `example.com`), then run
+`snisplit run --profile-file my-sites.profile` (it adds the built-ins only when no
+`--profile` is given, so name them too: `--profile steam --profile medium
+--profile-file my-sites.profile`). Keep a personal site list outside the repo.
+
+Before trusting a site, check it without admin rights: run `snisplit run
+--no-routing --profile-file my-sites.profile` and compare
+`curl --resolve example.com:443:127.0.0.4 https://example.com/` with the same request
+sent directly. Splitting helps only where the block is by SNI or Host; a site blocked
+by IP address or DNS poisoning of its real address is not fixed by it. Milestone 6
+(`probe`) automates this check and is the base for the UI in milestone 9.
