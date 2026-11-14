@@ -5,8 +5,9 @@ use snisplit_core::probe::attempts;
 use snisplit_relay::probe::{ProbeReport, ProbeSettings, probe};
 use snisplit_relay::{UdpResolver, Upstreams};
 
+use snisplit::{PIECE_GAP, UPSTREAM_TIMEOUT, system_dns};
+
 use crate::args::ProbeOptions;
-use crate::{plan, system_dns};
 
 const NO_UPSTREAM: &str = "no usable system DNS server found; pass --upstream <ip[:port]>";
 const COLUMN_GAP: &str = "  ";
@@ -18,7 +19,7 @@ pub fn run(options: &ProbeOptions) -> io::Result<()> {
     let settings = ProbeSettings {
         runs: options.runs,
         timeout: options.timeout,
-        piece_gap: plan::PIECE_GAP,
+        piece_gap: PIECE_GAP,
     };
     let mut out = io::stdout();
     writeln!(out, "{}", starting_line(options, &servers))?;
@@ -27,7 +28,7 @@ pub fn run(options: &ProbeOptions) -> io::Result<()> {
         .enable_all()
         .build()?
         .block_on(async {
-            let resolver = UdpResolver::new(Upstreams::new(servers), plan::UPSTREAM_TIMEOUT);
+            let resolver = UdpResolver::new(Upstreams::new(servers), UPSTREAM_TIMEOUT);
             probe(&resolver, &options.domain, &settings).await
         })?;
     out.write_all(render(&report).as_bytes())
@@ -40,7 +41,7 @@ fn upstream_servers(
     if !explicit.is_empty() {
         return Ok(explicit.to_vec());
     }
-    let servers = plan::upstream_servers(&[], &system()?);
+    let servers = snisplit::upstream_servers(&[], &system()?);
     if servers.is_empty() {
         return Err(io::Error::new(io::ErrorKind::NotFound, NO_UPSTREAM));
     }

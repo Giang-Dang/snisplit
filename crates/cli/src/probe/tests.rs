@@ -5,8 +5,7 @@ use snisplit_core::probe::{AttemptRecord, Outcome, RecordType, Reply, assess, at
 use snisplit_core::strategy::SplitPosition;
 
 use super::*;
-use crate::profile;
-use crate::profile_file::ProfileSpec;
+use snisplit::{ProfileSpec, profile};
 
 const ADDRESS: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 10);
 

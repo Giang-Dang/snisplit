@@ -1,10 +1,10 @@
 use std::fmt;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::plan::DNS_PORT;
-use crate::{profile, profile_file};
+use snisplit::session::RunOptions;
+use snisplit::{DNS_PORT, parse_domain, profile};
 
 pub const DEFAULT_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 pub const DEFAULT_PROBE_RUNS: usize = 2;
@@ -44,15 +44,6 @@ pub struct ProbeOptions {
     pub upstreams: Vec<SocketAddr>,
     pub timeout: Duration,
     pub runs: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RunOptions {
-    pub verbose: bool,
-    pub profiles: Vec<&'static str>,
-    pub profile_files: Vec<PathBuf>,
-    pub routing: bool,
-    pub upstreams: Vec<Ipv4Addr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -205,7 +196,7 @@ fn parse_probe(mut args: impl Iterator<Item = String>) -> Result<ProbeOptions, U
             "--runs" => runs = parse_runs(value_of(&arg, args.next())?)?,
             _ if arg.starts_with('-') => return Err(UsageError::UnknownOption(arg)),
             _ if domain.is_none() => {
-                let parsed = profile_file::parse_domain(&arg)
+                let parsed = parse_domain(&arg)
                     .map_err(|problem| UsageError::InvalidDomain(problem.to_string()))?;
                 domain = Some(parsed);
             }

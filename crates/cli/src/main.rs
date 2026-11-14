@@ -1,19 +1,14 @@
 mod args;
-mod plan;
 mod probe;
-mod profile;
-mod profile_file;
-mod routing;
-mod session;
-mod system_dns;
 
 use std::env;
 use std::io::{self, Write};
 use std::process::ExitCode;
 
-use args::{Command, RunOptions, USAGE};
+use args::{Command, USAGE};
+use snisplit::session::{self, RunOptions};
+use snisplit::{VERSION, profile};
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 const EXIT_RUNTIME_ERROR: u8 = 1;
 const EXIT_USAGE_ERROR: u8 = 2;
 

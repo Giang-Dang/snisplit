@@ -1,6 +1,7 @@
 use std::future::{Future, poll_fn};
 use std::io::{self, Write};
 use std::net::{Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use std::pin::{Pin, pin};
 use std::sync::Arc;
 use std::task::Poll;
@@ -15,10 +16,18 @@ use tokio::sync::watch;
 use tokio::task::{JoinError, JoinSet, spawn_blocking};
 
 use crate::VERSION;
-use crate::args::RunOptions;
 use crate::plan::{self, Selected};
 use crate::routing::{self, ProfileRule, StartFailure};
 use crate::{profile, system_dns};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunOptions {
+    pub verbose: bool,
+    pub profiles: Vec<&'static str>,
+    pub profile_files: Vec<PathBuf>,
+    pub routing: bool,
+    pub upstreams: Vec<Ipv4Addr>,
+}
 
 const NO_UPSTREAM: &str = "no usable upstream DNS server found; pass --upstream <ipv4>";
 const TIMING: Timing = Timing {
