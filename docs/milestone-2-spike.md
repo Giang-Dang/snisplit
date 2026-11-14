@@ -282,14 +282,16 @@ a hand-written DNS codec. Recorded as PLAN.md decision D11.
 
 The first proposal was std threads with no async runtime, on the claim that tokio
 brings a large dependency tree. Measured instead, in a scratch project with
-`tokio = { version = "1.54.1", features = ["rt-multi-thread", "net", "time",
-"signal", "io-util", "macros"] }` and `cargo tree -e normal`:
+`tokio = { version = "1.54.1", features = [...] }`:
 
-| Target | Crates, tokio included |
-|---|---|
-| x86_64-pc-windows-msvc | 12 |
-| x86_64-pc-windows-msvc without `macros` | 7: tokio, mio, bytes, socket2, pin-project-lite, windows-sys, windows-link |
-| all targets | 16 |
+| Features | Target | Crates, tokio included |
+|---|---|---|
+| with `macros` | x86_64-pc-windows-msvc | 12 |
+| with `macros` | all targets | 16 |
+| D11 set, no `macros` | x86_64-pc-windows-msvc | 7: tokio, mio, bytes, socket2, pin-project-lite, windows-sys, windows-link |
+| D11 set, no `macros` | all targets | 11: the 7 above plus libc, errno, signal-hook-registry, wasi |
+
+Each row is a separate `cargo tree -e normal --prefix none --target <target>` run.
 
 Why tokio:
 

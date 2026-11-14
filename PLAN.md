@@ -173,9 +173,10 @@ Each answer needs a command and its output, not a recollection.
        socket on 127.0.0.2:53 receives the queries sent there; ICS does not take
        them (docs/milestone-2-spike.md).
 
-Results for questions 1-4 and 6, and the go recommendation: docs/milestone-2-spike.md.
 6. **Crates.** A DNS codec and a relay raise the no-new-crates rule: threads with
-   std only, or an async runtime. Recorded as an open decision with a proposal.
+   std only, or an async runtime. Decided: D11.
+
+Results for questions 1-6 and the go decision: docs/milestone-2-spike.md.
 
 ## 5. Results
 
@@ -225,14 +226,14 @@ packets (synthetic tests only).
 
 | Item | Why it matters | Resolved in |
 |---|---|---|
-| Two writes may not leave as two segments | The whole HTTPS approach rests on it. Usual with Nagle off, not guaranteed. | Milestone 2 |
-| No known user-mode HTTP method | HTTP needed out-of-order segments here. Steam content may use port 80. | Milestone 2, then the owner |
+| Two writes may not leave as two segments | Measured on HTTPS: each write left as its own send (pktmon). Port 80 writes were merged by the antivirus on this PC. Other PCs and security software may differ. | Milestone 2 (HTTPS confirmed); milestone 7 notes |
+| User-mode HTTP method | Found: `hoSt:` header spelling passes this ISP; Steam store and content servers accept it. Splitting HTTP is untested here. | Milestone 4 |
 | Crash leaves DNS broken | System-wide DNS on loopback breaks every lookup if snisplit dies. NRPT per suffix would limit it to listed names. | Milestones 2 and 5 |
 | Browsers with their own secure DNS | They bypass the OS resolver and so snisplit. Measured: Steam's embedded browser auto-upgrades to DoH, and drops it while any NRPT rule exists. Explicit "secure DNS" settings are not covered; needs a README note. | Milestones 3 and 7 |
 | NRPT fallback is machine-wide | While snisplit's rules exist, every Chromium-based app loses automatic DoH for all names, not only listed ones. Users should be told. | Milestone 7 (README) |
 | snisplit started while Steam or Chrome is already open | The DoH fallback was measured only with the rule present before Steam started. | Milestone 3 acceptance |
 | DoH bypass on Linux and macOS | No NRPT there; Chromium's auto-upgrade needs another answer. | Milestone 10 |
-| Port conflicts on loopback 53/80/443 | Local dev servers or WARP may already listen there. | Milestone 2 |
+| Port conflicts on loopback 53/80/443 | On this PC ICS holds 0.0.0.0:53; 127.0.0.2 is free and receives queries. Other PCs may differ, so snisplit checks at start. | Milestone 3 |
 | IPv6 and HTTPS records | Listed names must get empty AAAA and type-65 answers, or apps go direct or learn ECH config. | Milestone 3 |
 | Relay throughput | Every Steam byte, including game downloads, is copied through snisplit. | Milestone 5 |
 | Antivirus reaction to a local DNS server and proxy | Untested; likely milder than a kernel driver. | Milestone 7 |

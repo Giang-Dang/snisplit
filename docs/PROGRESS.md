@@ -61,8 +61,7 @@ for it was removed; no code from it exists.
   `crates/<crate>/tests/`.
 - No new crates without an explicit decision. Decided so far: `tokio` with minimal
   features, outside `core` (PLAN.md D11).
-- Docs, code and commit messages in English. Console discussion with the owner is in
-  Vietnamese, addressed as a peer colleague.
+- Docs, code and commit messages in English.
 - Gates before every commit: `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets` with `RUSTFLAGS=-D warnings`,
   `cargo test --workspace`.
