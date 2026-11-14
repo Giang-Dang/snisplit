@@ -8,7 +8,7 @@ every app that uses the system's name resolution, and needs no kernel driver.
 It is a small tool for the author and friends on similar providers, not a VPN or a
 general proxy. It never decrypts traffic and holds no certificate.
 
-Status: Windows 10 and 11, x86_64. Linux and macOS are planned.
+Status: Windows, x86_64; tested on Windows 11 only. Linux and macOS are planned.
 
 ## How it works
 
@@ -156,7 +156,8 @@ cargo build --release
 
 ## Building and tests
 
-Rust 1.85 or newer. `cargo test --workspace` runs the test suite; no test needs
+Rust 1.95 or newer for the whole workspace (the window needs it); the command line
+alone, `cargo build --release -p snisplit`, needs 1.85. `cargo test --workspace` runs the test suite; no test needs
 administrator rights or the internet. The plan, the measurements behind each design
 choice and the per-milestone records are in `PLAN.md` and `docs/`.
 

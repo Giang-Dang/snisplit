@@ -31,10 +31,13 @@ person and cannot be met by the lead.
 
 - Branch run 43619639294 (`ci/release-draft`, before the UI existed): archive built,
   no release created.
-- Manual run 43627531946 on `main` at d27747c with version 0.1.0: tests and build
-  passed; the archive holds `snisplit.exe` (1519104 bytes), `snisplit-gui.exe`
-  (7446016 bytes), `README.md`, `LICENSE-MIT`, `LICENSE-APACHE`; the draft release
+- Manual run on `main` with version 0.1.0 (run id and commit: see the draft release's
+  target): tests and build passed; the archive holds `snisplit.exe`,
+  `snisplit-gui.exe`, `README.md`, `LICENSE-MIT`, `LICENSE-APACHE`; the draft release
   `snisplit 0.1.0` exists; `git ls-remote --tags` shows no tag.
+- The final window build on this PC, not elevated: the first frame paints with no
+  input; a close 250 ms after pressing Start exits with code 0 after 837 ms, with no
+  process and no rule left.
 
 ## Not checked
 
