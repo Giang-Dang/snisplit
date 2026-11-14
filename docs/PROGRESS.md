@@ -1,6 +1,6 @@
 # snisplit progress
 
-Read this first when resuming. Last updated 2026-11-14. The plan itself is PLAN.md;
+Read this first when resuming. Last updated 2026-11-15. The plan itself is PLAN.md;
 this file says where the work stands and what to do next.
 
 ## Where things stand
@@ -15,7 +15,8 @@ this file says where the work stands and what to do next.
 | 5 Foreground use, crash-safe DNS rules, zapret removed (rescoped) | **Done** 2026-11-14 (docs/milestone-5.md): the Windows service was built, proven in CI and removed after Kaspersky terminated its install twice; zapret removed; the foreground build runs with no Kaspersky alert; Ctrl+C at any moment and closing the window leave 0 rules; Steam login and a game download through `snisplit run` (owner). Start-up 0.7-2.0 s, accepted (D14) |
 | 6 `probe` | **Done** 2026-11-15 (docs/milestone-6.md): `snisplit probe <domain>` reproduces section 1's no-bypass and split rows (store.steampowered.com, medium.com blocked, cut at byte 1 and `hoSt:` pass; example.org not blocked) and prints a profile file; library entry point `snisplit_relay::probe::probe` for the UI |
 | 8 QUIC | **Measured** 2026-11-14 (docs/milestone-8.md): not filtered by server name on this ISP; no QUIC work. Awaiting the owner: one routed browser run to time the fallback to TCP |
-| 7, 9 | Not started; order 9 then 7 |
+| 9 UI | **Built** 2026-11-15 (docs/milestone-9.md): `snisplit-gui` (egui) starts and stops the relay, lists, checks, adds and removes sites in the per-user folder `%APPDATA%\snisplit\sites` that a plain `snisplit run` also loads; checked unelevated in a real window. Awaiting the owner: `tools/acceptance/m9.ps1` from an elevated PowerShell |
+| 7 | Not started |
 | 10 Linux and macOS | Deferred (PLAN.md D13) |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
@@ -51,7 +52,7 @@ for it was removed; no code from it exists.
 
 - `crates/core`: TLS ClientHello and HTTP Host inspection, domain matcher, split
   strategy (reused by the relay); segment planner, flow table, engine, packet loop
-  (parked). 12 real Steam ClientHello fixtures. The workspace has 472 passing tests.
+  (parked). 12 real Steam ClientHello fixtures. The workspace has 510 passing tests on Windows.
 - `snisplit_core::probe` and `snisplit_relay::probe`: the `probe` attempts, a hand-built
   ClientHello, reply classification, verdict and suggested profile (milestone 6).
 - `crates/core` also has the DNS codec (`dns`), the relay's first-flight decision
@@ -63,7 +64,10 @@ for it was removed; no code from it exists.
   [--verbose]` (stops on Ctrl+C, a closed window, logoff and shutdown), `cleanup`,
   `show-profile`, `probe <domain> [--upstream] [--timeout] [--runs]`, `--version`, `help`; built-in profiles are
   files in `crates/cli/profiles/` (steam 127.0.0.2, medium 127.0.0.3), profile files
-  from 127.0.0.4; Windows NRPT routing through PowerShell.
+  from 127.0.0.4, then user sites from `%APPDATA%\snisplit\sites`; Windows NRPT routing through
+  PowerShell. The crate is also a library `snisplit` (session, profiles, sites, system DNS).
+- `crates/gui`: `snisplit-gui`, the egui window (Windows only; a stub elsewhere), its state
+  machine and effect driver (milestone 9).
 - `crates/backend-windows`: WinDivert FFI and the `sniff` / `capture` examples
   (parked; `capture` is how the fixtures were recorded).
 - Local-only branch `m2/windows` (never pushed): runtime-loaded WinDivert and a
