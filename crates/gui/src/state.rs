@@ -5,6 +5,8 @@ use snisplit::sites::SiteFile;
 
 pub const LOG_LINES: usize = 500;
 
+const RULES_MAY_REMAIN: &str = "DNS rules may remain: press Start and then Stop, or run snisplit cleanup from an administrator terminal, to remove them";
+
 const ADMIN_NEEDED: &str = "Adding the DNS rules failed. snisplit needs administrator rights for that: close this window and start snisplit-gui again with Run as administrator.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -270,11 +272,23 @@ impl State {
             }
         };
         if self.closing {
-            return vec![Effect::Exit];
+            return self.close_ended();
         }
         if std::mem::take(&mut self.restart_pending) {
             return self.start();
         }
+        Vec::new()
+    }
+
+    fn close_ended(&mut self) -> Vec<Effect> {
+        let Relay::Failed(message) = &self.relay else {
+            return vec![Effect::Exit];
+        };
+        self.relay = Relay::Failed(format!(
+            "{}. {RULES_MAY_REMAIN}.",
+            message.trim_end_matches('.')
+        ));
+        self.closing = false;
         Vec::new()
     }
 

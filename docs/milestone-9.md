@@ -139,7 +139,10 @@ egui styling, English text.
 - Closing the window while running cancels the close (`ViewportCommand::CancelClose`),
   stops the session through the same stop path as Stop (the session removes its rules),
   and closes once the session has ended. A close during a pending restart cancels the
-  restart. As a safety net, if eframe returns for any other reason, dropping the driver
+  restart. If the stop fails while closing, the window stays open in Failed with the
+  failure text plus a sentence saying DNS rules may remain and that Start then Stop, or
+  `snisplit cleanup` from an administrator terminal, removes them; the next close request
+  exits at once. As a safety net, if eframe returns for any other reason, dropping the driver
   signals stop and waits up to 60 s for the session to end before the process exits.
 - Without administrator rights, Start fails with: "Adding the DNS rules failed. snisplit
   needs administrator rights for that: close this window and start snisplit-gui again

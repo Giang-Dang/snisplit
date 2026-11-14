@@ -165,7 +165,46 @@ fn closing_while_starting_stops_the_start_up_and_exits_after_it_ends() {
     state.update(Event::StartPressed);
     assert_eq!(state.update(Event::CloseRequested), [Effect::StopSession]);
     let failed = SessionEnd::Failed("rules could not be removed".to_string());
-    assert_eq!(state.update(Event::SessionEnded(failed)), [Effect::Exit]);
+    assert_eq!(state.update(Event::SessionEnded(failed)), []);
+    assert_eq!(
+        state.failure(),
+        Some(
+            "rules could not be removed. DNS rules may remain: press Start and then Stop, or run snisplit cleanup from an administrator terminal, to remove them."
+        )
+    );
+    assert_eq!(state.update(Event::CloseRequested), [Effect::Exit]);
+}
+
+#[test]
+fn a_routing_failure_while_closing_also_stays_open_with_the_rules_hint() {
+    let mut state = State::new();
+    state.update(Event::StartPressed);
+    state.update(Event::CloseRequested);
+    let denied = SessionEnd::RoutingFailed("Access is denied.".to_string());
+    assert_eq!(state.update(Event::SessionEnded(denied)), []);
+    assert!(
+        state
+            .failure()
+            .unwrap()
+            .ends_with("Windows said: Access is denied. DNS rules may remain: press Start and then Stop, or run snisplit cleanup from an administrator terminal, to remove them.")
+    );
+    assert_eq!(state.update(Event::CloseRequested), [Effect::Exit]);
+}
+
+#[test]
+fn a_failed_close_leaves_start_usable_for_the_removal_retry() {
+    let mut state = running();
+    state.update(Event::CloseRequested);
+    state.update(Event::SessionEnded(SessionEnd::Failed("x".to_string())));
+    assert_eq!(state.update(Event::StartPressed), [Effect::StartSession]);
+}
+
+#[test]
+fn the_first_close_while_stopping_keeps_waiting() {
+    let mut state = running();
+    state.update(Event::StopPressed);
+    assert_eq!(state.update(Event::CloseRequested), []);
+    assert_eq!(log_of(&state), ["starting snisplit"]);
 }
 
 #[test]
