@@ -9,8 +9,6 @@ repository.workspace = true
 publish.workspace = true
 
 [lib]
-# No tests here: the test binary would import WinDivert.dll and fail to start
-# on machines without it. Logic worth testing lives in snisplit-core.
 test = false
 doctest = false
 

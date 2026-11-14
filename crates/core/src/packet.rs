@@ -1,12 +1,13 @@
-//! Minimal IPv4/IPv6 + TCP header parsing.
-
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::reader::Reader;
 
-const PROTO_TCP: u8 = 6;
+const PROTOCOL_TCP: u8 = 6;
+const BYTES_PER_WORD: usize = 4;
+const IPV4_MIN_HEADER_LEN: usize = 20;
+const IPV6_HEADER_LEN: usize = 40;
+const TCP_MIN_HEADER_LEN: usize = 20;
 
-/// The parts of a TCP/IP packet that snisplit needs to look at.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TcpPacket<'a> {
     pub src: IpAddr,
@@ -16,62 +17,90 @@ pub struct TcpPacket<'a> {
     pub payload: &'a [u8],
 }
 
-/// Parses a raw IP packet (as delivered by WinDivert or NFQUEUE).
-///
-/// Returns `None` for anything that is not a well-formed TCP packet. IPv6
-/// extension headers are not followed yet: packets with any are rejected.
-pub fn parse_tcp(ip: &[u8]) -> Option<TcpPacket<'_>> {
-    let version = ip.first()? >> 4;
-    let (src, dst, l4_start, ip_end) = match version {
-        4 => {
-            let ihl = usize::from(ip[0] & 0x0f) * 4;
-            let total_len = usize::from(u16::from_be_bytes([*ip.get(2)?, *ip.get(3)?]));
-            if ihl < 20 || *ip.get(9)? != PROTO_TCP || total_len < ihl || total_len > ip.len() {
-                return None;
-            }
-            let src: [u8; 4] = ip.get(12..16)?.try_into().ok()?;
-            let dst: [u8; 4] = ip.get(16..20)?.try_into().ok()?;
-            (
-                Ipv4Addr::from(src).into(),
-                Ipv4Addr::from(dst).into(),
-                ihl,
-                total_len,
-            )
-        }
-        6 => {
-            let payload_len = usize::from(u16::from_be_bytes([*ip.get(4)?, *ip.get(5)?]));
-            let total_len = 40 + payload_len;
-            if *ip.get(6)? != PROTO_TCP || total_len > ip.len() {
-                return None;
-            }
-            let src: [u8; 16] = ip.get(8..24)?.try_into().ok()?;
-            let dst: [u8; 16] = ip.get(24..40)?.try_into().ok()?;
-            (
-                Ipv6Addr::from(src).into(),
-                Ipv6Addr::from(dst).into(),
-                40,
-                total_len,
-            )
-        }
+struct IpHeader {
+    src: IpAddr,
+    dst: IpAddr,
+    header_len: usize,
+    total_len: usize,
+}
+
+struct TcpHeader {
+    src_port: u16,
+    dst_port: u16,
+    header_len: usize,
+}
+
+pub fn parse_tcp(packet: &[u8]) -> Option<TcpPacket<'_>> {
+    let ip = match packet.first()? >> 4 {
+        4 => parse_ipv4_header(packet)?,
+        6 => parse_ipv6_header(packet)?,
         _ => return None,
     };
-
-    let tcp = ip.get(l4_start..ip_end)?;
-    let mut r = Reader::new(tcp);
-    let src_port = r.u16()?;
-    let dst_port = r.u16()?;
-    r.skip(8)?; // seq, ack
-    let data_offset = usize::from(r.u8()? >> 4) * 4;
-    if data_offset < 20 {
-        return None;
-    }
-    let payload = tcp.get(data_offset..)?;
+    let segment = packet.get(ip.header_len..ip.total_len)?;
+    let tcp = parse_tcp_header(segment)?;
     Some(TcpPacket {
-        src,
-        dst,
+        src: ip.src,
+        dst: ip.dst,
+        src_port: tcp.src_port,
+        dst_port: tcp.dst_port,
+        payload: segment.get(tcp.header_len..)?,
+    })
+}
+
+fn parse_ipv4_header(packet: &[u8]) -> Option<IpHeader> {
+    let mut reader = Reader::new(packet);
+    let header_len = usize::from(reader.u8()? & 0x0f) * BYTES_PER_WORD;
+    let _type_of_service = reader.u8()?;
+    let total_len = usize::from(reader.u16()?);
+    let _identification = reader.u16()?;
+    let _flags_and_fragment_offset = reader.u16()?;
+    let _time_to_live = reader.u8()?;
+    let protocol = reader.u8()?;
+    let _checksum = reader.u16()?;
+    let src = Ipv4Addr::from(reader.array::<4>()?);
+    let dst = Ipv4Addr::from(reader.array::<4>()?);
+
+    let is_valid = header_len >= IPV4_MIN_HEADER_LEN
+        && protocol == PROTOCOL_TCP
+        && (header_len..=packet.len()).contains(&total_len);
+    is_valid.then_some(IpHeader {
+        src: src.into(),
+        dst: dst.into(),
+        header_len,
+        total_len,
+    })
+}
+
+fn parse_ipv6_header(packet: &[u8]) -> Option<IpHeader> {
+    let mut reader = Reader::new(packet);
+    let _version_traffic_class_flow_label = reader.u32()?;
+    let payload_len = usize::from(reader.u16()?);
+    let next_header = reader.u8()?;
+    let _hop_limit = reader.u8()?;
+    let src = Ipv6Addr::from(reader.array::<16>()?);
+    let dst = Ipv6Addr::from(reader.array::<16>()?);
+
+    let total_len = IPV6_HEADER_LEN + payload_len;
+    let is_valid = next_header == PROTOCOL_TCP && total_len <= packet.len();
+    is_valid.then_some(IpHeader {
+        src: src.into(),
+        dst: dst.into(),
+        header_len: IPV6_HEADER_LEN,
+        total_len,
+    })
+}
+
+fn parse_tcp_header(segment: &[u8]) -> Option<TcpHeader> {
+    let mut reader = Reader::new(segment);
+    let src_port = reader.u16()?;
+    let dst_port = reader.u16()?;
+    let _sequence_number = reader.u32()?;
+    let _acknowledgment_number = reader.u32()?;
+    let header_len = usize::from(reader.u8()? >> 4) * BYTES_PER_WORD;
+    (header_len >= TCP_MIN_HEADER_LEN).then_some(TcpHeader {
         src_port,
         dst_port,
-        payload,
+        header_len,
     })
 }
 
@@ -79,56 +108,94 @@ pub fn parse_tcp(ip: &[u8]) -> Option<TcpPacket<'_>> {
 mod tests {
     use super::*;
 
-    fn tcp_header(src_port: u16, dst_port: u16) -> Vec<u8> {
-        let mut h = Vec::new();
-        h.extend_from_slice(&src_port.to_be_bytes());
-        h.extend_from_slice(&dst_port.to_be_bytes());
-        h.extend_from_slice(&[0; 8]);
-        h.push(5 << 4);
-        h.extend_from_slice(&[0x18, 0xff, 0xff, 0, 0, 0, 0]);
-        h
+    const TCP_FLAGS_PSH_ACK: u8 = 0x18;
+    const IPV4_VERSION_AND_MIN_HEADER: u8 = 0x45;
+    const IPV6_VERSION: u8 = 0x60;
+
+    fn tcp_segment(src_port: u16, dst_port: u16, payload: &[u8]) -> Vec<u8> {
+        let header_words = (TCP_MIN_HEADER_LEN / BYTES_PER_WORD) as u8;
+        let sequence_number = 0u32;
+        let acknowledgment_number = 0u32;
+        let window = u16::MAX;
+        let checksum = 0u16;
+        let urgent_pointer = 0u16;
+        [
+            src_port.to_be_bytes().as_slice(),
+            &dst_port.to_be_bytes(),
+            &sequence_number.to_be_bytes(),
+            &acknowledgment_number.to_be_bytes(),
+            &[header_words << 4, TCP_FLAGS_PSH_ACK],
+            &window.to_be_bytes(),
+            &checksum.to_be_bytes(),
+            &urgent_pointer.to_be_bytes(),
+            payload,
+        ]
+        .concat()
+    }
+
+    fn ipv4_packet(src: Ipv4Addr, dst: Ipv4Addr, segment: &[u8]) -> Vec<u8> {
+        let total_len = (IPV4_MIN_HEADER_LEN + segment.len()) as u16;
+        let identification = 0u16;
+        let flags_and_fragment_offset = 0u16;
+        let time_to_live = 64u8;
+        let checksum = 0u16;
+        [
+            &[IPV4_VERSION_AND_MIN_HEADER, 0],
+            total_len.to_be_bytes().as_slice(),
+            &identification.to_be_bytes(),
+            &flags_and_fragment_offset.to_be_bytes(),
+            &[time_to_live, PROTOCOL_TCP],
+            &checksum.to_be_bytes(),
+            &src.octets(),
+            &dst.octets(),
+            segment,
+        ]
+        .concat()
+    }
+
+    fn ipv6_packet(src: Ipv6Addr, dst: Ipv6Addr, segment: &[u8]) -> Vec<u8> {
+        let payload_len = segment.len() as u16;
+        let hop_limit = 64u8;
+        [
+            &[IPV6_VERSION, 0, 0, 0],
+            payload_len.to_be_bytes().as_slice(),
+            &[PROTOCOL_TCP, hop_limit],
+            &src.octets(),
+            &dst.octets(),
+            segment,
+        ]
+        .concat()
     }
 
     #[test]
     fn ipv4() {
-        let payload = b"hello";
-        let mut p = vec![0x45, 0, 0, 0, 0, 0, 0x40, 0, 64, PROTO_TCP, 0, 0];
-        p.extend_from_slice(&[10, 0, 0, 2, 1, 2, 3, 4]);
-        p.extend_from_slice(&tcp_header(50000, 443));
-        p.extend_from_slice(payload);
-        let len = p.len() as u16;
-        p[2..4].copy_from_slice(&len.to_be_bytes());
-
-        let t = parse_tcp(&p).unwrap();
-        assert_eq!(t.dst, "1.2.3.4".parse::<IpAddr>().unwrap());
-        assert_eq!((t.src_port, t.dst_port), (50000, 443));
-        assert_eq!(t.payload, payload);
+        let dst = Ipv4Addr::new(1, 2, 3, 4);
+        let packet = ipv4_packet(
+            Ipv4Addr::new(10, 0, 0, 2),
+            dst,
+            &tcp_segment(50000, 443, b"hello"),
+        );
+        let tcp = parse_tcp(&packet).unwrap();
+        assert_eq!(tcp.dst, IpAddr::from(dst));
+        assert_eq!((tcp.src_port, tcp.dst_port), (50000, 443));
+        assert_eq!(tcp.payload, b"hello");
     }
 
     #[test]
     fn ipv6() {
-        let payload = b"hi";
-        let tcp = [tcp_header(50001, 80), payload.to_vec()].concat();
-        let mut p = vec![0x60, 0, 0, 0];
-        p.extend_from_slice(&(tcp.len() as u16).to_be_bytes());
-        p.extend_from_slice(&[PROTO_TCP, 64]);
-        p.extend_from_slice(&Ipv6Addr::LOCALHOST.octets());
-        p.extend_from_slice(&"2001:db8::1".parse::<Ipv6Addr>().unwrap().octets());
-        p.extend_from_slice(&tcp);
-
-        let t = parse_tcp(&p).unwrap();
-        assert_eq!(t.dst, "2001:db8::1".parse::<IpAddr>().unwrap());
-        assert_eq!(t.dst_port, 80);
-        assert_eq!(t.payload, payload);
+        let dst: Ipv6Addr = "2001:db8::1".parse().unwrap();
+        let packet = ipv6_packet(Ipv6Addr::LOCALHOST, dst, &tcp_segment(50001, 80, b"hi"));
+        let tcp = parse_tcp(&packet).unwrap();
+        assert_eq!(tcp.dst, IpAddr::from(dst));
+        assert_eq!(tcp.dst_port, 80);
+        assert_eq!(tcp.payload, b"hi");
     }
 
     #[test]
     fn short_or_garbage_input_is_rejected() {
         for len in 0..60 {
-            let buf = vec![0x45; len];
-            let _ = parse_tcp(&buf);
-            let buf = vec![0x60; len];
-            let _ = parse_tcp(&buf);
+            assert_eq!(parse_tcp(&vec![IPV4_VERSION_AND_MIN_HEADER; len]), None);
+            assert_eq!(parse_tcp(&vec![IPV6_VERSION; len]), None);
         }
         assert_eq!(parse_tcp(&[0x10; 40]), None);
     }
