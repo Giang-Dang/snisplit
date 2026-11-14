@@ -1,0 +1,9 @@
+name: snisplit-quic
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - aioquic==1.2.0
+      - dnspython==2.7.0
