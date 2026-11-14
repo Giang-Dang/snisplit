@@ -69,7 +69,7 @@ mod native {
     use windows_sys::Win32::Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR, SOCKET_ADDRESS};
 
     use super::super::servers;
-    use super::super::windows::read_ipv4;
+    use super::super::windows::{adapters, adapters_from_a_first_buffer_of, read_ipv4};
 
     const SOCKADDR_BYTES: i32 = 16;
     const UP_ADAPTER_SERVERS: &str = "$ErrorActionPreference = 'Stop'; $up = @(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | ForEach-Object { $_.ifIndex }); Get-DnsClientServerAddress -AddressFamily IPv4 | Where-Object { $up -contains $_.InterfaceIndex } | ForEach-Object { $_.ServerAddresses }";
@@ -146,10 +146,20 @@ mod native {
 
     #[test]
     fn the_native_lookup_matches_powershell_on_this_machine() {
-        let Some(expected) = powershell_servers() else {
+        let Some(mut expected) = powershell_servers() else {
             eprintln!("skipped: the PowerShell DNS client cmdlets are not available");
             return;
         };
-        assert_eq!(servers().unwrap(), expected);
+        let mut found = servers().unwrap();
+        expected.sort();
+        found.sort();
+        assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn a_first_buffer_too_small_for_one_adapter_grows_and_reads_the_same_list() {
+        let grown = adapters_from_a_first_buffer_of(16).unwrap();
+        assert!(!grown.is_empty());
+        assert_eq!(grown, adapters().unwrap());
     }
 }

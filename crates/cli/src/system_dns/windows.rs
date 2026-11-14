@@ -24,7 +24,11 @@ const ONLY_DNS_SERVERS: GET_ADAPTERS_ADDRESSES_FLAGS = GAA_FLAG_SKIP_UNICAST
 type AlignedWord = u64;
 
 pub(super) fn adapters() -> io::Result<Vec<Adapter>> {
-    let mut wanted_bytes = FIRST_BUFFER_BYTES;
+    adapters_from_a_first_buffer_of(FIRST_BUFFER_BYTES)
+}
+
+pub(super) fn adapters_from_a_first_buffer_of(first_bytes: usize) -> io::Result<Vec<Adapter>> {
+    let mut wanted_bytes = first_bytes;
     for _ in 0..MAX_ATTEMPTS {
         let mut buffer: Vec<AlignedWord> = vec![0; wanted_bytes.div_ceil(size_of::<AlignedWord>())];
         let mut size = u32::try_from(buffer.len() * size_of::<AlignedWord>())

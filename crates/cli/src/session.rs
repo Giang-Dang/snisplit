@@ -236,13 +236,22 @@ impl<H: Host> Session<'_, H> {
         }
         let mut misses: u32 = 0;
         loop {
-            let system = read_system_dns(&self.host).await?;
-            let servers = plan::upstream_servers(&[], &system);
-            if !servers.is_empty() || !start.wait_for_upstreams {
-                return non_empty(servers);
+            let read = read_system_dns(&self.host).await;
+            if !start.wait_for_upstreams {
+                return non_empty(plan::upstream_servers(&[], &read?));
             }
+            let missing = match read {
+                Ok(system) => {
+                    let servers = plan::upstream_servers(&[], &system);
+                    if !servers.is_empty() {
+                        return Ok(servers);
+                    }
+                    WAITING_FOR_UPSTREAM.to_string()
+                }
+                Err(error) => format!("{WAITING_FOR_UPSTREAM}; reading them failed: {error}"),
+            };
             if misses % self.timing.retries_per_report == 0 {
-                (self.out)(WAITING_FOR_UPSTREAM);
+                (self.out)(&missing);
             }
             misses = misses.wrapping_add(1);
             tokio::time::sleep(self.timing.upstream_retry).await;

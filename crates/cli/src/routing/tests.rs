@@ -189,7 +189,11 @@ mod gate {
     use std::thread;
     use std::time::Duration;
 
-    use super::super::Gated;
+    use std::io::Write as _;
+    use std::net::Ipv4Addr;
+    use std::process::{Command, Stdio};
+
+    use super::super::{Gated, PendingStart, ProfileRule, StartFailure, start_script, stop_script};
 
     const HARMLESS_GATED: &str = "Write-Output 'first'; if ($null -eq [Console]::In.ReadLine()) { exit }; Write-Output 'second'";
     const CHILD_REACHES_THE_GATE: Duration = Duration::from_millis(1500);
@@ -222,6 +226,91 @@ mod gate {
             String::from_utf8_lossy(&output.stdout),
             "first\r\nsecond\r\n"
         );
+    }
+
+    const FAILS_BEFORE_THE_MARKER: &str = "$ErrorActionPreference = 'Stop'; throw 'boom'; Write-Output 'stale rules removed'; if ($null -eq [Console]::In.ReadLine()) { exit }";
+    const FAILS_AFTER_THE_GATE: &str = "$ErrorActionPreference = 'Stop'; Write-Output 'stale rules removed'; if ($null -eq [Console]::In.ReadLine()) { exit }; throw 'boom'";
+    const COUNT_PARSE_ERRORS: &str = "$errors = $null; $tokens = $null; [void][System.Management.Automation.Language.Parser]::ParseInput([Console]::In.ReadToEnd(), [ref]$tokens, [ref]$errors); $errors.Count";
+
+    fn first_line(error: &std::io::Error) -> String {
+        error
+            .to_string()
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    #[test]
+    fn a_child_that_dies_before_the_marker_failed_removing_stale_rules() {
+        let pending = PendingStart(Gated::spawn(FAILS_BEFORE_THE_MARKER).unwrap());
+        match pending.add() {
+            Err(StartFailure::RemovingStale(error)) => {
+                assert_eq!(first_line(&error), "powershell: boom");
+            }
+            other => panic!("expected a stale removal failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_child_that_dies_after_the_gate_failed_while_adding() {
+        let pending = PendingStart(Gated::spawn(FAILS_AFTER_THE_GATE).unwrap());
+        thread::sleep(CHILD_REACHES_THE_GATE);
+        match pending.add() {
+            Err(StartFailure::Adding(error)) => {
+                assert_eq!(first_line(&error), "powershell: boom");
+            }
+            other => panic!("expected an adding failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_abandoned_child_that_died_before_the_gate_reports_why() {
+        let pending = PendingStart(Gated::spawn(FAILS_BEFORE_THE_MARKER).unwrap());
+        let error = pending.abandon().unwrap_err();
+        assert_eq!(first_line(&error), "powershell: boom");
+    }
+
+    fn parse_errors(script: &str) -> usize {
+        let mut parser = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                COUNT_PARSE_ERRORS,
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        parser
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(script.as_bytes())
+            .unwrap();
+        let output = parser.wait_with_output().unwrap();
+        String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse()
+            .unwrap()
+    }
+
+    #[test]
+    fn the_powershell_parser_accepts_the_start_and_stop_scripts() {
+        assert_ne!(parse_errors("if ($true) { 'unclosed'"), 0);
+        let rules = [
+            ProfileRule {
+                suffixes: vec!["steampowered.com", "steam-chat.com"],
+                server: Ipv4Addr::new(127, 0, 0, 2),
+            },
+            ProfileRule {
+                suffixes: vec!["medium.com"],
+                server: Ipv4Addr::new(127, 0, 0, 3),
+            },
+        ];
+        assert_eq!(parse_errors(&start_script(&rules).unwrap()), 0);
+        assert_eq!(parse_errors(&stop_script()), 0);
     }
 }
 
