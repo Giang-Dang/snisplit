@@ -199,11 +199,12 @@ pub fn add(folder: &Path, profile_text: &str) -> io::Result<ProfileSpec> {
         .write(true)
         .create_new(true)
         .open(&path)
-        .map_err(|error| {
-            io::Error::new(
+        .map_err(|error| match error.kind() {
+            io::ErrorKind::AlreadyExists => io::Error::new(
                 error.kind(),
-                format!("cannot write site {}: {error}", spec.name),
-            )
+                format!("a site named {} already exists", spec.name),
+            ),
+            kind => io::Error::new(kind, format!("cannot write site {}: {error}", spec.name)),
         })?;
     write_or_remove(file, &path, |file| {
         file.write_all(profile_text.as_bytes())?;

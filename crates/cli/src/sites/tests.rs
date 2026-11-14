@@ -257,6 +257,24 @@ fn a_failed_write_removes_the_partial_file_and_returns_the_write_error() {
 }
 
 #[test]
+fn two_domains_with_the_same_site_name_give_a_name_exists_error_and_keep_the_first_file() {
+    let folder = TempFolder::new("same-name");
+    let first = "name foo-bar-example-com\ndomains foo-bar.example.com\n";
+    let second = "name foo-bar-example-com\ndomains foo.bar-example.com\n";
+    add(folder.path(), first).unwrap();
+    let refused = add(folder.path(), second).unwrap_err();
+    assert_eq!(refused.kind(), io::ErrorKind::AlreadyExists);
+    assert_eq!(
+        refused.to_string(),
+        "a site named foo-bar-example-com already exists"
+    );
+    assert_eq!(
+        fs::read_to_string(folder.path().join("foo-bar-example-com.profile")).unwrap(),
+        first
+    );
+}
+
+#[test]
 fn removing_deletes_only_a_listed_site_file() {
     let folder = TempFolder::created("remove");
     let outside = TempFolder::created("remove-outside");
