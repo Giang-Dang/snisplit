@@ -406,13 +406,11 @@ fn answer_checks_id_and_question_name_ignoring_case_and_trailing_dot() {
 #[test]
 fn answer_with_bad_header_bits_is_rejected() {
     let packet = fixture("upstream_answer_medium_com");
-    let name_error = with_byte(packet.clone(), 3, 0x83);
     let server_failure = with_byte(packet.clone(), 3, 0x82);
     let not_a_response = with_byte(packet.clone(), 2, 0x01);
     let truncated_flag = with_byte(packet.clone(), 2, 0x83);
     let two_questions = with_byte(packet.clone(), 5, 2);
     for (label, mutated) in [
-        ("NXDOMAIN", name_error),
         ("SERVFAIL", server_failure),
         ("QR clear", not_a_response),
         ("TC set", truncated_flag),
@@ -424,6 +422,19 @@ fn answer_with_bad_header_bits_is_rejected() {
             "{label}"
         );
     }
+}
+
+#[test]
+fn a_name_error_for_the_asked_question_means_no_addresses() {
+    let packet = fixture("upstream_answer_medium_com");
+    let name_error = with_byte(packet, 3, 0x83);
+
+    assert_eq!(
+        parse_a_answer(&name_error, 0x1234, "medium.com"),
+        Some(Vec::new())
+    );
+    assert_eq!(parse_a_answer(&name_error, 0x1235, "medium.com"), None);
+    assert_eq!(parse_a_answer(&name_error, 0x1234, "medium.org"), None);
 }
 
 #[test]

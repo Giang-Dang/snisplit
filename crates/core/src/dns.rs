@@ -16,6 +16,8 @@ const FLAG_TRUNCATED: u16 = 0x0200;
 const FLAG_RECURSION_DESIRED: u16 = 0x0100;
 const FLAG_RECURSION_AVAILABLE: u16 = 0x0080;
 const FLAG_RCODE_MASK: u16 = 0x000f;
+const RCODE_NO_ERROR: u16 = 0;
+const RCODE_NAME_ERROR: u16 = 3;
 
 const LABEL_TAG_MASK: u8 = 0xc0;
 const LABEL_TAG_POINTER: u8 = 0xc0;
@@ -77,9 +79,10 @@ pub fn parse_a_answer(packet: &[u8], id: u16, name: &str) -> Option<Vec<Ipv4Addr
     let wanted = normalized(name);
     let mut reader = Reader::new(packet);
     let header = Header::read(&mut reader)?;
+    let rcode = header.flags & FLAG_RCODE_MASK;
     let acceptable = header.id == id
         && header.flags & FLAG_RESPONSE != 0
-        && header.flags & FLAG_RCODE_MASK == 0
+        && (rcode == RCODE_NO_ERROR || rcode == RCODE_NAME_ERROR)
         && header.flags & FLAG_TRUNCATED == 0
         && header.questions == ONE_QUESTION;
     if !acceptable {
@@ -90,6 +93,9 @@ pub fn parse_a_answer(packet: &[u8], id: u16, name: &str) -> Option<Vec<Ipv4Addr
     let question_class = reader.u16()?;
     if question_name != wanted || question_type != TYPE_A || question_class != CLASS_IN {
         return None;
+    }
+    if rcode == RCODE_NAME_ERROR {
+        return Some(Vec::new());
     }
     let mut answers = Answers::default();
     for _ in 0..header.answers {

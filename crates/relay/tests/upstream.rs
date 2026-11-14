@@ -21,6 +21,7 @@ const MEDIUM_ADDRESSES: [Ipv4Addr; 2] = [
 const FIRST_RDATA_OFFSET: usize = 0x28;
 const ID_LEN: usize = 2;
 const EMPTY_ANSWER_TAIL: [u8; 10] = [0x81, 0x80, 0, 1, 0, 0, 0, 0, 0, 0];
+const NAME_ERROR_TAIL: [u8; 10] = [0x81, 0x83, 0, 1, 0, 0, 0, 0, 0, 0];
 
 fn block_on<F: Future>(future: F) -> F::Output {
     tokio::runtime::Builder::new_multi_thread()
@@ -37,6 +38,7 @@ enum Script {
     MediumAnswer,
     StrayThenMediumAnswer,
     EmptyAnswer,
+    NameError,
 }
 
 struct FakeDns {
@@ -93,12 +95,16 @@ fn replies(script: Script, query: &[u8]) -> Vec<Vec<u8>> {
             let mut stray = medium_answer_with(&wrong_id);
             stray[FIRST_RDATA_OFFSET..FIRST_RDATA_OFFSET + 4].copy_from_slice(&[6, 6, 6, 6]);
             let mut wrong_data_right_id = medium_answer_with(id);
-            wrong_data_right_id[3] = 0x83;
+            wrong_data_right_id[3] = 0x82;
             vec![stray, wrong_data_right_id, medium_answer_with(id)]
         }
         Script::EmptyAnswer => {
             let question = &query[ID_LEN + 10..];
             vec![[id, &EMPTY_ANSWER_TAIL, question].concat()]
+        }
+        Script::NameError => {
+            let question = &query[ID_LEN + 10..];
+            vec![[id, &NAME_ERROR_TAIL, question].concat()]
         }
     }
 }
@@ -192,6 +198,24 @@ fn an_empty_answer_is_returned_empty_and_asked_again_next_time() {
         assert_eq!(first, Vec::<Ipv4Addr>::new());
         assert_eq!(second, Vec::<Ipv4Addr>::new());
         assert_eq!(server.queries_seen(), 2);
+    });
+}
+
+#[test]
+fn a_name_that_does_not_exist_is_answered_empty_at_once_without_asking_the_next_server() {
+    block_on(async {
+        let missing = FakeDns::start(Script::NameError).await;
+        let next = FakeDns::start(Script::MediumAnswer).await;
+        let resolver = resolver(&[&missing, &next], GENEROUS_PATIENCE);
+
+        let addresses = tokio::time::timeout(SHORT_PATIENCE, resolver.resolve("medium.com"))
+            .await
+            .expect("a name error ends the lookup without waiting for the timeout")
+            .unwrap();
+
+        assert_eq!(addresses, Vec::<Ipv4Addr>::new());
+        assert_eq!(missing.queries_seen(), 1);
+        assert_eq!(next.queries_seen(), 0);
     });
 }
 
