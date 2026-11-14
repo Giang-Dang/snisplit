@@ -11,7 +11,7 @@ this file says where the work stands and what to do next.
 | 1 Core: parsers, matcher, strategy, segment planner, engine | Done (PLAN.md 5.2, docs/milestone-1.md) |
 | 2 Feasibility spike for the driverless design | **Done.** Owner said go on 2026-11-14 (docs/milestone-2-spike.md); crates decided (PLAN.md D11) |
 | 3 Relay + DNS, HTTPS only, foreground | **Done** 2026-11-14 (docs/milestone-3.md): Steam URLs, Chrome, Steam client login and Store, medium.com through the relay with zapret stopped; Ctrl+C, kill and `cleanup` leave no rules |
-| 4 HTTP respelling, profile files, IPv6-only names | **In progress** (docs/milestone-4.md): code merged on `main`; no-admin acceptance passed (medium HTTP keep-alive, profile file); elevated Steam run with zapret stopped pending |
+| 4 HTTP respelling, profile files, IPv6-only names | **Done** 2026-11-14 (docs/milestone-4.md): every HTTP request respelled to `hoSt:`; Steam HTTP store, content servers and a real game download (1.66 GB on port 80) through the relay with zapret stopped; `--profile-file`; IPv6-only names forwarded |
 | 5 and later | Not started |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
@@ -21,10 +21,9 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 
 ## Next step
 
-Milestone 4: the elevated run `tools/acceptance/m4.ps1` with `zapret-steam` stopped
-(ask the owner first): Steam HTTP store and content server, keep-alive, the
-IPv6-only name, and the ports of a Steam download. Then record the results in
-docs/milestone-4.md. The notes below are the original plan for the spike questions,
+Milestone 5: Windows service, crash-safe DNS cleanup, faster start-up (batched rule
+install), Ctrl+C during start-up; Steam client login and a full game download with
+zapret removed (removing zapret is a separate step the owner must approve). The notes below are the original plan for the spike questions,
 kept for reference.
 
 - Question 1 (do two writes get HTTPS through where one write fails) and question 2

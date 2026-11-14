@@ -18,7 +18,8 @@ Status (current state and next step: docs/PROGRESS.md):
   byte 1, the measured cut; HTTP waits for the `hoSt:` rewrite in milestone 4).
 - Milestone 4 (docs/milestone-4.md) measured that the ISP inspects every HTTP request
   on a keep-alive connection, so the relay respells every request head to `hoSt:`.
-  Code merged; the elevated Steam acceptance run is pending.
+  Done 2026-11-14: Steam game downloads use plain HTTP on port 80 on this PC, and a
+  1.66 GB download went through the relay with zapret stopped.
 - Milestone order after the spike is proposed, not confirmed.
 
 ## 1. What was measured
@@ -239,7 +240,7 @@ packets (synthetic tests only).
 | snisplit started while Steam or Chrome is already open | Chrome open before the start went through the relay (milestone 3 acceptance). Not checked for a Steam client left running. | Milestone 5 |
 | DoH bypass on Linux and macOS | No NRPT there; Chromium's auto-upgrade needs another answer. | Milestone 10 |
 | Port conflicts on loopback 53/80/443 | On this PC ICS holds 0.0.0.0:53; 127.0.0.2 and 127.0.0.3 are free. A bind failure stops `run` before any rule exists (milestone 3). | Closed for this PC |
-| Listed names that exist only over IPv6 | Milestone 4: a listed name with no A record is forwarded unchanged, so it resolves as without snisplit (elevated check pending). | Milestone 4 |
+| Listed names that exist only over IPv6 | Milestone 4: a listed name with no A record is forwarded unchanged, so it resolves as without snisplit (checked in the elevated run). | Milestone 4 |
 | Start-up time | 13-21 s before rules exist, mostly PowerShell rule installation. | Milestone 5 |
 | IPv6 and HTTPS records | Done in milestone 3: listed names get empty AAAA and type-65 answers. | Closed |
 | Relay throughput | Every Steam byte, including game downloads, is copied through snisplit. | Milestone 5 |

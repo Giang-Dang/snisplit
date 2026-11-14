@@ -282,3 +282,56 @@ addresses for a name error that matches the question.
 The tip of every stream and of `main` passed all four gates (fmt, clippy for the host
 and for `x86_64-unknown-linux-gnu`, tests). Each intermediate stream commit was
 checked with `cargo test --workspace` only.
+
+### Elevated run, `tools/acceptance/m4.ps1`, 2026-11-14 19:23-19:27
+
+Part 1, medium.com (zapret running):
+
+| Check | Result |
+|---|---|
+| direct, two HTTP requests | `000`, `000` (reset) |
+| profile file on 127.0.0.4, `--no-routing` | HTTPS `403`; HTTP `301`, `301` on one connection (`connects=0` for the second); 2 respelled |
+| `run --profile medium` with NRPT | medium.com -> 127.0.0.3; HTTP `301`, `301` on one connection; HTTPS `403`; example.org unchanged |
+| after Ctrl+C | 0 rules; medium.com -> 162.159.152.4, 162.159.153.4 |
+
+Part 2, Steam (zapret stopped by the script with the owner's consent, restored after):
+
+| Check | Result |
+|---|---|
+| direct, no snisplit | store HTTP `000`, content HTTP `000` (reset) |
+| `http://store.steampowered.com/` | `302` through 127.0.0.2 |
+| `http://cache5-hkg1.steamcontent.com/` | `200` through 127.0.0.2 |
+| two requests on one connection, store and content server | `302`, `302` and `200`, `200`; second request `connects=0`; 2 respelled each |
+| `https://store.steampowered.com/` | `200` |
+| `ipv6check-http.steamserver.net` | A empty, AAAA 8 real addresses (`2404:3fc0:0:106::...`) during the run. Before and after, the system resolver returned a different set from the same Valve prefix (`2404:3fc0:a:100::...`); the name resolves either way, the sets differ by resolver path |
+| example.org | `104.20.26.136, 172.66.157.237` before, during and after |
+| after stop | zapret Running, `winws` running, 0 snisplit rules |
+
+Download (done-when 4): the owner restarted Steam (new `steam.exe` at 19:24:13)
+and started a download. In about 3 minutes:
+
+- 34 connections to 8 content servers `cache{1,3,4,5,6,8,9,12}-hkg1.steamcontent.com`,
+  all on **port 80**, received 1,664,951,868 bytes through the relay, with 1890
+  request heads respelled (about 55 requests per connection; keep-alive is the norm).
+  No content-server connection went over 443 in this window.
+- Steam's own connections seen: `127.0.0.2` on 80, 443, 27019, 27020, 27023, 27024
+  (CM endpoints relayed as TLS on 27019-27024), plus one direct connection to
+  `23.49.104.166:80`, not a listed name (no relay, no reset seen).
+- No `failed`, `refused` or `stopped respelling` lines in the whole run.
+
+This closes milestone 2 Q3: Steam game downloads on this PC use plain HTTP on port 80.
+
+### Done-when status
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Medium HTTP, two requests on one connection, no admin | PASS |
+| 2 | Profile file on its own address | PASS |
+| 3 | Steam HTTP store and content server, keep-alive, IPv6-only name, example.org unchanged | PASS |
+| 4 | Ports of a Steam download | PASS: port 80, 1.66 GB in about 3 min |
+
+Milestone 4 is done.
+
+Open items carried forward: start-up time and Ctrl+C during start-up (milestone 5);
+relay throughput is fine for this download (about 9 MB/s, not compared with zapret);
+the `in 0 pieces` log text for an HTTP first flight that ends inside its head.
