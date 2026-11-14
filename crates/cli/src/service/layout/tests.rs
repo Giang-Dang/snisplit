@@ -89,3 +89,22 @@ fn a_file_in_a_sibling_folder_with_the_same_prefix_is_not_inside() {
     assert!(!is_inside(&file, &folder));
     assert!(!is_inside(&folder.join("missing.exe"), &folder));
 }
+
+#[test]
+fn an_unset_empty_or_relative_program_files_never_gives_a_folder_to_delete() {
+    let unset = Layout::from_program_files(None).expect_err("unset");
+    assert_eq!(unset.kind(), io::ErrorKind::NotFound);
+    let empty = Layout::from_program_files(Some(PathBuf::new())).expect_err("empty");
+    assert_eq!(
+        empty.to_string(),
+        "%ProgramFiles% is not an absolute path: \"\""
+    );
+    let relative =
+        Layout::from_program_files(Some(PathBuf::from("Program Files"))).expect_err("relative");
+    assert_eq!(relative.kind(), io::ErrorKind::InvalidInput);
+    let rooted_without_drive =
+        Layout::from_program_files(Some(PathBuf::from(r"\Program Files"))).expect_err("no drive");
+    assert_eq!(rooted_without_drive.kind(), io::ErrorKind::InvalidInput);
+    let absolute = Layout::from_program_files(Some(PathBuf::from(r"C:\Program Files"))).unwrap();
+    assert_eq!(absolute.root(), Path::new(r"C:\Program Files\snisplit"));
+}

@@ -263,3 +263,10 @@ milestone.
 - Earlier failing runs of the same job showed the recovery schedule working:
   restarts 5 s, 5 s, then 30 s apart.
 - Workspace: 450 tests; all gates pass on `main`.
+- The install folder comes from `%ProgramFiles%` only when it is an absolute path;
+  an unset, empty or relative value is an error, so uninstall's recursive delete
+  can never point at a folder under the current directory (lead review).
+- `m5.ps1 -SwitchToSnisplit` proves snisplit with zapret stopped (store HTTPS and a
+  content server over HTTP must return 200) before it removes `zapret-steam` and
+  `windivert`; on failure it uninstalls snisplit and starts zapret again. Service
+  logs are copied to the output folder before every uninstall.

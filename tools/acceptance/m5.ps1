@@ -103,7 +103,16 @@ function Install-Service {
   Log "service: $((Service).Status), pid $(ServicePid); relaying $ready ms after install returned ($([int]((Get-Date) - $t0).TotalMilliseconds) ms in all)"
   $ready -ge 0
 }
+function Save-ServiceLogs {
+  $stamp = Get-Date -Format 'HHmmss'
+  foreach ($name in 'snisplit.log', 'snisplit.old.log') {
+    $source = Join-Path $installDir "logs\$name"
+    if (Test-Path $source) { Copy-Item $source (Join-Path $OutDir "m5-$part-$stamp-$name"); Log "saved $name to $OutDir as m5-$part-$stamp-$name" }
+  }
+}
+function Http-Code([string] $url) { curl.exe -s -o NUL -w '%{http_code}' --max-time 20 $url }
 function Uninstall-Service {
+  Save-ServiceLogs
   & $built service uninstall 2>&1 | ForEach-Object { "  uninstall: $_" } | Log
   Clear-DnsClientCache
   Log "after uninstall: service present=$([bool](Service)), folder present=$(Test-Path $installDir), snisplit rules=$((Rules).Count), store.steampowered.com -> $(Resolve 'store.steampowered.com')"
@@ -141,7 +150,7 @@ if (-not $SwitchToSnisplit -and -not $AfterReboot) {
       Log-Run $run
       Log "rules after run ${i}: $((Rules).Count)"
     }
-    foreach ($delay in 200, 500, 1000, 2000) {
+    foreach ($delay in 0, 50, 100, 200, 500, 1000, 2000) {
       $run = Start-Run "ctrlc-$delay" @('run')
       Start-Sleep -Milliseconds $delay
       $exited = Send-CtrlC $run
@@ -191,18 +200,38 @@ if (-not $SwitchToSnisplit -and -not $AfterReboot) {
 
 if ($SwitchToSnisplit) {
   Log $zapretBundleNote
+  $zapretRemoved = $false
   try {
-    Say 'Switching this PC from zapret to snisplit: removing the zapret-steam and windivert services (the bundle folder is not touched).'
+    if (Service) { throw 'a snisplit service is already installed; run snisplit service uninstall first' }
+    Say 'Switching this PC from zapret to snisplit. First snisplit is proven with zapret stopped; only then are zapret-steam and windivert removed (the bundle folder is not touched).'
+    Stop-Service zapret-steam -Force
+    $deadline = (Get-Date).AddSeconds(15)
+    while ((Winws) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+    if (Winws) { throw 'winws still running' }
+    if (-not (Install-Service)) { throw 'the service did not start relaying within 60 s' }
+    Log-Checks 'switched'
+    $store = Http-Code 'https://store.steampowered.com/'
+    $content = Http-Code $contentUrl
+    Log "proof before removing zapret: store https $store, content http $content"
+    if ($store -ne '200' -or $content -ne '200') { throw "snisplit did not pass (store https $store, content http $content); zapret is kept" }
     'net stop zapret-steam', 'sc.exe delete zapret-steam', 'sc.exe stop windivert', 'sc.exe delete windivert' | ForEach-Object {
       $command = $_
       (cmd.exe /c "$command 2>&1") | ForEach-Object { "  ${command}: $_" } | Log
     }
-    Log "zapret-steam present=$([bool](Get-Service zapret-steam -ErrorAction SilentlyContinue)), windivert present=$([bool](Get-Service windivert -ErrorAction SilentlyContinue)), winws=$(Winws)"
-    if (-not (Install-Service)) { throw 'the service did not start relaying within 60 s' }
-    Log-Checks 'switched'
+    $zapretRemoved = -not (Get-Service zapret-steam -ErrorAction SilentlyContinue)
+    Log "zapret-steam present=$(-not $zapretRemoved), windivert present=$([bool](Get-Service windivert -ErrorAction SilentlyContinue)), winws=$(Winws)"
     Say 'Done. Reboot now, then run this script with -AfterReboot.'
   }
-  catch { Log "error: $_"; Say "Something failed; see $log. $zapretBundleNote" }
+  catch {
+    Log "error: $_"
+    if (-not $zapretRemoved) {
+      if (Service) { Uninstall-Service }
+      if ((RulesToRelay).Count -gt 0) { Remove-RelayRules }
+      Start-Service zapret-steam -ErrorAction SilentlyContinue
+      Log "rolled back: zapret $((Get-Service zapret-steam -ErrorAction SilentlyContinue).Status), winws=$(Winws), snisplit service present=$([bool](Service)), snisplit rules=$((Rules).Count)"
+    }
+    Say "Something failed; see $log. $zapretBundleNote"
+  }
   Log $zapretBundleNote
 }
 

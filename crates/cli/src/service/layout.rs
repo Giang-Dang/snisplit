@@ -19,9 +19,24 @@ impl Layout {
     }
 
     pub fn from_environment() -> io::Result<Self> {
-        env::var_os(PROGRAM_FILES)
-            .map(|program_files| Self::under(Path::new(&program_files)))
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "%ProgramFiles% is not set"))
+        Self::from_program_files(env::var_os(PROGRAM_FILES).map(PathBuf::from))
+    }
+
+    fn from_program_files(program_files: Option<PathBuf>) -> io::Result<Self> {
+        match program_files {
+            Some(folder) if folder.is_absolute() => Ok(Self::under(&folder)),
+            Some(folder) => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "%ProgramFiles% is not an absolute path: {:?}",
+                    folder.display().to_string()
+                ),
+            )),
+            None => Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "%ProgramFiles% is not set",
+            )),
+        }
     }
 
     pub fn root(&self) -> &Path {
