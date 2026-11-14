@@ -7,7 +7,7 @@ in Rust as an original implementation (no zapret code or binaries).
 
 Status: approach agreed 2026-11-14; milestone order proposed, not yet confirmed
 (QUIC and the tray were requested for v1 and are placed after the first release
-here). No code yet.
+here). Milestone 0 done locally 2026-11-14 (see section 4.1); CI not yet run.
 
 ## 1. Why this is feasible: what was measured
 
@@ -156,23 +156,45 @@ Ordering notes:
 
 - Milestone 4 is where this PC switches from zapret to snisplit. Removing the zapret
   service is a separate, explicit step.
-- Milestone 7 is the first public push. The repo stays local until then.
+- The repo is public on GitHub from the start; milestone 7 is the first release
+  meant for others to install.
 - QUIC is after the release on purpose: today's setup ignores UDP and Steam works.
   If the ISP does block QUIC by SNI, the cheap fix is to drop those QUIC packets so
   apps fall back to TCP; the alternative needs forged packets, which is out of scope.
+
+### 4.1 Milestone 0 result (2026-11-14)
+
+- Workspace: `crates/core` (pure; a first SNI extractor and IPv4/IPv6 TCP parser
+  with tests that include truncated and random input), `crates/backend-windows`
+  (WinDivert bindings; compiles to an empty crate off Windows), `crates/cli`
+  (placeholder binary). Linux, macOS and tray crates are added when their
+  milestones start.
+- WinDivert binding: hand-written FFI for the few functions used, linked with
+  `raw-dylib`. Building needs no WinDivert SDK, import library or download, so CI
+  builds on every OS. Revisit the wrapper crates only if the API surface grows a lot.
+- Spike: `cargo run -p snisplit-backend-windows --example sniff` (elevated, with
+  `WinDivert.dll` on PATH). It opens WinDivert in sniff mode with `NO_INSTALL` at
+  the highest priority, so it never changes traffic and only attaches to an
+  already-loaded driver. Run next to the live zapret service, with curl traffic,
+  it printed `store.steampowered.com`, `steamcommunity.com` and `example.com` as
+  the original SNIs, not zapret's fakes.
+- Not proven: the driver it attached to was the zapret bundle's third-party-signed
+  copy, not the official WinDivert build. Browser two-packet ClientHellos print as
+  "no SNI in first packet"; that is milestone 1-2 work.
+- CI: fmt, clippy (`-D warnings`) and tests on Windows, Linux and macOS.
 
 ## 5. Open questions and risks
 
 | Item | Why it matters | Resolved in |
 |---|---|---|
-| Which WinDivert binding to use | The `windivert` wrapper crate's last stable release is from 2023; `windivert-sys` is newer but in beta. Writing thin bindings by hand is an option. | Milestone 0 |
+| Which WinDivert binding to use | Resolved: hand-written FFI with `raw-dylib` (section 4.1). | Done |
 | ClientHello spanning two packets | Browsers with post-quantum key shares do this, and the SNI can land in either packet. Untested with split-only on this ISP. | Milestones 1-2 |
-| Is the bundled zapret driver the upstream WinDivert build? | It is signed by a third party, not the WinDivert author. A hash comparison against the official 2.2.2 release was blocked by the antivirus on download. Irrelevant once snisplit ships the official build. | Milestone 0 |
+| Is the bundled zapret driver the upstream WinDivert build? | It is signed by a third party, not the WinDivert author. A hash comparison against the official 2.2.2 release was blocked by the antivirus on download. Irrelevant once snisplit ships the official build, but development needs the official zip, which needs the user to allow it past the antivirus. | Milestone 2 |
 | `nfq` crate: can it return a modified payload, and is it maintained? | Last release 2022. A fork and a libnetfilter_queue binding exist. | Milestone 6 |
 | Linux test machine | WSL2 on this PC may work for NFQUEUE; unverified. Otherwise a VM. | Milestone 6 |
 | macOS packet interception | No WinDivert/NFQUEUE equivalent. The only documented route short of Apple's signed Network Extension is a pf redirect into a local transparent proxy, which changes the backend shape. | Milestone 10 |
 | Antivirus flags WinDivert | Kaspersky reported the driver as riskware on this PC. Friends will see the same. Needs a README section and the official driver build. | Milestone 7 |
-| Licence | WinDivert is LGPLv3/GPLv2 per its changelog (mirrors disagree; check the official LICENSE). Proposed for snisplit: MIT OR Apache-2.0, loading WinDivert as a separate DLL. | Milestone 0 |
+| Licence | snisplit is MIT OR Apache-2.0 (licence files added; still changeable while there are no outside contributors). WinDivert's official LICENSE: "dual-licensed under your choice of the GNU Lesser General Public License (LGPL) Version 3 or the GNU General Public License (GPL) Version 2". snisplit loads it as a separate, unmodified DLL; releases must include its licence. | Milestone 7 |
 | ISP changes its DPI | Split may stop working. `probe` shows what still works; fake-packet strategies would be the next step and are deliberately left out for now. | Ongoing |
 
 ## 6. References

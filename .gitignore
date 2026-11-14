@@ -1,0 +1,5 @@
+/target
+# WinDivert binaries are never committed; releases bundle the official build.
+*.dll
+*.sys
+*.lib

@@ -1,0 +1,21 @@
+[package]
+name = "snisplit-backend-windows"
+description = "WinDivert packet engine for snisplit (Windows only; empty elsewhere)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+# No tests here: the test binary would import WinDivert.dll and fail to start
+# on machines without it. Logic worth testing lives in snisplit-core.
+test = false
+doctest = false
+
+[dev-dependencies]
+snisplit-core.workspace = true
+
+[lints]
+workspace = true
