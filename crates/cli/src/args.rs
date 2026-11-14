@@ -1,5 +1,6 @@
 use std::fmt;
 use std::net::Ipv4Addr;
+use std::path::PathBuf;
 
 use crate::profile;
 
@@ -12,7 +13,9 @@ pub const USAGE: &str = "usage:
     snisplit help               print this text
 
 run options:
-    --profile <name>            relay only this profile (steam, medium); repeatable
+    --profile <name>            relay this built-in profile (steam, medium); repeatable
+    --profile-file <path>       relay the profile in this file; repeatable
+                                (with neither option, every built-in profile runs)
     --no-routing                do not add DNS rules; only the relay and DNS server run
     --upstream <ipv4>           DNS server used to find real addresses; repeatable
                                 (default: the system's DNS servers)
@@ -22,6 +25,7 @@ run options:
 pub struct RunOptions {
     pub verbose: bool,
     pub profiles: Vec<&'static str>,
+    pub profile_files: Vec<PathBuf>,
     pub routing: bool,
     pub upstreams: Vec<Ipv4Addr>,
 }
@@ -43,6 +47,7 @@ pub enum UsageError {
     UnexpectedArgument(String),
     MissingValue(String),
     UnknownProfile(String),
+    DuplicateProfileFile(String),
     InvalidAddress(String),
 }
 
@@ -55,6 +60,7 @@ impl fmt::Display for UsageError {
             Self::UnexpectedArgument(name) => write!(f, "unexpected argument: {name}"),
             Self::MissingValue(option) => write!(f, "{option} needs a value"),
             Self::UnknownProfile(name) => write!(f, "unknown profile: {name}"),
+            Self::DuplicateProfileFile(path) => write!(f, "profile file given twice: {path}"),
             Self::InvalidAddress(value) => write!(f, "not an IPv4 address: {value}"),
         }
     }
@@ -82,6 +88,7 @@ fn parse_run_options(mut args: impl Iterator<Item = String>) -> Result<RunOption
     let mut options = RunOptions {
         verbose: false,
         profiles: Vec::new(),
+        profile_files: Vec::new(),
         routing: true,
         upstreams: Vec::new(),
     };
@@ -96,6 +103,17 @@ fn parse_run_options(mut args: impl Iterator<Item = String>) -> Result<RunOption
                     options.profiles.push(built_in.name);
                 }
             }
+            "--profile-file" => {
+                let path = value_of(&arg, args.next())?;
+                if options
+                    .profile_files
+                    .iter()
+                    .any(|given| given.as_os_str() == path.as_str())
+                {
+                    return Err(UsageError::DuplicateProfileFile(path));
+                }
+                options.profile_files.push(PathBuf::from(path));
+            }
             "--upstream" => {
                 let value = value_of(&arg, args.next())?;
                 let address = value
@@ -107,7 +125,7 @@ fn parse_run_options(mut args: impl Iterator<Item = String>) -> Result<RunOption
             _ => return Err(UsageError::UnexpectedArgument(arg)),
         }
     }
-    if options.profiles.is_empty() {
+    if options.profiles.is_empty() && options.profile_files.is_empty() {
         options.profiles = profile::BUILT_IN.iter().map(|b| b.name).collect();
     }
     Ok(options)

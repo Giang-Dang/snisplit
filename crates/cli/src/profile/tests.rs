@@ -164,3 +164,102 @@ fn the_embedded_texts_are_plain_ascii_without_comments_or_carriage_returns() {
         assert!(!built_in.text.contains('\r'), "{}", built_in.name);
     }
 }
+
+struct ScratchDir(std::path::PathBuf);
+
+impl ScratchDir {
+    fn new() -> Self {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path =
+            std::env::temp_dir().join(format!("snisplit-profile-test-{}-{id}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+
+    fn file(&self, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let path = self.0.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+}
+
+impl Drop for ScratchDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn a_profile_file_on_disk_is_read_and_parsed_even_with_a_byte_order_mark_and_crlf() {
+    let dir = ScratchDir::new();
+    let path = dir.file(
+        "game.profile",
+        b"\xef\xbb\xbfname game\r\ndomains game.example.com\r\nhttp-ports none\r\n",
+    );
+    assert_eq!(
+        read_file(&path).unwrap(),
+        ProfileSpec {
+            name: "game".to_string(),
+            domains: vec!["game.example.com".to_string()],
+            tls_ports: vec![443],
+            tls_positions: vec![SplitPosition::Offset(1)],
+            http_ports: vec![],
+            http_method: HttpMethod::HostSpell,
+        }
+    );
+}
+
+#[test]
+fn a_bad_profile_file_reports_its_path_and_line_as_invalid_data() {
+    let dir = ScratchDir::new();
+    let path = dir.file(
+        "bad.profile",
+        b"name game\ndomains good.example.com\ndomains evil'.example.com\n",
+    );
+    let error = read_file(&path).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "{}:3: bad domain \"evil'.example.com\": only a-z, 0-9, '-' and '.' are allowed",
+            path.display()
+        )
+    );
+}
+
+#[test]
+fn a_missing_or_non_utf8_profile_file_is_an_error_naming_the_path() {
+    let dir = ScratchDir::new();
+    let missing = dir.0.join("nothing.profile");
+    let error = read_file(&missing).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    assert!(
+        error
+            .to_string()
+            .starts_with(&format!("cannot read profile file {}: ", missing.display())),
+        "{error}"
+    );
+    let binary = dir.file("binary.profile", b"name game\ndomains \xff\xfe.com\n");
+    let error = read_file(&binary).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(
+        error
+            .to_string()
+            .starts_with(&format!("cannot read profile file {}: ", binary.display())),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_profile_file_may_not_take_a_built_in_name() {
+    for name in ["steam", "medium"] {
+        let text = format!("name {name}\ndomains game.example.com\n");
+        let error = parse_file("x.profile", &text).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("x.profile:1: bad name \"{name}\": it is the name of a built-in profile")
+        );
+    }
+    assert!(parse_file("x.profile", "name steam2\ndomains game.example.com\n").is_ok());
+}

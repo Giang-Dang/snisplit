@@ -75,8 +75,17 @@ fn run(options: RunOptions) -> io::Result<()> {
         .block_on(serve(options))
 }
 
+fn load_selection(options: &RunOptions) -> io::Result<Vec<Selected>> {
+    let files = options
+        .profile_files
+        .iter()
+        .map(|path| profile::read_file(path))
+        .collect::<io::Result<Vec<_>>>()?;
+    plan::select(&options.profiles, files).map_err(io::Error::other)
+}
+
 async fn serve(options: RunOptions) -> io::Result<()> {
-    let selected = plan::select(&options.profiles, Vec::new()).map_err(io::Error::other)?;
+    let selected = load_selection(&options)?;
     let system = if options.upstreams.is_empty() {
         routing::system_dns_servers()?
     } else {
@@ -380,5 +389,24 @@ mod tests {
             )
         );
         assert!(describe_start(&selected, &upstreams, false).contains("; no DNS rules;"));
+    }
+
+    #[test]
+    fn the_start_line_shows_file_profiles_after_the_built_ins_with_their_own_addresses() {
+        let file = profile::parse_file(
+            "game.profile",
+            "name game\ndomains game.example.com cdn.example.org\n",
+        )
+        .unwrap();
+        let selected = plan::select(&["medium"], vec![file]).unwrap();
+        let upstreams = ["1.1.1.1:53".parse().unwrap()];
+        assert_eq!(
+            describe_start(&selected, &upstreams, false),
+            format!(
+                "snisplit {VERSION}: relaying medium (1 domain) on 127.0.0.3, \
+                 game (2 domains) on 127.0.0.4; upstream DNS 1.1.1.1:53; \
+                 no DNS rules; Ctrl+C to stop"
+            )
+        );
     }
 }
