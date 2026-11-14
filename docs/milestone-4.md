@@ -220,3 +220,45 @@ bytes through unchanged, `DnsServer::bind` taking and ignoring the resolver, and
 - A config directory or default profile-file location: `--profile-file` is enough
   until the service (milestone 5) needs one.
 - Start-up time, Ctrl+C during start-up, batched rule install: milestone 5.
+
+## Decisions made during implementation
+
+- Respelling: a head that triggers a stop (Transfer-Encoding, unusable Content-Length,
+  Upgrade, CONNECT) is still respelled; only the bytes after it pass unchanged. A
+  request line that is not HTTP/1.x, or a head over 16 KiB, is sent unchanged. A blank
+  line before a request line counts as not HTTP.
+- If the first flight ends inside a head, the respeller holds it, the first write is
+  empty and the log says `in 0 pieces`; the held bytes go out once the head completes
+  or the client closes.
+- `Closed` is emitted by a drop guard, so connections cut by shutdown report too
+  (after `Relay::run` returns). Refused and failed connections emit no `Closed`.
+- The HTTP end-to-end tests live in `crates/relay/src/connection/tests.rs`, not
+  `crates/relay/tests/http.rs`: the public `Relay::bind` refuses loopback upstream
+  answers, so a public-API test cannot reach a loopback fake server.
+- DNS: the pending-task cap covers listed-name lookups too. A resolver answer that
+  has only loopback addresses still counts as "has addresses"; the relay filters
+  unusable addresses when it connects.
+- Profile files: a BOM and CRLF are accepted; `#` starts a comment only at the start
+  of a line; ports are digits only; a port repeated in one list, or clashing with the
+  other list's default (`tls-ports 80` alone), is an error; the same `--profile-file`
+  path twice is a usage error; the same domain in two profiles is matched exactly
+  (a suffix overlap such as `a.com` and `b.a.com` is allowed); addresses end at
+  127.0.0.254. `profile::read_file` does the file I/O.
+- Stream C ran the debug binary three times without `--no-routing`, against the
+  brief. Each run stopped on a profile or argument error before any resolver or
+  routing call (unelevated, too); afterwards 0 snisplit rules existed and medium.com
+  resolved to its real addresses (checked by the lead).
+
+## Acceptance results
+
+### Done-when 1 and 2 (no admin, zapret running), 2026-11-14 19:10
+
+| Check | Result |
+|---|---|
+| `curl http://medium.com/ http://medium.com/`, direct | `000` both (reset) |
+| same through `run --no-routing --profile medium` with `--resolve medium.com:80:127.0.0.3` | `301`, `301`, one connection; log `closed medium.com:80: 148 bytes sent, 1264 received, 2 Host headers respelled` |
+| `https://medium.com/` through 127.0.0.3 | `403` from the server (handshake through, 2 pieces) |
+| profile file `medium-copy` (`name`, `domains medium.com`, `http-ports 80`) via `--profile-file`, `--no-routing` | start line `relaying medium-copy (1 domain) on 127.0.0.4`; HTTPS `403`; HTTP `301`, `301` on one connection, 2 respelled |
+
+Done-when 1: PASS. Done-when 2: PASS. Done-when 3 and 4 need the elevated run with
+zapret stopped (`tools/acceptance/m4.ps1`).
