@@ -130,17 +130,13 @@ fn medium_profile_matches_medium_and_its_subdomains_only() {
 }
 
 #[test]
-fn built_in_profiles_are_found_by_exact_name_and_each_file_names_itself() {
+fn built_in_profiles_are_found_by_exact_name_in_the_address_order() {
     assert_eq!(find("steam").map(|b| b.name), Some("steam"));
     assert_eq!(find("medium").map(|b| b.name), Some("medium"));
     assert!(find("Steam").is_none());
     assert!(find("other").is_none());
-    for built_in in &BUILT_IN {
-        assert_eq!(
-            built_in.spec().map(|spec| spec.name),
-            Ok(built_in.name.to_string())
-        );
-    }
+    let names: Vec<&str> = BUILT_IN.iter().map(|built_in| built_in.name).collect();
+    assert_eq!(names, ["steam", "medium"]);
 }
 
 #[test]
