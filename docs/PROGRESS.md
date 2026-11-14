@@ -10,7 +10,7 @@ this file says where the work stands and what to do next.
 | 0 Scaffold, licence, CI, WinDivert spike | Done (PLAN.md 5.1) |
 | 1 Core: parsers, matcher, strategy, segment planner, engine | Done (PLAN.md 5.2, docs/milestone-1.md) |
 | 2 Feasibility spike for the driverless design | **Done.** Owner said go on 2026-11-14 (docs/milestone-2-spike.md); crates decided (PLAN.md D11) |
-| 3 Relay + DNS, HTTPS only, foreground | Next. Built-in profiles: Steam and medium.com |
+| 3 Relay + DNS, HTTPS only, foreground | **In progress** (docs/milestone-3.md): relay, DNS server, upstream resolver, NRPT routing and `run`/`cleanup` merged; done-when 1 (no admin, medium via curl) passed; elevated acceptance (`tools/acceptance/m3.ps1`) pending |
 | 4 and later | Not started |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
@@ -20,8 +20,9 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 
 ## Next step
 
-Plan milestone 3 (relay + DNS, HTTPS only, foreground) on tokio (D11), using cut at
-byte 1 for TLS; `hoSt:` for HTTP follows in milestone 4. The notes below are the original plan
+Run the elevated milestone 3 acceptance with the owner (`tools/acceptance/m3.ps1`;
+it stops `zapret-steam` for the Steam part, so ask first), record the result in
+docs/milestone-3.md, then milestone 4 (`hoSt:` for HTTP). The notes below are the original plan
 for the spike questions, kept for reference.
 
 - Question 1 (do two writes get HTTPS through where one write fails) and question 2
@@ -42,7 +43,7 @@ for it was removed; no code from it exists.
 
 - `crates/core`: TLS ClientHello and HTTP Host inspection, domain matcher, split
   strategy (reused by the relay); segment planner, flow table, engine, packet loop
-  (parked). 12 real Steam ClientHello fixtures. The workspace has 164 passing tests.
+  (parked). 12 real Steam ClientHello fixtures. The workspace has 291 passing tests.
 - `crates/cli`: `snisplit run [--verbose]`, `--version`, `help`, built-in Steam
   profile. `run` currently exits with "unsupported": it was wired to the parked
   engine and will be rewired to the relay in milestone 3.
