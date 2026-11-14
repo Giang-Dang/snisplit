@@ -11,6 +11,9 @@ crates without the tech lead's approval. Profiles and TOML stay in milestone 3.
 - No code comments of any kind (line, block, doc). Names, types and small functions
   carry the meaning.
 - ASCII only in source.
+- Unit tests live in `#[cfg(test)] mod tests`. Inline when short; once a test module
+  passes about 150 lines it moves to `<module>/tests.rs` (declared as `mod tests;`).
+  Tests of the public API only go in `crates/<crate>/tests/`.
 - `cargo fmt --all --check`, `cargo clippy --workspace --all-targets` with
   `RUSTFLAGS=-D warnings`, and `cargo test --workspace` pass before every commit.
 - Never push, never run anything elevated, never touch the zapret service or bundle.
