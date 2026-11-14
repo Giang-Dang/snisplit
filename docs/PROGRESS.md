@@ -45,7 +45,7 @@ for it was removed; no code from it exists.
 
 - `crates/core`: TLS ClientHello and HTTP Host inspection, domain matcher, split
   strategy (reused by the relay); segment planner, flow table, engine, packet loop
-  (parked). 12 real Steam ClientHello fixtures. The workspace has 374 passing tests.
+  (parked). 12 real Steam ClientHello fixtures. The workspace has 376 passing tests.
 - `crates/core` also has the DNS codec (`dns`), the relay's first-flight decision
   (`first_flight`) and the HTTP `Host` respeller (`http_stream`).
 - `crates/relay`: tokio TCP relay (cut writes; every HTTP request head respelled to

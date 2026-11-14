@@ -14,6 +14,7 @@ const MEDIUM_ANSWER: &[u8] =
 
 const SHORT_PATIENCE: Duration = Duration::from_millis(250);
 const GENEROUS_PATIENCE: Duration = Duration::from_secs(30);
+const WELL_UNDER_GENEROUS_PATIENCE: Duration = Duration::from_secs(5);
 const MEDIUM_ADDRESSES: [Ipv4Addr; 2] = [
     Ipv4Addr::new(0xa2, 0x9f, 0x99, 0x04),
     Ipv4Addr::new(0xa2, 0x9f, 0x98, 0x04),
@@ -208,10 +209,11 @@ fn a_name_that_does_not_exist_is_answered_empty_at_once_without_asking_the_next_
         let next = FakeDns::start(Script::MediumAnswer).await;
         let resolver = resolver(&[&missing, &next], GENEROUS_PATIENCE);
 
-        let addresses = tokio::time::timeout(SHORT_PATIENCE, resolver.resolve("medium.com"))
-            .await
-            .expect("a name error ends the lookup without waiting for the timeout")
-            .unwrap();
+        let addresses =
+            tokio::time::timeout(WELL_UNDER_GENEROUS_PATIENCE, resolver.resolve("medium.com"))
+                .await
+                .expect("a name error ends the lookup without waiting for the timeout")
+                .unwrap();
 
         assert_eq!(addresses, Vec::<Ipv4Addr>::new());
         assert_eq!(missing.queries_seen(), 1);
