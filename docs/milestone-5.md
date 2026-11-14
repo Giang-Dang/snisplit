@@ -343,3 +343,12 @@ milestone.
 - Outcome: the self-installing service is flagged on this PC twice, each time at the
   install step, while foreground runs of the same file pass. Per the rule agreed
   before the retry, there is no further retry and no variant.
+
+### Owner's foreground trial, 2026-11-14 evening
+
+- The owner stopped `zapret-steam` and ran `snisplit run --verbose` from an
+  administrator terminal with the Steam client already open. Steam worked without a
+  restart (owner). Checked by the lead while it ran: one `snisplit` process, no
+  service, 2 snisplit rules, `store.steampowered.com` resolves to 127.0.0.2, store
+  HTTPS `200`, zapret stopped, no `winws`. This closes the open question from
+  milestone 3 about a Steam client left running.
