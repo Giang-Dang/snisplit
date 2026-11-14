@@ -7,7 +7,7 @@ in Rust as an original implementation (no zapret code or binaries).
 
 Status: approach agreed 2026-11-14; milestone order proposed, not yet confirmed
 (QUIC and the tray were requested for v1 and are placed after the first release
-here). Milestone 0 done locally 2026-11-14 (see section 4.1); CI not yet run.
+here). Milestone 0 done 2026-11-14 (see section 4.1); CI green on Windows, Linux and macOS.
 
 ## 1. Why this is feasible: what was measured
 
