@@ -1,4 +1,6 @@
 use super::*;
+use snisplit_core::first_flight::HttpMethod;
+use snisplit_core::strategy::SplitPosition;
 
 const EXPECTED_STEAM_DOMAINS: [&str; 14] = [
     "steampowered.com",
@@ -17,14 +19,48 @@ const EXPECTED_STEAM_DOMAINS: [&str; 14] = [
     "valvesoftware.com",
 ];
 
+fn built_in(name: &str) -> ProfileSpec {
+    find(name)
+        .unwrap_or_else(|| panic!("no built-in {name}"))
+        .spec()
+        .unwrap_or_else(|error| panic!("{error}"))
+}
+
 #[test]
-fn steam_domain_list_is_exactly_the_decided_list() {
-    assert_eq!(STEAM_DOMAINS, EXPECTED_STEAM_DOMAINS);
+fn the_steam_file_parses_to_the_milestone_3_values() {
+    let mut tls_ports = vec![443];
+    tls_ports.extend(27015..=27030);
+    assert_eq!(
+        built_in("steam"),
+        ProfileSpec {
+            name: "steam".to_string(),
+            domains: EXPECTED_STEAM_DOMAINS.map(str::to_string).to_vec(),
+            tls_ports,
+            tls_positions: vec![SplitPosition::Offset(1), SplitPosition::DomainMid],
+            http_ports: vec![80],
+            http_method: HttpMethod::HostSpell,
+        }
+    );
+}
+
+#[test]
+fn the_medium_file_parses_to_the_milestone_3_values() {
+    assert_eq!(
+        built_in("medium"),
+        ProfileSpec {
+            name: "medium".to_string(),
+            domains: vec!["medium.com".to_string()],
+            tls_ports: vec![443],
+            tls_positions: vec![SplitPosition::Offset(1)],
+            http_ports: vec![80],
+            http_method: HttpMethod::HostSpell,
+        }
+    );
 }
 
 #[test]
 fn steam_profile_matches_every_listed_domain_and_its_subdomains() {
-    let profile = steam();
+    let profile = built_in("steam").relay_profile();
     for domain in EXPECTED_STEAM_DOMAINS {
         let sub = format!("cdn.{domain}");
         assert_eq!(
@@ -42,7 +78,7 @@ fn steam_profile_matches_every_listed_domain_and_its_subdomains() {
 
 #[test]
 fn steam_profile_ignores_unlisted_and_lookalike_hosts() {
-    let profile = steam();
+    let profile = built_in("steam").relay_profile();
     for host in [
         "example.org",
         "notsteampowered.com",
@@ -60,29 +96,23 @@ fn steam_profile_ignores_unlisted_and_lookalike_hosts() {
 }
 
 #[test]
-fn steam_cuts_after_the_first_byte_and_mid_domain_as_measured() {
-    assert_eq!(
-        steam().tls_positions,
-        vec![SplitPosition::Offset(1), SplitPosition::DomainMid]
-    );
-}
-
-#[test]
 fn steam_listens_on_https_and_the_client_range_without_its_streaming_port() {
-    let ports = steam().tls_ports;
-    let mut expected = vec![443];
-    expected.extend(27015..=27030);
-    assert_eq!(ports, expected);
-    for observed_cm_port in [443, 27018, 27019, 27020, 27024] {
-        assert!(ports.contains(&observed_cm_port), "{observed_cm_port}");
+    let spec = built_in("steam");
+    for observed_cm_port in [443, 27015, 27018, 27019, 27020, 27024, 27030] {
+        assert!(
+            spec.tls_ports.contains(&observed_cm_port),
+            "{observed_cm_port}"
+        );
     }
-    assert!(!ports.contains(&27036));
-    assert_eq!(steam().http_ports, vec![80]);
+    for absent in [27014, 27031, 27036, 80] {
+        assert!(!spec.tls_ports.contains(&absent), "{absent}");
+    }
+    assert_eq!(spec.http_ports, vec![80]);
 }
 
 #[test]
 fn medium_profile_matches_medium_and_its_subdomains_only() {
-    let profile = medium();
+    let profile = built_in("medium").relay_profile();
     for (host, expected) in [
         ("medium.com", Some(0..10)),
         ("www.medium.com", Some(4..14)),
@@ -100,21 +130,37 @@ fn medium_profile_matches_medium_and_its_subdomains_only() {
 }
 
 #[test]
-fn medium_cuts_only_after_the_first_byte_on_https_and_relays_http() {
-    let profile = medium();
-    assert_eq!(profile.tls_positions, vec![SplitPosition::Offset(1)]);
-    assert_eq!(profile.tls_ports, vec![443]);
-    assert_eq!(profile.http_ports, vec![80]);
+fn built_in_profiles_are_found_by_exact_name_and_each_file_names_itself() {
+    assert_eq!(find("steam").map(|b| b.name), Some("steam"));
+    assert_eq!(find("medium").map(|b| b.name), Some("medium"));
+    assert!(find("Steam").is_none());
+    assert!(find("other").is_none());
+    for built_in in &BUILT_IN {
+        assert_eq!(
+            built_in.spec().map(|spec| spec.name),
+            Ok(built_in.name.to_string())
+        );
+    }
 }
 
 #[test]
-fn built_in_profiles_are_found_by_name_and_carry_their_own_list() {
-    assert_eq!(find("steam").map(|b| b.domains.len()), Some(14));
-    assert_eq!(find("medium").map(|b| b.domains), Some(&["medium.com"][..]));
+fn the_embedded_texts_are_the_files_the_names_promise() {
+    let steam = find("steam").unwrap().text;
+    assert!(steam.starts_with("name steam\ndomains steampowered.com\n"));
+    assert!(steam.ends_with(
+        "tls-ports 443 27015-27030\ntls-split 1 domain-mid\nhttp-ports 80\nhttp-method host-spell\n"
+    ));
     assert_eq!(
-        find("steam").map(|b| (b.profile)().name),
-        Some("steam".to_string())
+        find("medium").unwrap().text,
+        "name medium\ndomains medium.com\ntls-ports 443\ntls-split 1\nhttp-ports 80\nhttp-method host-spell\n"
     );
-    assert!(find("Steam").is_none());
-    assert!(find("other").is_none());
+}
+
+#[test]
+fn the_embedded_texts_are_plain_ascii_without_comments_or_carriage_returns() {
+    for built_in in &BUILT_IN {
+        assert!(built_in.text.is_ascii(), "{}", built_in.name);
+        assert!(!built_in.text.contains('#'), "{}", built_in.name);
+        assert!(!built_in.text.contains('\r'), "{}", built_in.name);
+    }
 }

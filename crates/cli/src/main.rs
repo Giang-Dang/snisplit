@@ -1,6 +1,7 @@
 mod args;
 mod plan;
 mod profile;
+mod profile_file;
 mod routing;
 
 use std::env;
@@ -64,7 +65,7 @@ fn run(options: RunOptions) -> io::Result<()> {
 }
 
 async fn serve(options: RunOptions) -> io::Result<()> {
-    let selected = plan::select(&options.profiles);
+    let selected = plan::select(&options.profiles, Vec::new()).map_err(io::Error::other)?;
     let system = if options.upstreams.is_empty() {
         routing::system_dns_servers()?
     } else {
@@ -89,7 +90,7 @@ async fn serve(options: RunOptions) -> io::Result<()> {
     let mut dns_servers = Vec::new();
     for selection in &selected {
         let listen = SocketAddr::from((selection.address, plan::DNS_PORT));
-        let profiles = vec![(selection.built_in.profile)()];
+        let profiles = vec![selection.profile.relay_profile()];
         let server = DnsServer::bind(
             listen,
             profiles,
@@ -132,7 +133,13 @@ async fn wait_for_stop(mut stopped: watch::Receiver<bool>) {
 
 fn install_rules(selected: &[Selected]) -> io::Result<()> {
     for selection in selected {
-        routing::install(selection.built_in.domains, selection.address)?;
+        let domains: Vec<&str> = selection
+            .profile
+            .domains
+            .iter()
+            .map(String::as_str)
+            .collect();
+        routing::install(&domains, selection.address)?;
     }
     routing::flush_cache()
 }
@@ -167,9 +174,9 @@ fn describe_start(selected: &[Selected], upstreams: &[SocketAddr], routing: bool
     let profiles: Vec<String> = selected
         .iter()
         .map(|s| {
-            let count = s.built_in.domains.len();
+            let count = s.profile.domains.len();
             let noun = if count == 1 { "domain" } else { "domains" };
-            format!("{} ({count} {noun}) on {}", s.built_in.name, s.address)
+            format!("{} ({count} {noun}) on {}", s.profile.name, s.address)
         })
         .collect();
     let upstreams: Vec<String> = upstreams.iter().map(SocketAddr::to_string).collect();
@@ -351,7 +358,7 @@ mod tests {
 
     #[test]
     fn the_start_line_lists_profiles_addresses_upstreams_and_routing() {
-        let selected = plan::select(&["steam", "medium"]);
+        let selected = plan::select(&["steam", "medium"], Vec::new()).unwrap();
         let upstreams = ["1.1.1.1:53".parse().unwrap(), "1.0.0.1:53".parse().unwrap()];
         assert_eq!(
             describe_start(&selected, &upstreams, true),
