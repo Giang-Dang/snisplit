@@ -9,10 +9,10 @@ use std::time::Duration;
 use snisplit_core::dns::{self, TYPE_A};
 use snisplit_core::first_flight::RelayProfile;
 use tokio::net::UdpSocket;
-
-use crate::resolve::{Resolve, ResolveBoxed};
 use tokio::task::JoinSet;
 use tokio::time::{Instant, timeout_at};
+
+use crate::resolve::{Resolve, ResolveBoxed};
 
 const MAX_DATAGRAM: usize = 4096;
 const ANSWER_TTL_SECONDS: u32 = 5;
