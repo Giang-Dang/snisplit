@@ -276,7 +276,7 @@ covered.
   lookups went through the system resolver (DNS client log: store.steampowered.com,
   steamcommunity.com, store/shared/cdn `*.steamstatic.com`) and the relay forwarded 39
   first flights, 0 refused, 0 failed. That shows Chrome's connections reached the
-  relay; whether the page rendered is the owner's observation (pending).
+  relay; the owner confirmed the pages rendered in Chrome and in the Steam client.
 - The Steam client was not restarted within the 300 s window, so login and the
   client's Store page are not covered yet.
 - After: 0 rules left, zapret Running with winws, store 200 through zapret.
@@ -317,9 +317,17 @@ logged in and opened the Store: PASS.
 |---|---|---|
 | 1 | No admin, medium via curl | PASS |
 | 2 | Elevated, medium through NRPT in curl and Chrome; example.org unchanged | PASS |
-| 3 | Elevated, zapret stopped: 4 Steam URLs in curl and Chrome; Steam client login and Store; steamwebhelper on the system resolver | PASS for curl, login and resolver routing; Chrome and the client Store reached the relay, rendering confirmed by the owner (pending) |
+| 3 | Elevated, zapret stopped: 4 Steam URLs in curl and Chrome; Steam client login and Store; steamwebhelper on the system resolver | PASS: curl status codes, login 'OK' through 127.0.0.2:27018, resolver routing; pages rendered in Chrome and the Steam client (owner) |
 | 4 | Ctrl+C removes every rule and flushes; names resolve normally again; `cleanup` | PASS for Ctrl+C (three runs). `snisplit cleanup` and the start-time removal of stale rules have not yet met a real leftover rule: pending a kill-and-cleanup run |
 
 Open items carried forward: HTTP on port 80 (milestone 4, `hoSt:`), IPv6-only
 listed names, start-up time (milestone 5), Ctrl+C before the handler is registered
 leaves rules (milestone 5).
+
+### Kill-and-cleanup, `tools/acceptance/m3-cleanup.ps1`, first attempt 18:23
+
+- `run --profile medium` ready after 2.4 s, 2 rules, medium.com -> 127.0.0.3; the
+  owner opened https://medium.com/ in their own Chrome: the page rendered.
+- The script then stopped on its own bug (a function named `Kill` is shadowed by
+  PowerShell's `kill` alias for Stop-Process); its `finally` removed the 2 rules by
+  name server, 0 left. Fixed (`Stop-Hard`) for the rerun; `cleanup` still pending.

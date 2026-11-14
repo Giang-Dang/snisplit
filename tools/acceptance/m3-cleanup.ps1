@@ -1,6 +1,6 @@
 param(
   [string] $OutDir = $env:TEMP,
-  [int] $BrowseSeconds = 60
+  [int] $BrowseSeconds = 10
 )
 $ErrorActionPreference = 'Continue'
 $exe = (Resolve-Path (Join-Path $PSScriptRoot '..\..\target\release\snisplit.exe')).Path
@@ -24,11 +24,11 @@ function Start-Medium($name) {
     $ready = [bool](Select-String $out -Pattern 'Ctrl\+C to stop' -Quiet -ErrorAction SilentlyContinue)
     if (-not $ready) { Start-Sleep -Milliseconds 200 }
   }
-  Log "$name ready=$ready after $([int]((Get-Date) - $t0).TotalMilliseconds) ms; rules pointing at the relay: $((RulesToRelay).Count); medium.com -> $(Resolve 'medium.com')"
+  Log "$name ready=$ready after $([int]((Get-Date) - $t0).TotalMilliseconds) ms; rules pointing at the relay: $((RulesToRelay).Count); medium.com -> $(Resolve 'medium.com')" | Out-Host
   @{ Process = $p; Out = $out; Err = $err }
 }
 
-function Kill($run, $name) {
+function Stop-Hard($run, $name) {
   Stop-Process -Id $run.Process.Id -Force
   $run.Process.WaitForExit(10000) | Out-Null
   Log "$name killed; rules pointing at the relay: $((RulesToRelay).Count); medium.com -> $(Resolve 'medium.com')"
@@ -42,9 +42,9 @@ try {
   $first = Start-Medium 'first'
   Say "Open https://medium.com/ in your Chrome now and check that the page renders. Waiting $BrowseSeconds s."
   Start-Sleep $BrowseSeconds
-  Kill $first 'first'
+  Stop-Hard $first 'first'
   $second = Start-Medium 'second'
-  Kill $second 'second'
+  Stop-Hard $second 'second'
   Log '--- snisplit cleanup'
   & $exe cleanup 2>&1 | ForEach-Object { "  $_" } | Log
   Log "cleanup exit code: $LASTEXITCODE"
