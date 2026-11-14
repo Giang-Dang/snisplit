@@ -27,7 +27,8 @@ if (Test-Path (Join-Path $installDir 'logs\snisplit.log')) { Copy-Item (Join-Pat
 @(Rules) + @(RulesToRelay) | Sort-Object Name -Unique | ForEach-Object { Remove-DnsClientNrptRule -Name $_.Name -Force }
 Clear-DnsClientCache
 if ([IO.Path]::IsPathFullyQualified($installDir) -and (Test-Path $installDir)) { Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction Continue }
-if ((Get-Service zapret-steam -ErrorAction SilentlyContinue).Status -ne 'Running') { Start-Service zapret-steam }
+$zapret = Get-Service zapret-steam -ErrorAction SilentlyContinue
+if ($zapret -and $zapret.Status -ne 'Running') { Start-Service zapret-steam }
 Start-Sleep 2
 Log "after: $(State)"
 Log "store.steampowered.com -> $(((Resolve-DnsName store.steampowered.com -Type A -DnsOnly -ErrorAction SilentlyContinue | Where-Object IPAddress).IPAddress) -join ',')"
