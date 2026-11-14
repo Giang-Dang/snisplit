@@ -21,6 +21,10 @@ Status (current state and next step: docs/PROGRESS.md):
   Done 2026-11-14: a 1.66 GB Steam game download went through the relay with zapret
   stopped, entirely over plain HTTP on port 80.
 - 2026-11-14: milestones 6 to 9 are delegated to the lead, Windows only (D13); order: 6 and 8, then 9, then 7.
+- Milestone 8 measured 2026-11-14 (docs/milestone-8.md): QUIC to medium.com and three Steam
+  names completes while TCP with the same name is reset, so this ISP does not filter QUIC by
+  server name and no QUIC work is planned. Open for the owner: how fast a browser falls back
+  to TCP when a remembered alt-svc points it at a routed name.
 - Milestone 6 done 2026-11-15 (docs/milestone-6.md): `snisplit probe <domain>` reproduces the
   no-bypass and split rows of section 1 and prints a profile file.
 
@@ -49,6 +53,11 @@ Conclusions:
   measured working case, provided each write leaves as its own segment (untested).
 - HTTP needs out-of-order segments; an in-order mid-host split failed. The driverless
   design cannot reorder segments directly and has no proven HTTP method yet.
+
+Milestone 6 note (2026-11-15): `probe` found a single cut at the start of the host or in
+the middle of the domain reset on every blocked name, while a cut at byte 1 answered. The
+exact position behind the row "one split right after the start of the SNI extension" was
+not recorded, so that row is unconfirmed; profiles use a cut at byte 1.
 
 Limits of the evidence: curl only; one ISP, one day, IPv4 only; QUIC (UDP 443) not
 tested. Milestone 1 later captured Chrome and Steam client ClientHellos on this PC:

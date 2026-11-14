@@ -14,7 +14,9 @@ this file says where the work stands and what to do next.
 | 4 HTTP respelling, profile files, IPv6-only names | **Done** 2026-11-14 (docs/milestone-4.md): every HTTP request respelled to `hoSt:`; Steam HTTP store, content servers and a real game download (1.66 GB, all on port 80) through the relay with zapret stopped; `--profile-file`; IPv6-only names forwarded |
 | 5 Foreground use, crash-safe DNS rules, zapret removed (rescoped) | **Done** 2026-11-14 (docs/milestone-5.md): the Windows service was built, proven in CI and removed after Kaspersky terminated its install twice; zapret removed; the foreground build runs with no Kaspersky alert; Ctrl+C at any moment and closing the window leave 0 rules; Steam login and a game download through `snisplit run` (owner). Start-up 0.7-2.0 s, accepted (D14) |
 | 6 `probe` | **Done** 2026-11-15 (docs/milestone-6.md): `snisplit probe <domain>` reproduces section 1's no-bypass and split rows (store.steampowered.com, medium.com blocked, cut at byte 1 and `hoSt:` pass; example.org not blocked) and prints a profile file; library entry point `snisplit_relay::probe::probe` for the UI |
-| 7 and later | 8: see docs/milestone-8.md; 7, 9 and 10 not started |
+| 8 QUIC | **Measured** 2026-11-14 (docs/milestone-8.md): not filtered by server name on this ISP; no QUIC work. Awaiting the owner: one routed browser run to time the fallback to TCP |
+| 7, 9 | Not started; order 9 then 7 |
+| 10 Linux and macOS | Deferred (PLAN.md D13) |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
 snisplit answers DNS for listed domains with a loopback address and relays the
