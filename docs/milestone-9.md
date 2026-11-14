@@ -63,15 +63,19 @@ untracked `sites/` folder at the repo root.
 Library `snisplit` (crate `crates/cli`):
 
 ```rust
-pub mod profile;      // BUILT_IN, BuiltIn::spec, find, parse_file, read_file (unchanged)
-pub mod session;      // below
-pub mod sites;        // below
-pub mod system_dns;   // servers()
+pub mod profile;
+pub mod session;
+pub mod sites;
+pub mod system_dns;
 pub use plan::{DEFAULT_PROBE_RUNS, DEFAULT_PROBE_TIMEOUT, DNS_PORT, PIECE_GAP,
                UPSTREAM_TIMEOUT, upstream_servers};
 pub use profile_file::{Problem, ProfileError, ProfileSpec, parse_domain};
 pub const VERSION: &str;
 ```
+
+`profile` keeps `BUILT_IN`, `BuiltIn::spec`, `find` and `parse_file`; `read_file` became
+crate-internal. `system_dns` exposes `servers()`. The other modules (`plan`, `profile_file`,
+`routing`) stay private; only the items re-exported above are public.
 
 `snisplit::session`:
 
@@ -98,16 +102,14 @@ line of the PowerShell error.
 
 ```rust
 pub struct SiteFile { pub name: String, pub loaded: Result<ProfileSpec, String> }
-pub struct Admitted { pub sites: Vec<ProfileSpec>, pub notes: Vec<String> }
 pub fn folder() -> Option<PathBuf>;
 pub fn list(folder: &Path) -> io::Result<Vec<SiteFile>>;
-pub fn admit(taken: &[ProfileSpec], files: Vec<SiteFile>) -> Admitted;
 pub fn add(folder: &Path, profile_text: &str) -> io::Result<ProfileSpec>;
 pub fn remove(folder: &Path, name: &str) -> io::Result<()>;
 pub fn built_in_specs() -> io::Result<Vec<ProfileSpec>>;
 ```
 
-Every function takes the folder as a parameter; only the two `main`s call `folder()`, so
+`admit` (the coverage rule above) is crate-internal: only the session uses it. Every function takes the folder as a parameter; only the two `main`s call `folder()`, so
 no test reads or writes the real `%APPDATA%`.
 
 Library `snisplit_gui`: `state` (`State::update(Event) -> Vec<Effect>`, `site_list`),
@@ -196,15 +198,22 @@ compatibility setting fails with the same elevation error, as intended.
 ## Verified overnight, and how
 
 Not elevated throughout (checked with `WindowsPrincipal.IsInRole(Administrator)`: False).
-Before: `Get-Process snisplit*` empty, 0 NRPT rules.
+Before: `Get-Process snisplit*` empty, 0 NRPT rules. No antivirus block, termination or
+missing binary was observed at any point; `snisplit.exe` and `snisplit-gui.exe` were on
+disk at the end.
 
-Tests: 510 pass on Windows (472 before): 9 site-folder tests (a tenth runs only off Windows), 2 session tests with a
-site folder, a ready signal and the routing-failure cause checked inside existing
-session tests, 21 state-machine tests, 3 report tests, 3 driver tests with a temporary
-folder. None touches the internet, binds a port, changes DNS rules or writes outside the
-temp directory. Gates on every commit: `cargo fmt --all --check`, `RUSTFLAGS="-D warnings"
-cargo clippy --workspace --all-targets`, the same with `--target x86_64-unknown-linux-gnu`,
-`cargo test --workspace`.
+Tests: 512 pass on Windows (472 before): 9 site-folder tests (a tenth, the folder from
+`XDG_CONFIG_HOME` or `HOME`, runs only off Windows and was only compile-checked here,
+through the Linux-target clippy), 2 session tests with a site folder, 21 state-machine
+tests, 3 report tests, 2 driver unit tests and 3 driver tests with a temporary folder. The
+ready signal and the routing-failure cause are asserted inside existing session tests;
+those tests, like before, bind loopback 127.0.0.4 ports 53 and 443. No new test touches
+the internet, binds a port, changes DNS rules or writes outside the temp directory.
+Gates: `cargo fmt --all --check`, `RUSTFLAGS="-D warnings" cargo clippy --workspace
+--all-targets`, the same with `--target x86_64-unknown-linux-gnu`, and `cargo test
+--workspace` passed before each commit, except the window commit (ca23adf), which had fmt,
+both clippy runs and the gui crate's tests; the full workspace tests passed right after
+it, before the next commit. macOS was not built or checked locally.
 
 Real window, release build, started with `__COMPAT_LAYER=RunAsInvoker` (which lowers the
 manifest's request to the caller's level) and `APPDATA` pointed at a temporary folder
@@ -232,12 +241,22 @@ was not touched. Driven by synthetic mouse clicks and keystrokes, checked by scr
   information..."; the log showed "starting snisplit", "skipped a site: broken.profile:2:
   domains needs a value", "snisplit DNS rules left: 0" and the failure. NRPT rules: 0
   before and after.
-- Closing with the X button while stopped or failed: the process exited at once. After
-  the last close: no `snisplit*` process, 0 NRPT rules in total.
+- Close while starting (Start pressed, the close message sent at once): 150 ms later the
+  window was still up, showing "Stopping..." with Stop disabled and the log lines "closing:
+  stopping snisplit and removing its DNS rules" and "stopping"; the process exited by
+  itself 758 ms after the close message, exit code 0. This is the cancel-close path; it
+  ran the session's stop and rule removal (no rules existed unelevated).
+- Close while failed or stopped: the process exited at once (185 ms), exit code 0.
+- After the last close: no `snisplit*` process, 0 NRPT rules in total.
+
+A bug found by the close-while-starting run and fixed: the first build waited for the
+session at exit with a tokio timer created outside the runtime, which panicked after the
+session had already ended and its rules had been removed (exit code 101). The wait now
+runs inside the runtime; two driver tests fail on the old code and pass on the new.
 
 Never exercised in a real window: Start that succeeds, Running, Stop, the Add button (no
 blocked domain outside the built-ins was allowed to be probed tonight), a restart after a
-site change, closing while running or starting, the 60 s shutdown safety net, and
+site change, closing while running with rules present, the 60 s shutdown safety net, and
 logoff or shutdown with the window open (not handled; a rule left behind is removed by
 the next start or by `snisplit cleanup`).
 
@@ -252,7 +271,9 @@ powershell -ExecutionPolicy Bypass -File tools\acceptance\m9.ps1
 
 The script refuses to run unelevated or while a `snisplit*` process exists, starts the
 release GUI and pauses after each step, logging rule counts and results to
-`$env:TEMP\m9-gui.log`. It parses cleanly but has never been run.
+`$env:TEMP\m9-gui.log`. It parses cleanly (PowerShell parser, no errors) but has never
+been run. `pwsh -File tools\acceptance\m9.ps1` works too: the script calls `curl.exe`
+through a helper named `Fetch`, so Windows PowerShell's `curl` alias does not interfere.
 
 1. The window shows the site list (confirms rendering on the owner's display).
 2. Start: the status reaches Running, rules are added.
@@ -261,8 +282,8 @@ release GUI and pauses after each step, logging rule counts and results to
    medium.com name): the probe table, Add, the restart line in the log, and that domain
    resolving to a relay address.
 5. Stop: 0 rules.
-6. Start again and close the window while it runs: the process exits by itself and 0
-   rules are left.
+6. Start again: rules are logged while it runs.
+7. Close the window while it runs: the process exits by itself and 0 rules are left.
 
 Also open: whether Kaspersky reacts to an elevated GUI that starts PowerShell (no alert
 was possible tonight since nothing ran elevated), and whether a font with Vietnamese
