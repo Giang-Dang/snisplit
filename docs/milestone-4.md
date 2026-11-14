@@ -262,3 +262,23 @@ bytes through unchanged, `DnsServer::bind` taking and ignoring the resolver, and
 
 Done-when 1: PASS. Done-when 2: PASS. Done-when 3 and 4 need the elevated run with
 zapret stopped (`tools/acceptance/m4.ps1`).
+
+### DNS pre-check (no admin, zapret running), `run --no-routing --profile steam`, `Resolve-DnsName -Server 127.0.0.2`
+
+| Query | Before the fix | After `ef2c149` |
+|---|---|---|
+| `ipv6check-http.steamserver.net` A | empty, 287 ms | empty, 262 ms |
+| `ipv6check-http.steamserver.net` AAAA | 8 real addresses (`2404:3fc0:0:106::...`), 82 ms | same, 77 ms |
+| `store.steampowered.com` A | 127.0.0.2, 38 ms | 127.0.0.2, 41 ms |
+| a made-up name under `steampowered.com`, A | NXDOMAIN after 4069 ms | NXDOMAIN, 92 ms |
+
+Direct to 1.1.1.1 the made-up name takes 42 ms. The 4 s came from the upstream
+resolver treating NXDOMAIN as no reply and waiting out its 2 s timeout on both
+servers before the query was forwarded. Fixed: `dns::parse_a_answer` returns no
+addresses for a name error that matches the question.
+
+### Gates
+
+The tip of every stream and of `main` passed all four gates (fmt, clippy for the host
+and for `x86_64-unknown-linux-gnu`, tests). Each intermediate stream commit was
+checked with `cargo test --workspace` only.
