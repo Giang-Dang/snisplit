@@ -55,8 +55,9 @@ dependencies = [
 name = "snisplit"
 version = "0.0.0"
 dependencies = [
- "snisplit-backend-windows",
  "snisplit-core",
+ "snisplit-relay",
+ "tokio",
 ]
 
 [[package]]
