@@ -127,7 +127,9 @@ mod tests {
     fn domain_mid_of_a_listed_name_without_dots_is_its_middle() {
         let host = "intranet";
         let offsets = offsets_for(&[SplitPosition::DomainMid], host, "intranet");
-        assert_eq!(offsets, [HOST_START_IN_STREAM + host.len() / 2]);
+        let cut = offsets[0] - HOST_START_IN_STREAM;
+        assert_eq!(&host[..cut], "intr");
+        assert_eq!(&host[cut..], "anet");
     }
 
     #[test]
