@@ -405,3 +405,29 @@ fn a_replaced_upstream_list_is_used_by_the_next_forwarded_query() {
         running.shut_down().await;
     });
 }
+
+#[test]
+fn an_occupied_address_fails_the_bind_and_the_error_names_it() {
+    block_on(async {
+        let occupant = udp_socket().await;
+        let taken = occupant.local_addr().unwrap();
+
+        let result = DnsServer::bind(
+            taken,
+            vec![steam_profile()],
+            ANSWER,
+            Upstreams::new(Vec::new()),
+            UdpResolver::new(Upstreams::new(Vec::new()), PATIENCE),
+        )
+        .await;
+
+        let error = result.err().expect("the occupied address fails the bind");
+        assert_eq!(error.kind(), std::io::ErrorKind::AddrInUse);
+        assert!(
+            error
+                .to_string()
+                .starts_with(&format!("binding {taken} failed: ")),
+            "{error}"
+        );
+    });
+}

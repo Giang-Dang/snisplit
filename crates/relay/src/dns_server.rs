@@ -12,6 +12,7 @@ use tokio::net::UdpSocket;
 use tokio::task::JoinSet;
 use tokio::time::{Instant, timeout_at};
 
+use crate::binding_failed;
 use crate::resolve::{Resolve, ResolveBoxed};
 use crate::upstreams::Upstreams;
 
@@ -62,7 +63,9 @@ impl DnsServer {
         upstream_timeout: Duration,
         resolver: Box<dyn ResolveBoxed>,
     ) -> io::Result<DnsServer> {
-        let socket = UdpSocket::bind(listen).await?;
+        let socket = UdpSocket::bind(listen)
+            .await
+            .map_err(|error| binding_failed(listen, &error))?;
         let local_addr = socket.local_addr()?;
         let policy = Policy {
             profiles,

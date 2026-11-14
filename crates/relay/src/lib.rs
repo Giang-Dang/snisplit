@@ -18,3 +18,7 @@ pub use relay::Relay;
 pub use resolve::Resolve;
 pub use upstream::UdpResolver;
 pub use upstreams::Upstreams;
+
+fn binding_failed(listen: std::net::SocketAddr, error: &std::io::Error) -> std::io::Error {
+    std::io::Error::new(error.kind(), format!("binding {listen} failed: {error}"))
+}

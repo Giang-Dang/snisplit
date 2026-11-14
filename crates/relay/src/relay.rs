@@ -8,6 +8,7 @@ use tokio::net::TcpListener;
 use tokio::task::JoinSet;
 use tokio::time::sleep;
 
+use crate::binding_failed;
 use crate::config::Config;
 use crate::connection::{EventSink, Route, Shared, serve};
 use crate::event::Event;
@@ -45,7 +46,9 @@ impl Relay {
         let routes = routes_of(&config)?;
         let mut bound = Vec::with_capacity(routes.len());
         for (listen, route) in routes {
-            let listener = TcpListener::bind(listen).await?;
+            let listener = TcpListener::bind(listen)
+                .await
+                .map_err(|error| binding_failed(listen, &error))?;
             let local_addr = listener.local_addr()?;
             bound.push(Bound {
                 listener,

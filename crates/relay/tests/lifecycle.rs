@@ -61,7 +61,13 @@ fn a_port_held_by_another_process_fails_the_bind_of_the_whole_relay() {
 
         let result = Relay::bind(config(listeners, STEAM), resolver, ignore_events()).await;
 
-        assert!(result.is_err());
+        let error = result.err().expect("the occupied port fails the bind");
+        assert!(
+            error
+                .to_string()
+                .starts_with(&format!("binding 127.0.0.1:{occupied} failed: ")),
+            "{error}"
+        );
         TcpListener::bind((LOOPBACK, free)).expect("the free port was released");
     });
 }

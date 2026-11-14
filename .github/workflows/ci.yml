@@ -56,8 +56,8 @@ jobs:
 
           function Test-MediumRelayed {
               try {
-                  $answers = Resolve-DnsName -Name medium.com -Server 127.0.0.3 -DnsOnly -Type A -ErrorAction Stop
-                  return (@($answers | Where-Object { $_.Type -eq 'A' -and $_.IPAddress -eq '127.0.0.3' }).Count -gt 0)
+                  $answers = Resolve-DnsName -Name medium.com -Server 127.0.0.4 -DnsOnly -Type A -ErrorAction Stop
+                  return (@($answers | Where-Object { $_.Type -eq 'A' -and $_.IPAddress -eq '127.0.0.4' }).Count -gt 0)
               } catch {
                   return $false
               }
@@ -101,17 +101,19 @@ jobs:
           Assert-Check 'no snisplit NRPT rule before install' ((Get-SnisplitRuleCount) -eq 0)
           Assert-Check 'no snisplit service before install' ($null -eq (Get-Service snisplit -ErrorAction SilentlyContinue))
 
-      - name: Install the service with the medium profile
+      - name: Install the service with a medium.com profile file (TLS only; the runner reserves port 80)
         run: |
           . (Join-Path $env:RUNNER_TEMP 'checks.ps1')
-          Invoke-Snisplit @('service', 'install', '--profile', 'medium')
+          $profileFile = Join-Path $env:RUNNER_TEMP 'ci-medium.profile'
+          @('name ci-medium', 'domains medium.com', 'tls-ports 443', 'tls-split 1') | Set-Content -Path $profileFile -Encoding ascii
+          Invoke-Snisplit @('service', 'install', '--profile-file', $profileFile)
           sc.exe qc snisplit
           sc.exe qfailure snisplit
 
       - name: The service adds its rule and relays medium.com
         run: |
           . (Join-Path $env:RUNNER_TEMP 'checks.ps1')
-          Wait-Until 'a snisplit NRPT rule exists and medium.com resolves to 127.0.0.3 at 127.0.0.3' 90 {
+          Wait-Until 'a snisplit NRPT rule exists and medium.com resolves to 127.0.0.4 at 127.0.0.4' 90 {
               ((Get-SnisplitRuleCount) -ge 1) -and (Test-MediumRelayed)
           }
           Assert-Check 'Get-Service snisplit is Running' ((Get-Service snisplit).Status -eq 'Running')
@@ -123,7 +125,7 @@ jobs:
           Assert-Check "the service has a process (PID $old)" ($old -gt 0)
           Stop-Process -Id $old -Force
           Write-Host "killed PID $old"
-          Wait-Until "a new service process (not PID $old) runs and medium.com resolves to 127.0.0.3 again" 30 {
+          Wait-Until "a new service process (not PID $old) runs and medium.com resolves to 127.0.0.4 again" 30 {
               $current = Get-ServiceProcessId
               ($current -gt 0) -and ($current -ne $old) -and (Test-MediumRelayed)
           }
