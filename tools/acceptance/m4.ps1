@@ -1,6 +1,7 @@
 param(
   [string] $OutDir = $env:TEMP,
-  [int] $DownloadObserveSeconds = 120,
+  [int] $DownloadObserveSeconds = 180,
+  [int] $WaitForSteamSeconds = 300,
   [switch] $SkipSteam
 )
 $ErrorActionPreference = 'Continue'
@@ -122,7 +123,16 @@ try {
   Log "$ipv6Name during: A=[$(Resolve $ipv6Name 'A')] AAAA=[$(Resolve $ipv6Name 'AAAA')]"
   Log "example.org during: $(Resolve 'example.org')"
   $before = @(Get-Content $run.Out).Count
-  Say "NOW (optional): exit Steam fully (Steam menu > Exit), start it again, then start a small download or update. Watching $DownloadObserveSeconds s; Steam processes are picked up as they start."
+  $windowStart = Get-Date
+  $old = @(Get-Process steam -ErrorAction SilentlyContinue | ForEach-Object Id)
+  Say "NOW (optional): exit Steam fully (Steam menu > Exit), start it again, log in, then start a small download or update. Waiting up to $WaitForSteamSeconds s for Steam to start, then watching $DownloadObserveSeconds s."
+  $deadline = $windowStart.AddSeconds($WaitForSteamSeconds)
+  $fresh = $null
+  while (-not $fresh -and (Get-Date) -lt $deadline) {
+    $fresh = Get-Process steam -ErrorAction SilentlyContinue | Where-Object { $old -notcontains $_.Id -and $_.StartTime -gt $windowStart } | Select-Object -First 1
+    if (-not $fresh) { Start-Sleep 1 }
+  }
+  Log $(if ($fresh) { "new steam.exe started $($fresh.StartTime.ToString('s'))" } else { 'no Steam restart seen; watching anyway' })
   $ports = @{}
   $end = (Get-Date).AddSeconds($DownloadObserveSeconds)
   while ((Get-Date) -lt $end) {
