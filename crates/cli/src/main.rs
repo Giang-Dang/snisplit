@@ -3,7 +3,6 @@ mod plan;
 mod profile;
 mod profile_file;
 mod routing;
-mod service;
 mod session;
 mod system_dns;
 
@@ -12,14 +11,10 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 use args::{Command, RunOptions, USAGE};
-use session::StartPolicy;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const EXIT_RUNTIME_ERROR: u8 = 1;
 const EXIT_USAGE_ERROR: u8 = 2;
-const FOREGROUND: StartPolicy = StartPolicy {
-    wait_for_upstreams: false,
-};
 
 fn main() -> ExitCode {
     let args = env::args_os()
@@ -35,7 +30,6 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(Command::Run(options)) => finish(run(options)),
-        Ok(Command::Service(command)) => finish(service::execute(command)),
         Ok(Command::Cleanup) => finish(session::remove_rules(&session::stdout())),
         Ok(Command::ShowProfile(name)) => finish(show_profile(name)),
         Err(error) => {
@@ -71,6 +65,6 @@ fn run(options: RunOptions) -> io::Result<()> {
         .build()?
         .block_on(async {
             let ctrl_c = session::ctrl_c()?;
-            session::serve(options, FOREGROUND, ctrl_c, session::stdout()).await
+            session::serve(options, ctrl_c, session::stdout()).await
         })
 }

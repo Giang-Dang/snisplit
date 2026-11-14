@@ -173,12 +173,9 @@ mod start_up {
     use super::super::*;
 
     const TEST_TIMING: Timing = Timing {
-        upstream_retry: Duration::from_millis(5),
-        retries_per_report: 3,
         refresh_every: Duration::from_millis(20),
     };
     const HANG_LIMIT: Duration = Duration::from_secs(20);
-    const WAITING: &str = "waiting for a usable upstream DNS server (none found yet; loopback addresses are skipped; pass --upstream <ipv4> to name one)";
     const RULES_LEFT: &str = "snisplit DNS rules left: 0";
     const BEGIN_MEDIUM: &str = "begin medium.com@127.0.0.3";
 
@@ -333,7 +330,6 @@ mod start_up {
     fn serve_fake(
         host: &FakeHost,
         options: RunOptions,
-        start: StartPolicy,
         stop_requested: impl Future<Output = ()> + Send,
         out: Output,
     ) -> io::Result<()> {
@@ -341,56 +337,18 @@ mod start_up {
             host.clone(),
             &TEST_TIMING,
             options,
-            start,
             stop_requested,
             out,
         ))
     }
 
-    const WAIT: StartPolicy = StartPolicy {
-        wait_for_upstreams: true,
-    };
-    const NO_WAIT: StartPolicy = StartPolicy {
-        wait_for_upstreams: false,
-    };
-
     #[test]
-    fn a_stop_while_waiting_for_upstreams_abandons_the_start_and_removes_every_rule() {
-        let host = FakeHost::default();
-        let recorder = Recorder::stopping_when(|lines| {
-            lines.iter().filter(|line| line.as_str() == WAITING).count() == 2
-        });
-        let served = serve_fake(
-            &host,
-            options(true, &[]),
-            WAIT,
-            recorder.stop_requested(),
-            recorder.output(),
-        );
-        assert!(served.is_ok());
-        assert_eq!(recorder.lines(), [WAITING, WAITING, "stopping", RULES_LEFT]);
-        assert_eq!(
-            host.calls(),
-            [
-                BEGIN_MEDIUM,
-                "lookup",
-                "lookup",
-                "lookup",
-                "lookup",
-                "abandon",
-                "remove"
-            ]
-        );
-    }
-
-    #[test]
-    fn without_waiting_a_missing_upstream_fails_at_once_and_still_removes_every_rule() {
+    fn a_missing_upstream_fails_at_once_and_still_removes_every_rule() {
         let host = FakeHost::answering(vec![Ok(vec![ip(127, 0, 0, 1)])]);
         let recorder = Recorder::stopping_when(never_stops);
         let error = serve_fake(
             &host,
             options(true, &[]),
-            NO_WAIT,
             recorder.stop_requested(),
             recorder.output(),
         )
@@ -404,13 +362,12 @@ mod start_up {
     }
 
     #[test]
-    fn without_waiting_a_failed_lookup_ends_start_up_with_its_error_and_removes_every_rule() {
+    fn a_failed_lookup_ends_start_up_with_its_error_and_removes_every_rule() {
         let host = FakeHost::answering(vec![Err(io::Error::other("adapter list unreadable"))]);
         let recorder = Recorder::stopping_when(never_stops);
         let error = serve_fake(
             &host,
             options(true, &[]),
-            NO_WAIT,
             recorder.stop_requested(),
             recorder.output(),
         )
@@ -421,38 +378,10 @@ mod start_up {
     }
 
     #[test]
-    fn while_waiting_a_failed_lookup_is_retried_and_its_cause_logged() {
-        let host = FakeHost::answering(vec![
-            Err(io::Error::other("adapter list unreadable")),
-            Ok(Vec::new()),
-            Ok(Vec::new()),
-        ]);
-        let recorder = Recorder::stopping_when(|lines| lines.len() == 2);
-        let served = serve_fake(
-            &host,
-            options(false, &[]),
-            WAIT,
-            recorder.stop_requested(),
-            recorder.output(),
-        );
-        assert!(served.is_ok());
-        assert_eq!(
-            recorder.lines(),
-            [
-                "waiting for a usable upstream DNS server (none found yet; loopback addresses are skipped; pass --upstream <ipv4> to name one); reading them failed: adapter list unreadable",
-                WAITING,
-                "stopping"
-            ]
-        );
-        assert_eq!(host.calls(), ["lookup", "lookup", "lookup", "lookup"]);
-    }
-
-    #[test]
     fn the_serve_future_can_be_spawned_on_a_multi_threaded_runtime() {
         fn assert_send<T: Send>(_: &T) {}
         let future = serve(
             options(false, &[ip(192, 0, 2, 1)]),
-            NO_WAIT,
             std::future::ready(()),
             stdout(),
         );
@@ -461,22 +390,16 @@ mod start_up {
 
     #[test]
     fn production_timing_follows_the_plan() {
-        assert_eq!(TIMING.upstream_retry, Duration::from_secs(2));
-        assert_eq!(
-            TIMING.upstream_retry * TIMING.retries_per_report,
-            Duration::from_secs(60)
-        );
         assert_eq!(TIMING.refresh_every, Duration::from_secs(30));
     }
 
     #[test]
-    fn explicit_upstreams_that_are_all_loopback_fail_without_waiting_or_a_lookup() {
+    fn explicit_upstreams_that_are_all_loopback_fail_without_a_lookup() {
         let host = FakeHost::default();
         let recorder = Recorder::stopping_when(never_stops);
         let error = serve_fake(
             &host,
             options(true, &[ip(127, 0, 0, 1)]),
-            WAIT,
             recorder.stop_requested(),
             recorder.output(),
         )
@@ -495,7 +418,6 @@ mod start_up {
         let served = serve_fake(
             &routed,
             options(true, &[ip(192, 0, 2, 1)]),
-            NO_WAIT,
             std::future::ready(()),
             recorder.output(),
         );
@@ -508,7 +430,6 @@ mod start_up {
         let served = serve_fake(
             &unrouted,
             options(false, &[ip(192, 0, 2, 1)]),
-            NO_WAIT,
             std::future::ready(()),
             recorder.output(),
         );
@@ -530,13 +451,7 @@ mod start_up {
         let recorder = Recorder::stopping_when(never_stops);
         let mut options = options(true, &[ip(192, 0, 2, 1)]);
         options.profile_files = vec![path.clone()];
-        let served = serve_fake(
-            &host,
-            options,
-            NO_WAIT,
-            std::future::ready(()),
-            recorder.output(),
-        );
+        let served = serve_fake(&host, options, std::future::ready(()), recorder.output());
         let _ = std::fs::remove_file(&path);
         assert!(served.is_ok());
         assert_eq!(
@@ -645,7 +560,6 @@ mod start_up {
             let served = serve_fake(
                 &host,
                 game.options(true, &[ip(192, 0, 2, 1)]),
-                NO_WAIT,
                 recorder.stop_requested(),
                 recorder.output(),
             );
@@ -680,7 +594,6 @@ mod start_up {
             let served = serve_fake(
                 &host,
                 game.options(true, &[ip(192, 0, 2, 1)]),
-                NO_WAIT,
                 stop_once_adding,
                 recorder.output(),
             );
@@ -715,7 +628,6 @@ mod start_up {
                 let error = serve_fake(
                     &host,
                     game.options(true, &[ip(192, 0, 2, 1)]),
-                    NO_WAIT,
                     recorder.stop_requested(),
                     recorder.output(),
                 )
@@ -739,7 +651,6 @@ mod start_up {
             let error = serve_fake(
                 &host,
                 game.options(true, &[ip(192, 0, 2, 1)]),
-                NO_WAIT,
                 recorder.stop_requested(),
                 recorder.output(),
             )
@@ -750,12 +661,10 @@ mod start_up {
         }
 
         #[test]
-        fn the_wait_ends_when_servers_appear_and_the_refresh_swaps_them_later() {
+        fn the_refresh_swaps_the_servers_after_the_ready_line() {
             let _ports = locked(&LOOPBACK_PORTS);
             let game = GameProfile::new();
             let host = FakeHost::answering(vec![
-                Ok(Vec::new()),
-                Ok(Vec::new()),
                 Ok(vec![ip(127, 0, 0, 1), ip(192, 0, 2, 1)]),
                 Ok(vec![ip(192, 0, 2, 7)]),
             ]);
@@ -767,7 +676,6 @@ mod start_up {
             let served = serve_fake(
                 &host,
                 game.options(false, &[]),
-                WAIT,
                 recorder.stop_requested(),
                 recorder.output(),
             );
@@ -775,7 +683,6 @@ mod start_up {
             assert_eq!(
                 recorder.lines(),
                 [
-                    WAITING.to_string(),
                     ready_line("192.0.2.1:53", "no DNS rules"),
                     "upstream DNS now 192.0.2.7:53".to_string(),
                     "stopping".to_string()
@@ -797,7 +704,6 @@ mod start_up {
             let served = serve_fake(
                 &host,
                 game.options(false, &[ip(192, 0, 2, 1)]),
-                NO_WAIT,
                 several_refresh_periods_after_ready,
                 recorder.output(),
             );
