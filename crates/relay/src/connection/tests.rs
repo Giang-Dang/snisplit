@@ -413,3 +413,17 @@ fn a_chunked_request_is_respelled_then_passed_unchanged_and_the_stop_is_reported
         assert_eq!(relayed.remaining_events().await, [closed]);
     });
 }
+
+#[test]
+fn an_error_in_either_direction_ends_the_relay_while_the_other_is_still_open() {
+    block_on(async {
+        let failing = || async { Err(io::Error::other("reset by peer")) };
+        let open_forever = std::future::pending::<io::Result<()>>;
+
+        let first_fails = within(until_both_end(failing(), open_forever())).await;
+        let second_fails = within(until_both_end(open_forever(), failing())).await;
+
+        assert_eq!(first_fails.unwrap_err().to_string(), "reset by peer");
+        assert_eq!(second_fails.unwrap_err().to_string(), "reset by peer");
+    });
+}
