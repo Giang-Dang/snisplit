@@ -1,5 +1,6 @@
 mod args;
 mod plan;
+mod probe;
 mod profile;
 mod profile_file;
 mod routing;
@@ -32,6 +33,7 @@ fn main() -> ExitCode {
         Ok(Command::Run(options)) => finish(run(options)),
         Ok(Command::Cleanup) => finish(session::remove_rules(&session::stdout())),
         Ok(Command::ShowProfile(name)) => finish(show_profile(name)),
+        Ok(Command::Probe(options)) => finish(probe::run(&options)),
         Err(error) => {
             eprintln!("snisplit: {error}\n\n{USAGE}");
             ExitCode::from(EXIT_USAGE_ERROR)

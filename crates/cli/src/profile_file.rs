@@ -335,7 +335,7 @@ fn parse_name(value: &str, reserved_names: &[&str]) -> Result<String, Problem> {
     Ok(value.to_string())
 }
 
-fn parse_domain(value: &str) -> Result<String, Problem> {
+pub fn parse_domain(value: &str) -> Result<String, Problem> {
     let domain = value.to_ascii_lowercase();
     let allowed = |byte: u8| {
         byte.is_ascii_lowercase()

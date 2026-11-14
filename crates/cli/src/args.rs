@@ -1,14 +1,24 @@
 use std::fmt;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
+use std::time::Duration;
 
-use crate::profile;
+use crate::plan::DNS_PORT;
+use crate::{profile, profile_file};
+
+pub const DEFAULT_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+pub const DEFAULT_PROBE_RUNS: usize = 2;
+const MAX_PROBE_TIMEOUT_SECONDS: u64 = 60;
+const MAX_PROBE_RUNS: usize = 10;
 
 pub const USAGE: &str = "usage:
     snisplit run [options]      relay the listed domains until Ctrl+C or the window closes
     snisplit cleanup            remove snisplit's DNS rules (after a crash)
     snisplit show-profile <name>
                                 print a built-in profile's file, as a template
+    snisplit probe <domain> [options]
+                                test whether the domain is blocked here and which
+                                split gets it through; print a profile for it
     snisplit --version          print the version
     snisplit help               print this text
 
@@ -19,7 +29,22 @@ run options:
     --no-routing                do not add DNS rules; only the relay and DNS server run
     --upstream <ipv4>           DNS server used to find real addresses; repeatable
                                 (default: the system's DNS servers)
-    -v, --verbose               log every relayed connection";
+    -v, --verbose               log every relayed connection
+
+probe options (no administrator rights needed; works with or without run):
+    --upstream <ip[:port]>      DNS server used to find the real address; repeatable
+                                (default: the system's DNS servers)
+    --timeout <seconds>         wait this long to connect and for each reply,
+                                1-60 (default 5)
+    --runs <n>                  send every attempt n times, 1-10 (default 2)";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeOptions {
+    pub domain: String,
+    pub upstreams: Vec<SocketAddr>,
+    pub timeout: Duration,
+    pub runs: usize,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunOptions {
@@ -35,6 +60,7 @@ pub enum Command {
     Run(RunOptions),
     Cleanup,
     ShowProfile(&'static str),
+    Probe(ProbeOptions),
     Version,
     Help,
 }
@@ -49,6 +75,10 @@ pub enum UsageError {
     UnknownProfile(String),
     DuplicateProfileFile(String),
     InvalidAddress(String),
+    InvalidDomain(String),
+    InvalidUpstream(String),
+    InvalidTimeout(String),
+    InvalidRuns(String),
 }
 
 impl fmt::Display for UsageError {
@@ -62,6 +92,23 @@ impl fmt::Display for UsageError {
             Self::UnknownProfile(name) => write!(f, "unknown profile: {name}"),
             Self::DuplicateProfileFile(path) => write!(f, "profile file given twice: {path}"),
             Self::InvalidAddress(value) => write!(f, "not an IPv4 address: {value}"),
+            Self::InvalidDomain(problem) => write!(f, "{problem}"),
+            Self::InvalidUpstream(value) => {
+                write!(
+                    f,
+                    "not an IP address or IP:port with a port from 1: {value}"
+                )
+            }
+            Self::InvalidTimeout(value) => write!(
+                f,
+                "bad timeout {value:?}: whole seconds from 1 to {MAX_PROBE_TIMEOUT_SECONDS}"
+            ),
+            Self::InvalidRuns(value) => {
+                write!(
+                    f,
+                    "bad run count {value:?}: a whole number from 1 to {MAX_PROBE_RUNS}"
+                )
+            }
         }
     }
 }
@@ -73,6 +120,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, UsageErr
         "run" => return parse_run_options(args).map(Command::Run),
         "cleanup" => Command::Cleanup,
         "show-profile" => return parse_show_profile(args),
+        "probe" => return parse_probe(args).map(Command::Probe),
         "help" | "--help" | "-h" => Command::Help,
         "--version" | "-V" => Command::Version,
         _ if command.starts_with('-') => return Err(UsageError::UnknownOption(command)),
@@ -138,6 +186,71 @@ fn parse_show_profile(mut args: impl Iterator<Item = String>) -> Result<Command,
         Some(extra) => Err(UsageError::UnexpectedArgument(extra)),
         None => Ok(Command::ShowProfile(built_in.name)),
     }
+}
+
+fn parse_probe(mut args: impl Iterator<Item = String>) -> Result<ProbeOptions, UsageError> {
+    let mut domain = None;
+    let mut upstreams = Vec::new();
+    let mut timeout = DEFAULT_PROBE_TIMEOUT;
+    let mut runs = DEFAULT_PROBE_RUNS;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--upstream" => {
+                let server = parse_upstream(value_of(&arg, args.next())?)?;
+                if !upstreams.contains(&server) {
+                    upstreams.push(server);
+                }
+            }
+            "--timeout" => timeout = parse_timeout(value_of(&arg, args.next())?)?,
+            "--runs" => runs = parse_runs(value_of(&arg, args.next())?)?,
+            _ if arg.starts_with('-') => return Err(UsageError::UnknownOption(arg)),
+            _ if domain.is_none() => {
+                let parsed = profile_file::parse_domain(&arg)
+                    .map_err(|problem| UsageError::InvalidDomain(problem.to_string()))?;
+                domain = Some(parsed);
+            }
+            _ => return Err(UsageError::UnexpectedArgument(arg)),
+        }
+    }
+    Ok(ProbeOptions {
+        domain: domain.ok_or_else(|| UsageError::MissingValue("probe".to_string()))?,
+        upstreams,
+        timeout,
+        runs,
+    })
+}
+
+fn parse_upstream(value: String) -> Result<SocketAddr, UsageError> {
+    let server = value
+        .parse::<SocketAddr>()
+        .ok()
+        .or_else(|| {
+            value
+                .parse::<IpAddr>()
+                .ok()
+                .map(|address| SocketAddr::new(address, DNS_PORT))
+        })
+        .filter(|server| server.port() != 0);
+    server.ok_or(UsageError::InvalidUpstream(value))
+}
+
+fn parse_timeout(value: String) -> Result<Duration, UsageError> {
+    whole_number(&value)
+        .filter(|seconds| (1..=MAX_PROBE_TIMEOUT_SECONDS).contains(seconds))
+        .map(Duration::from_secs)
+        .ok_or(UsageError::InvalidTimeout(value))
+}
+
+fn parse_runs(value: String) -> Result<usize, UsageError> {
+    whole_number(&value)
+        .and_then(|runs| usize::try_from(runs).ok())
+        .filter(|runs| (1..=MAX_PROBE_RUNS).contains(runs))
+        .ok_or(UsageError::InvalidRuns(value))
+}
+
+fn whole_number(value: &str) -> Option<u64> {
+    let digits = !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit());
+    digits.then(|| value.parse().ok()).flatten()
 }
 
 fn value_of(option: &str, value: Option<String>) -> Result<String, UsageError> {

@@ -230,3 +230,157 @@ fn a_profile_file_option_without_a_path_is_a_usage_error() {
         Err(UsageError::MissingValue("--profile-file".to_string()))
     );
 }
+
+fn probe_options(args: &[&str]) -> ProbeOptions {
+    match parsed(args) {
+        Ok(Command::Probe(options)) => options,
+        other => panic!("expected probe options, got {other:?}"),
+    }
+}
+
+fn socket(text: &str) -> SocketAddr {
+    text.parse().unwrap()
+}
+
+#[test]
+fn a_bare_probe_uses_the_system_dns_a_five_second_timeout_and_two_runs() {
+    assert_eq!(
+        probe_options(&["probe", "example.org"]),
+        ProbeOptions {
+            domain: "example.org".to_string(),
+            upstreams: vec![],
+            timeout: Duration::from_secs(5),
+            runs: 2,
+        }
+    );
+}
+
+#[test]
+fn probe_options_come_in_any_order_and_the_domain_is_lowercased() {
+    assert_eq!(
+        probe_options(&[
+            "probe",
+            "--runs",
+            "3",
+            "Store.SteamPowered.com",
+            "--timeout",
+            "10",
+            "--upstream",
+            "1.1.1.1",
+            "--upstream",
+            "9.9.9.9:5353",
+            "--upstream",
+            "2606:4700::1111",
+            "--upstream",
+            "[::1]:53",
+            "--upstream",
+            "1.1.1.1:53",
+        ]),
+        ProbeOptions {
+            domain: "store.steampowered.com".to_string(),
+            upstreams: vec![
+                socket("1.1.1.1:53"),
+                socket("9.9.9.9:5353"),
+                socket("[2606:4700::1111]:53"),
+                socket("[::1]:53"),
+            ],
+            timeout: Duration::from_secs(10),
+            runs: 3,
+        }
+    );
+}
+
+#[test]
+fn probe_needs_exactly_one_domain_that_a_profile_file_would_accept() {
+    assert_eq!(
+        parsed(&["probe"]),
+        Err(UsageError::MissingValue("probe".to_string()))
+    );
+    assert_eq!(
+        parsed(&["probe", "a.com", "b.com"]),
+        Err(UsageError::UnexpectedArgument("b.com".to_string()))
+    );
+    assert_eq!(
+        parsed(&["probe", "localhost"]),
+        Err(UsageError::InvalidDomain(
+            "bad domain \"localhost\": needs at least 2 labels".to_string()
+        ))
+    );
+    assert_eq!(
+        parsed(&["probe", "bad_host.com"]),
+        Err(UsageError::InvalidDomain(
+            "bad domain \"bad_host.com\": only a-z, 0-9, '-' and '.' are allowed".to_string()
+        ))
+    );
+    assert_eq!(
+        parsed(&["probe", "a.com", "--verbose"]),
+        Err(UsageError::UnknownOption("--verbose".to_string()))
+    );
+}
+
+#[test]
+fn probe_timeouts_are_whole_seconds_from_1_to_60() {
+    assert_eq!(
+        probe_options(&["probe", "a.com", "--timeout", "60"]).timeout,
+        Duration::from_secs(60)
+    );
+    assert_eq!(
+        probe_options(&["probe", "a.com", "--timeout", "1"]).timeout,
+        Duration::from_secs(1)
+    );
+    for bad in ["0", "61", "1.5", "+5", "", "five"] {
+        assert_eq!(
+            parsed(&["probe", "a.com", "--timeout", bad]),
+            Err(UsageError::InvalidTimeout(bad.to_string())),
+            "{bad}"
+        );
+    }
+    assert_eq!(
+        UsageError::InvalidTimeout("0".to_string()).to_string(),
+        "bad timeout \"0\": whole seconds from 1 to 60"
+    );
+}
+
+#[test]
+fn probe_runs_are_from_1_to_10() {
+    assert_eq!(probe_options(&["probe", "a.com", "--runs", "1"]).runs, 1);
+    assert_eq!(probe_options(&["probe", "a.com", "--runs", "10"]).runs, 10);
+    for bad in ["0", "11", "two", "-1"] {
+        assert_eq!(
+            parsed(&["probe", "a.com", "--runs", bad]),
+            Err(UsageError::InvalidRuns(bad.to_string())),
+            "{bad}"
+        );
+    }
+    assert_eq!(
+        parsed(&["probe", "a.com", "--runs"]),
+        Err(UsageError::MissingValue("--runs".to_string()))
+    );
+}
+
+#[test]
+fn probe_upstreams_need_an_ip_address_and_a_port_that_is_not_0() {
+    for bad in ["1.1.1.1:0", "dns.google", "300.1.1.1", "1.1.1.1:", "[::1]"] {
+        assert_eq!(
+            parsed(&["probe", "a.com", "--upstream", bad]),
+            Err(UsageError::InvalidUpstream(bad.to_string())),
+            "{bad}"
+        );
+    }
+    assert_eq!(
+        parsed(&["probe", "a.com", "--upstream"]),
+        Err(UsageError::MissingValue("--upstream".to_string()))
+    );
+}
+
+#[test]
+fn usage_describes_probe_and_its_options() {
+    for words in [
+        "snisplit probe <domain> [options]",
+        "--upstream <ip[:port]>",
+        "--timeout <seconds>",
+        "--runs <n>",
+    ] {
+        assert!(USAGE.contains(words), "{words}");
+    }
+}

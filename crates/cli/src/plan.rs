@@ -12,7 +12,7 @@ use crate::profile_file::{ProfileError, ProfileSpec};
 pub const DNS_PORT: u16 = 53;
 const FIRST_PROFILE_ADDRESS: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 2);
 const LAST_PROFILE_HOST_BYTE: u8 = 254;
-const PIECE_GAP: Duration = Duration::from_millis(30);
+pub const PIECE_GAP: Duration = Duration::from_millis(30);
 const FIRST_FLIGHT_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_FIRST_FLIGHT: usize = 16 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
