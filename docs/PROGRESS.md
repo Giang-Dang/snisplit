@@ -12,7 +12,7 @@ this file says where the work stands and what to do next.
 | 2 Feasibility spike for the driverless design | **Done.** Owner said go on 2026-11-14 (docs/milestone-2-spike.md); crates decided (PLAN.md D11) |
 | 3 Relay + DNS, HTTPS only, foreground | **Done** 2026-11-14 (docs/milestone-3.md): Steam URLs, Chrome, Steam client login and Store, medium.com through the relay with zapret stopped; Ctrl+C, kill and `cleanup` leave no rules |
 | 4 HTTP respelling, profile files, IPv6-only names | **Done** 2026-11-14 (docs/milestone-4.md): every HTTP request respelled to `hoSt:`; Steam HTTP store, content servers and a real game download (1.66 GB, all on port 80) through the relay with zapret stopped; `--profile-file`; IPv6-only names forwarded |
-| 5 Foreground use, crash-safe DNS rules, zapret removed (rescoped) | **Done** 2026-11-14 (docs/milestone-5.md): the Windows service was built, proven in CI and removed after Kaspersky terminated its install twice; zapret removed; the foreground build runs with no Kaspersky alert; Ctrl+C at any moment and closing the window leave 0 rules; Steam login and a game download through `snisplit run` (owner). Carried: start-up 0.7-2.0 s against a 1.5 s target |
+| 5 Foreground use, crash-safe DNS rules, zapret removed (rescoped) | **Done** 2026-11-14 (docs/milestone-5.md): the Windows service was built, proven in CI and removed after Kaspersky terminated its install twice; zapret removed; the foreground build runs with no Kaspersky alert; Ctrl+C at any moment and closing the window leave 0 rules; Steam login and a game download through `snisplit run` (owner). Start-up 0.7-2.0 s, accepted (D14) |
 | 6 and later | Not started |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
@@ -22,10 +22,11 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 
 ## Next step
 
-Milestone 5 is done. Open owner call: accept about 2 s start-up or investigate.
-Then milestone 6 (`probe`), which the UI of milestone 9 builds on; the owner wants a
-UI to add blocked sites, and its open decisions are listed in PLAN.md. Kaspersky:
-do not retry a service install or build variants to find one that passes; a
+Milestones 6 to 9 are delegated to the lead, Windows only (PLAN.md D13 to D15):
+`probe` (6) and the QUIC measurement (8) first, then the egui UI (9), then the draft
+release (7). Nothing overnight may need elevation: checks run with `--no-routing`
+or directly against the network, and routed checks go into one script for the owner.
+Kaspersky: do not retry a service install or build variants to find one that passes; a
 false-positive report needs the owner's go. The notes below are the original plan for the spike
 questions, kept for reference.
 

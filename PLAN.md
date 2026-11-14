@@ -20,7 +20,7 @@ Status (current state and next step: docs/PROGRESS.md):
   on a keep-alive connection, so the relay respells every request head to `hoSt:`.
   Done 2026-11-14: a 1.66 GB Steam game download went through the relay with zapret
   stopped, entirely over plain HTTP on port 80.
-- Milestone order after the spike is proposed, not confirmed.
+- 2026-11-14: milestones 6 to 9 are delegated to the lead, Windows only (D13); order: 6 and 8, then 9, then 7.
 
 ## 1. What was measured
 
@@ -69,6 +69,9 @@ they span two packets (1384-1452 + 300-540 bytes).
 | D10 | Name | `snisplit` (repo and binary) |
 | D11 | Crates (2026-11-14) | `tokio` with features `rt-multi-thread`, `net`, `time`, `signal`, `io-util`, `sync` (no `macros`; `sync` added for milestone 3, measured: no additional crate) for the relay and DNS loop, outside `core`. DNS codec hand-written. Any other crate still needs an explicit decision. Reasons and measured dependency counts: docs/milestone-2-spike.md, Q6 |
 | D12 | Windows API (2026-11-14, owner) | `windows-sys` 0.61, a direct dependency of `crates/cli` under `cfg(windows)` only, on the same line tokio uses (measured: no new package in `Cargo.lock`). Used for the adapter DNS server lookup (the service host that also used it was removed with the service, 2026-11-14). Chosen over hand-written declarations; docs/milestone-5.md decision 1 |
+| D13 | Overnight mandate (2026-11-14, owner) | The owner delegated milestones 6 to 9, Windows only, to the lead: plan, decide and deliver without further questions. Milestone 10 (Linux, macOS) is deferred until Windows works end to end. The lead may push `main` after the gates pass and may push `ci/*` branches; releases are created as drafts that the owner publishes. Antivirus rules are unchanged: no workaround, no build variants, no false-positive report and no signing without the owner. |
+| D14 | Start-up (2026-11-14, owner) | About 2 s is accepted; the target is 2 s, no investigation. |
+| D15 | UI stack (2026-11-14, lead, after the owner asked for a web survey of current Rust UI stacks that port to Windows, Linux and macOS) | `egui` through `eframe`, in a separate crate `crates/gui` that builds `snisplit-gui`; the `snisplit` command-line binary keeps its dependency set. Reasons: pure Rust and one self-contained executable on all three systems, no WebView2 or JavaScript toolchain, no installer, the most used Rust GUI crate, and an immediate-mode model that fits a status line, a site list and a log. Tauri 2 is the stronger choice for a product with web front-end skills but adds a WebView runtime, a bundler and a second language to an elevated tool that an antivirus already watches. Slint, Iced and Dioxus were considered and are less used or less settled. Cost: several hundred transitive crates in the GUI binary only; the measured count goes in docs/milestone-9.md. One elevated app, through a `requireAdministrator` manifest embedded by linker arguments; no helper process. |
 
 Not in scope: fake-packet strategies, an all-traffic mode, automatic domain
 discovery, general proxy/VPN features, terminating TLS (snisplit never holds a
@@ -132,12 +135,12 @@ on this PC; until 2026-11-14 that meant stopping the `zapret-steam` service afte
 | 2 | **Feasibility spike (go/no-go)** | A written result in `docs/` for every question in section 4.1, with the commands run and their output; and a go or no-go recommendation |
 | 3 | Relay + DNS, HTTPS only, foreground (if go) | With zapret stopped, `snisplit run` makes the 4 HTTPS Steam URLs return 200/302 from curl and from Chrome, through normal name resolution |
 | 4 | HTTP method, profile files, Steam profile | The HTTP Steam URL works (method chosen in the spike); a non-listed name resolves exactly as without snisplit |
-| 5 | Foreground use on this PC, crash-safe DNS cleanup, zapret removed (rescoped 2026-11-14: the Windows service was built, then dropped because Kaspersky terminates its install) | Start-up under 1.5 s; Ctrl+C, a closed window and a restart leave no rule, or the next `run` removes it; a killed process breaks only listed names; Steam logs in and downloads a game with zapret removed |
+| 5 | Foreground use on this PC, crash-safe DNS cleanup, zapret removed (rescoped 2026-11-14: the Windows service was built, then dropped because Kaspersky terminates its install) | Start-up about 2 s (D14); Ctrl+C, a closed window and a restart leave no rule, or the next `run` removes it; a killed process breaks only listed names; Steam logs in and downloads a game with zapret removed |
 | 6 | `probe` command | Reproduces the no-bypass and split rows of section 1 for a domain and prints a suggested profile |
 | 7 | Releases: CI-built archives, README | A friend installs from the GitHub release and reaches Steam without help |
 | 8 | QUIC: measure first, then decide | A written result on whether this ISP blocks QUIC by SNI. With DNS pointing listed names at loopback, QUIC to them fails and apps fall back to TCP, which may already be enough |
-| 9 | UI (redefined 2026-11-14): start and stop the relay, add and remove sites | The owner adds a site, sees whether it works, and starts and stops snisplit without a terminal. Open owner decisions: the UI technology (new crates or `windows-sys` features), one elevated app or a split with a privilege boundary, Linux and macOS under D4. Needs a per-user profile folder that `run` loads, and `probe` (milestone 6) to say whether a site will work |
-| 10 | Linux and macOS (D4) | The relay and DNS run on both; resolver routing per OS; the milestone 3-5 checks pass on a Linux machine and a Mac, as foreground runs |
+| 9 | UI (redefined 2026-11-14): start and stop the relay, add and remove sites | The owner adds a site, sees whether it works, and starts and stops snisplit without a terminal. Decided in D15: egui, one elevated app, Windows first. Needs a per-user profile folder that `run` loads, and `probe` (milestone 6) to say whether a site will work |
+| 10 | Linux and macOS (D4), deferred (D13) | The relay and DNS run on both; resolver routing per OS; the milestone 3-5 checks pass on a Linux machine and a Mac, as foreground runs |
 
 Ordering notes:
 
@@ -243,7 +246,7 @@ packets (synthetic tests only).
 | DoH bypass on Linux and macOS | No NRPT there; Chromium's auto-upgrade needs another answer. | Milestone 10 |
 | Port conflicts on loopback 53/80/443 | On this PC ICS holds 0.0.0.0:53; 127.0.0.2 and 127.0.0.3 are free. A bind failure stops `run` before any rule exists (milestone 3). | Closed for this PC |
 | Listed names that exist only over IPv6 | Milestone 4: a listed name with no A record is forwarded unchanged, so it resolves as without snisplit (checked in the elevated run). | Milestone 4 |
-| Start-up time | 13-21 s in milestone 3, 3.5 s in milestone 4, 0.7-1.3 s routed in milestone 5's first runs, then 703, 1789 and 2000 ms with the foreground build (cause of the spread unknown; target 1.5 s). | Milestone 5, owner decides |
+| Start-up time | 13-21 s in milestone 3, 3.5 s in milestone 4, 0.7-1.3 s routed in milestone 5's first runs, then 703, 1789 and 2000 ms with the foreground build (cause of the spread unknown). Accepted by the owner (D14). | Closed |
 | IPv6 and HTTPS records | Done in milestone 3: listed names get empty AAAA and type-65 answers. | Closed |
 | Relay throughput | Every Steam byte is copied through snisplit: about 9 MB/s for a 1.66 GB download in milestone 4, not compared with zapret; a download through the foreground build worked (owner, milestone 5). | Carried; measure if downloads feel slow |
 | Antivirus reaction | Kaspersky on the owner's PC (2026-11-14): `snisplit service install` was terminated as `PDM:Trojan.Win32.Generic` twice and the file deleted; one stream C build was deleted on disk as `VHO:Backdoor.Win64.Agent.gen`. The service was removed; the foreground build since then raised no alert. A friend's antivirus may react the same way. | Milestone 7 (false-positive reports, signing are owner decisions) |
