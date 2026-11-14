@@ -31,7 +31,7 @@ pub fn parse_file(source: &str, text: &str) -> Result<ProfileSpec, ProfileError>
     profile_file::parse(source, text, &built_in_names)
 }
 
-pub fn read_file(path: &Path) -> io::Result<ProfileSpec> {
+pub(crate) fn read_file(path: &Path) -> io::Result<ProfileSpec> {
     let text = fs::read_to_string(path).map_err(|error| {
         io::Error::new(
             error.kind(),

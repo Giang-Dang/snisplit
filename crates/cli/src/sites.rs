@@ -20,7 +20,7 @@ pub struct SiteFile {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Admitted {
+pub(crate) struct Admitted {
     pub sites: Vec<ProfileSpec>,
     pub notes: Vec<String>,
 }
@@ -126,7 +126,7 @@ fn named_after_file(file_name: &str, stem: &str, spec: ProfileSpec) -> Result<Pr
     ))
 }
 
-pub fn admit(taken: &[ProfileSpec], files: Vec<SiteFile>) -> Admitted {
+pub(crate) fn admit(taken: &[ProfileSpec], files: Vec<SiteFile>) -> Admitted {
     let mut owners: Vec<Owner> = taken.iter().map(Owner::profile).collect();
     let mut admitted = Admitted {
         sites: Vec::new(),
