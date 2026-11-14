@@ -11,7 +11,7 @@ Status (current state and next step: docs/PROGRESS.md):
 - 2026-11-14: the owner chose a driverless design (section 2, decision D1). It
   replaces the WinDivert packet engine. Whether it works on this ISP is unproven: the
   new milestone 2 is a measurement spike with a written go/no-go (section 5).
-  Question 5 (ports) answered; questions 1-4 and 6 open.
+  Spike done: recommendation go (docs/milestone-2-spike.md), awaiting the owner.
 - Milestone order after the spike is proposed, not confirmed.
 
 ## 1. What was measured
@@ -225,7 +225,10 @@ packets (synthetic tests only).
 | Two writes may not leave as two segments | The whole HTTPS approach rests on it. Usual with Nagle off, not guaranteed. | Milestone 2 |
 | No known user-mode HTTP method | HTTP needed out-of-order segments here. Steam content may use port 80. | Milestone 2, then the owner |
 | Crash leaves DNS broken | System-wide DNS on loopback breaks every lookup if snisplit dies. NRPT per suffix would limit it to listed names. | Milestones 2 and 5 |
-| Browsers with their own secure DNS | They bypass the OS resolver and so snisplit. Needs a README note or a browser setting. | Milestone 7 |
+| Browsers with their own secure DNS | They bypass the OS resolver and so snisplit. Measured: Steam's embedded browser auto-upgrades to DoH, and drops it while any NRPT rule exists. Explicit "secure DNS" settings are not covered; needs a README note. | Milestones 3 and 7 |
+| NRPT fallback is machine-wide | While snisplit's rules exist, every Chromium-based app loses automatic DoH for all names, not only listed ones. Users should be told. | Milestone 7 (README) |
+| snisplit started while Steam or Chrome is already open | The DoH fallback was measured only with the rule present before Steam started. | Milestone 3 acceptance |
+| DoH bypass on Linux and macOS | No NRPT there; Chromium's auto-upgrade needs another answer. | Milestone 10 |
 | Port conflicts on loopback 53/80/443 | Local dev servers or WARP may already listen there. | Milestone 2 |
 | IPv6 and HTTPS records | Listed names must get empty AAAA and type-65 answers, or apps go direct or learn ECH config. | Milestone 3 |
 | Relay throughput | Every Steam byte, including game downloads, is copied through snisplit. | Milestone 5 |

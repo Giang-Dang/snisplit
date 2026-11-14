@@ -42,7 +42,7 @@ events by process name and turn the log off again.
   162.159.61.3:443, which is `chrome.cloudflare-dns.com`. It resolves names with DNS
   over HTTPS: Chromium's automatic upgrade, because this PC's system DNS is 1.1.1.1
   (Cloudflare). Its command line sets no DNS option.
-- So the bypass depends on the DNS provider: a PC whose DNS is the ISP's own resolver
+- Inference, not tested: the bypass depends on the DNS provider. A PC whose DNS is the ISP's own resolver
   would not get the automatic upgrade. Friends' setups vary.
 - Consequence: with only NRPT routing, the client's Store pages would keep going
   direct and stay blocked, unless the NRPT fallback holds for steamwebhelper.
@@ -62,7 +62,8 @@ real name affected) was added before Steam started and removed at the end
 | steam.exe system lookups | 17 | 22 |
 
 Result: PASS. With any NRPT rule present, steamwebhelper drops DoH and uses the
-system resolver. The user's Chrome also made system lookups of Steam names during
+system resolver. Each condition ran once, with a dummy suffix and a cold Steam start
+(rule added before Steam started); milestone 3 repeats it with the real rules. The user's Chrome also made system lookups of Steam names during
 the rerun. Not covered: a PC where the user or a policy sets DoH explicitly
 ("secure DNS" on with a chosen provider); milestone 3 notes it as a known limit.
 
@@ -224,9 +225,9 @@ means the server sent any status line, so the ISP let the request through.
 | `Host: MeDiUm.cOm` (domcase) | 200 | FAIL |
 | `HEAD  /` (methodspace) | 200 | FAIL |
 | LF line ends (unixeol) | 200 | FAIL |
-| leading CRLF (methodeol) | 200 | FAIL |
-| cuts at method+2, midsld, both | 200 | FAIL |
-| `host:` plus cuts | 200 | FAIL |
+| leading CRLF (methodeol) | 200 | untested: CRLF removed before the wire |
+| cuts at method+2, midsld, both | 200 | untested: pieces merged before the wire |
+| `host:` plus cuts | 200 | untested: pieces merged before the wire |
 | padding header before Host, 1 to 8 KiB (hostpad) | 200 | FAIL |
 
 Findings:
@@ -262,7 +263,7 @@ Findings:
 - HTTP support therefore matters for downloads. The elevated run tests the `hoSt:`
   method against a content server with zapret stopped.
 
-## Q4 (partial): loopback DNS on 127.0.0.2:53
+## Q4: loopback DNS on 127.0.0.2:53 (NRPT results are in the elevated run above)
 
 A UDP socket bound to 127.0.0.2:53 received the query sent by
 `Resolve-DnsName probe.example -Server 127.0.0.2` (31 bytes from 127.0.0.1, a DNS
@@ -271,8 +272,8 @@ not take queries sent to 127.0.0.2. This closes the open point in question 5.
 
 `Get-DnsClientCache` returns nothing without elevation on this PC, so the elevated
 run used the DNS client event log instead (above). A client that resolves on its own
-(DNS over HTTPS, cached addresses) would bypass the relay; the Steam client is still
-to be checked.
+(DNS over HTTPS, cached addresses) would bypass the relay; for the Steam client see
+"Steam client DNS check".
 
 ## Q6: crates proposal (conditional on a go)
 
