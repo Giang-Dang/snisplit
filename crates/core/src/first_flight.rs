@@ -13,6 +13,12 @@ pub enum Protocol {
     Http,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HttpMethod {
+    PassThrough,
+    HostSpell,
+}
+
 #[derive(Debug, Clone)]
 pub struct RelayProfile {
     pub name: String,
@@ -20,6 +26,7 @@ pub struct RelayProfile {
     pub tls_positions: Vec<SplitPosition>,
     pub tls_ports: Vec<u16>,
     pub http_ports: Vec<u16>,
+    pub http_method: HttpMethod,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -9,6 +9,8 @@ use std::time::Duration;
 use snisplit_core::dns::{self, TYPE_A};
 use snisplit_core::first_flight::RelayProfile;
 use tokio::net::UdpSocket;
+
+use crate::resolve::Resolve;
 use tokio::task::JoinSet;
 use tokio::time::{Instant, timeout_at};
 
@@ -32,11 +34,12 @@ pub struct DnsServer {
 }
 
 impl DnsServer {
-    pub async fn bind(
+    pub async fn bind<R: Resolve>(
         listen: SocketAddr,
         profiles: Vec<RelayProfile>,
         answer: Ipv4Addr,
         upstreams: Vec<SocketAddr>,
+        _resolver: R,
     ) -> io::Result<DnsServer> {
         Self::bind_with(listen, profiles, answer, upstreams, UPSTREAM_TIMEOUT).await
     }

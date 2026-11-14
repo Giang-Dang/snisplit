@@ -73,6 +73,7 @@ fn steam_profile() -> RelayProfile {
         tls_positions: vec![SplitPosition::Offset(1), SplitPosition::DomainMid],
         tls_ports: vec![443],
         http_ports: vec![80],
+        http_method: snisplit_core::first_flight::HttpMethod::HostSpell,
     }
 }
 

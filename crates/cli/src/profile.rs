@@ -1,5 +1,5 @@
 use snisplit_core::domains::DomainList;
-use snisplit_core::first_flight::RelayProfile;
+use snisplit_core::first_flight::{HttpMethod, RelayProfile};
 use snisplit_core::strategy::SplitPosition;
 
 pub const STEAM_DOMAINS: [&str; 14] = [
@@ -53,6 +53,7 @@ pub fn steam() -> RelayProfile {
             .chain(STEAM_CLIENT_TLS_PORTS)
             .collect(),
         http_ports: vec![HTTP_PORT],
+        http_method: HttpMethod::HostSpell,
     }
 }
 
@@ -63,6 +64,7 @@ pub fn medium() -> RelayProfile {
         tls_positions: vec![SplitPosition::Offset(1)],
         tls_ports: vec![HTTPS_PORT],
         http_ports: vec![HTTP_PORT],
+        http_method: HttpMethod::HostSpell,
     }
 }
 

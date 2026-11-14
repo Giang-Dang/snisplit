@@ -31,6 +31,7 @@ fn profile(domains: &[&str], tls_positions: &[SplitPosition]) -> RelayProfile {
         tls_positions: tls_positions.to_vec(),
         tls_ports: vec![443],
         http_ports: vec![80],
+        http_method: HttpMethod::HostSpell,
     }
 }
 

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use snisplit_core::domains::DomainList;
 use snisplit_core::first_flight::RelayProfile;
-use snisplit_relay::DnsServer;
+use snisplit_relay::{DnsServer, UdpResolver};
 use tokio::net::UdpSocket;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -96,6 +96,7 @@ fn steam_profile() -> RelayProfile {
         tls_positions: Vec::new(),
         tls_ports: Vec::new(),
         http_ports: Vec::new(),
+        http_method: snisplit_core::first_flight::HttpMethod::HostSpell,
     }
 }
 
@@ -130,9 +131,16 @@ impl Running {
 }
 
 async fn start(upstreams: Vec<SocketAddr>) -> Running {
-    let server = DnsServer::bind(loopback(), vec![steam_profile()], ANSWER, upstreams)
-        .await
-        .expect("server binds");
+    let resolver = UdpResolver::new(upstreams.clone(), PATIENCE);
+    let server = DnsServer::bind(
+        loopback(),
+        vec![steam_profile()],
+        ANSWER,
+        upstreams,
+        resolver,
+    )
+    .await
+    .expect("server binds");
     let addr = server.local_addr();
     let (stop, stopped) = oneshot::channel::<()>();
     let task = tokio::spawn(server.run(async {

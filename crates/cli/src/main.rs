@@ -10,6 +10,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use snisplit_core::first_flight::Refusal;
+use snisplit_core::http_stream::StopReason;
 use snisplit_relay::dns_server::DnsServer;
 use snisplit_relay::upstream::UdpResolver;
 use snisplit_relay::{Event, Relay};
@@ -78,9 +79,10 @@ async fn serve(options: RunOptions) -> io::Result<()> {
     if options.routing {
         routing::remove_all()?;
     }
+    let resolver = Arc::new(UdpResolver::new(upstreams.clone(), plan::UPSTREAM_TIMEOUT));
     let relay = Relay::bind(
         plan::relay_config(&selected),
-        UdpResolver::new(upstreams.clone(), plan::UPSTREAM_TIMEOUT),
+        Arc::clone(&resolver),
         event_printer(options.verbose),
     )
     .await?;
@@ -88,8 +90,15 @@ async fn serve(options: RunOptions) -> io::Result<()> {
     for selection in &selected {
         let listen = SocketAddr::from((selection.address, plan::DNS_PORT));
         let profiles = vec![(selection.built_in.profile)()];
-        dns_servers
-            .push(DnsServer::bind(listen, profiles, selection.address, upstreams.clone()).await?);
+        let server = DnsServer::bind(
+            listen,
+            profiles,
+            selection.address,
+            upstreams.clone(),
+            Arc::clone(&resolver),
+        )
+        .await?;
+        dns_servers.push(server);
     }
     if options.routing {
         if let Err(error) = install_rules(&selected) {
@@ -148,7 +157,7 @@ fn remove_rules() -> io::Result<()> {
 
 fn event_printer(verbose: bool) -> Arc<dyn Fn(Event) + Send + Sync> {
     Arc::new(move |event| {
-        if verbose || !matches!(event, Event::Forwarded { .. }) {
+        if verbose || !matches!(event, Event::Forwarded { .. } | Event::Closed { .. }) {
             println!("{}", describe_event(&event));
         }
     })
@@ -192,6 +201,34 @@ fn describe_event(event: &Event) -> String {
             format!("failed a connection on port {port}: {error}")
         }
         Event::Failed { host, port, error } => format!("failed {host}:{port}: {error}"),
+        Event::Closed {
+            host,
+            port,
+            to_server,
+            to_client,
+            respelled,
+            stopped,
+        } => {
+            let stopped = stopped.map_or(String::new(), |reason| {
+                format!("; stopped respelling: {}", describe_stop(reason))
+            });
+            let noun = if *respelled == 1 { "header" } else { "headers" };
+            format!(
+                "closed {host}:{port}: {to_server} bytes sent, {to_client} received, \
+                 {respelled} Host {noun} respelled{stopped}"
+            )
+        }
+    }
+}
+
+fn describe_stop(reason: StopReason) -> &'static str {
+    match reason {
+        StopReason::TransferEncoding => "the request has a Transfer-Encoding body",
+        StopReason::ContentLength => "the request has an unusable Content-Length",
+        StopReason::Upgrade => "the request asks for a protocol upgrade",
+        StopReason::Connect => "the request is a CONNECT",
+        StopReason::HeadTooLong => "a request head is longer than 16 KiB",
+        StopReason::NotHttp => "the bytes are not an HTTP/1.x request",
     }
 }
 
@@ -266,6 +303,35 @@ mod tests {
         assert_eq!(
             describe_event(&unknown),
             "failed a connection on port 27019: first flight timed out"
+        );
+    }
+
+    #[test]
+    fn a_closed_connection_reports_bytes_respelling_and_why_it_stopped() {
+        let plain = Event::Closed {
+            host: "medium.com".to_string(),
+            port: 80,
+            to_server: 210,
+            to_client: 4096,
+            respelled: 2,
+            stopped: None,
+        };
+        let stopped = Event::Closed {
+            host: "store.steampowered.com".to_string(),
+            port: 80,
+            to_server: 90,
+            to_client: 0,
+            respelled: 1,
+            stopped: Some(StopReason::Upgrade),
+        };
+        assert_eq!(
+            describe_event(&plain),
+            "closed medium.com:80: 210 bytes sent, 4096 received, 2 Host headers respelled"
+        );
+        assert_eq!(
+            describe_event(&stopped),
+            "closed store.steampowered.com:80: 90 bytes sent, 0 received, 1 Host header respelled; \
+             stopped respelling: the request asks for a protocol upgrade"
         );
     }
 

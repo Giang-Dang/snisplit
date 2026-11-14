@@ -35,6 +35,7 @@ fn steam_profile() -> RelayProfile {
         tls_positions: Vec::new(),
         tls_ports: Vec::new(),
         http_ports: Vec::new(),
+        http_method: snisplit_core::first_flight::HttpMethod::HostSpell,
     }
 }
 

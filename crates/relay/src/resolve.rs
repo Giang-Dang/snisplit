@@ -2,9 +2,16 @@ use std::future::Future;
 use std::io;
 use std::net::Ipv4Addr;
 use std::pin::Pin;
+use std::sync::Arc;
 
 pub trait Resolve: Send + Sync + 'static {
     fn resolve(&self, host: &str) -> impl Future<Output = io::Result<Vec<Ipv4Addr>>> + Send;
+}
+
+impl<R: Resolve> Resolve for Arc<R> {
+    fn resolve(&self, host: &str) -> impl Future<Output = io::Result<Vec<Ipv4Addr>>> + Send {
+        R::resolve(self, host)
+    }
 }
 
 pub(crate) type BoxedResolution<'a> =
