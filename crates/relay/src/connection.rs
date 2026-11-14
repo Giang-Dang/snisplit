@@ -166,7 +166,11 @@ async fn open_upstream(
     let host = flight.host.as_str();
     let fail = |error: String| Stop::failed(host, error);
     let addresses = usable_addresses(shared, host).await.map_err(fail)?;
-    let mut upstream = connect_first(&addresses, port, shared.connect_timeout)
+    let candidates: Vec<SocketAddr> = addresses
+        .iter()
+        .map(|&address| SocketAddr::from((address, port)))
+        .collect();
+    let mut upstream = connect_first(&candidates, shared.connect_timeout)
         .await
         .map_err(fail)?;
     upstream
@@ -197,22 +201,24 @@ async fn usable_addresses(shared: &Shared, host: &str) -> Result<Vec<Ipv4Addr>, 
 }
 
 async fn connect_first(
-    addresses: &[Ipv4Addr],
-    port: u16,
+    candidates: &[SocketAddr],
     connect_timeout: Duration,
 ) -> Result<TcpStream, String> {
-    timeout(connect_timeout, connect_in_order(addresses, port))
+    timeout(connect_timeout, connect_in_order(candidates))
         .await
         .unwrap_or_else(|_| Err(CONNECT_TIMED_OUT.to_owned()))
 }
 
-async fn connect_in_order(addresses: &[Ipv4Addr], port: u16) -> Result<TcpStream, String> {
+async fn connect_in_order(candidates: &[SocketAddr]) -> Result<TcpStream, String> {
     let mut last_error = NO_ADDRESS.to_owned();
-    for &address in addresses {
-        match TcpStream::connect(SocketAddr::from((address, port))).await {
+    for &candidate in candidates {
+        match TcpStream::connect(candidate).await {
             Ok(stream) => return Ok(stream),
-            Err(error) => last_error = format!("connecting to {address}:{port}: {error}"),
+            Err(error) => last_error = format!("connecting to {candidate}: {error}"),
         }
     }
     Err(last_error)
 }
+
+#[cfg(test)]
+mod tests;

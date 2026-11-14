@@ -28,7 +28,6 @@ const LET_RELAY_READ_THE_FIRST_PART: Duration = Duration::from_millis(50);
 const PIECE_GAP: Duration = Duration::from_millis(5);
 
 const LOOPBACK: Ipv4Addr = Ipv4Addr::LOCALHOST;
-const NOT_LISTENING_ON_LOOPBACK: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 2);
 
 const SERVER_WORDS: &[u8] = b"server says hello";
 const CLIENT_FOLLOW_UP: &[u8] = b"application data after the hello";
@@ -273,31 +272,6 @@ fn an_http_request_is_relayed_unchanged_in_one_piece_by_its_lowercased_host() {
             read_exactly(&mut client, SERVER_WORDS.len()).await,
             SERVER_WORDS
         );
-        harness.shut_down().await;
-    });
-}
-
-#[test]
-fn the_next_address_is_tried_when_the_first_cannot_be_reached() {
-    block_on(async {
-        let (upstream, upstream_port) = fake_upstream().await;
-        let answers = vec![NOT_LISTENING_ON_LOOPBACK, LOOPBACK];
-        let mut harness = Harness::start(Protocol::Tls, upstream_port, answers).await;
-        let mut client = harness.connect().await;
-        client.write_all(STORE_HELLO).await.unwrap();
-        let (mut at_server, _) = within(upstream.accept()).await.unwrap();
-
-        assert_eq!(
-            read_exactly(&mut at_server, STORE_HELLO.len()).await,
-            STORE_HELLO
-        );
-        assert!(matches!(
-            harness.next_event().await,
-            Event::Forwarded {
-                pieces: STORE_PIECES,
-                ..
-            }
-        ));
         harness.shut_down().await;
     });
 }
