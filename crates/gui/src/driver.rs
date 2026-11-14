@@ -81,9 +81,7 @@ impl Driver {
     pub fn shutdown(&mut self) {
         self.stop_session();
         if let Some(session) = self.session.take() {
-            let _ = self
-                .runtime
-                .block_on(tokio::time::timeout(SHUTDOWN_LIMIT, session.ended));
+            wait_until_ended(&self.runtime, session.ended, SHUTDOWN_LIMIT);
         }
     }
 
@@ -183,6 +181,10 @@ impl Drop for Driver {
     }
 }
 
+fn wait_until_ended(runtime: &Runtime, task: JoinHandle<()>, limit: Duration) -> bool {
+    runtime.block_on(async move { tokio::time::timeout(limit, task).await.is_ok() })
+}
+
 fn session_end(result: io::Result<()>) -> SessionEnd {
     match result {
         Ok(()) => SessionEnd::Clean,
@@ -213,3 +215,6 @@ async fn probe_domain(domain: &str) -> Result<crate::state::ProbeView, String> {
         .map(|report| report::view(&report))
         .map_err(|error| error.to_string())
 }
+
+#[cfg(test)]
+mod tests;
