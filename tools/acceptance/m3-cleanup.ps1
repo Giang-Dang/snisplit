@@ -39,11 +39,17 @@ function Stop-Hard($run, $name) {
 "started $(Get-Date -Format s)" | Set-Content $log
 Log "zapret: $((Get-Service zapret-steam).Status); rules pointing at the relay before: $((RulesToRelay).Count)"
 try {
+  $leftover = @(Get-Process snisplit -ErrorAction SilentlyContinue)
+  Log "leftover snisplit processes stopped first: $($leftover.Count)"
+  $leftover | Stop-Process -Force
+  $leftover | ForEach-Object { $_.WaitForExit(10000) | Out-Null }
   $first = Start-Medium 'first'
+  if (-not (Select-String $first.Out -Pattern 'Ctrl\+C to stop' -Quiet)) { throw 'first run did not start' }
   Say "Open https://medium.com/ in your Chrome now and check that the page renders. Waiting $BrowseSeconds s."
   Start-Sleep $BrowseSeconds
   Stop-Hard $first 'first'
   $second = Start-Medium 'second'
+  if (-not (Select-String $second.Out -Pattern 'Ctrl\+C to stop' -Quiet)) { throw 'second run did not start' }
   Stop-Hard $second 'second'
   Log '--- snisplit cleanup'
   & $exe cleanup 2>&1 | ForEach-Object { "  $_" } | Log
