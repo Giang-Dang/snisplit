@@ -1,7 +1,89 @@
-# Milestone 2 spike: results so far
+# Milestone 2 spike: results and go/no-go
 
-Answers to PLAN.md section 4.1, measured on the owner's PC on 2026-11-14. Not yet a
-go/no-go: the Steam runs (zapret stopped), question 3 and question 4 are still open.
+Answers to PLAN.md section 4.1, measured on the owner's PC on 2026-11-14.
+
+## Recommendation: go
+
+The driverless design works on this ISP for HTTPS and HTTP, for the Steam store,
+community, API, login and content hosts, with zapret stopped:
+
+- HTTPS: cut the ClientHello at byte 1 (two writes). Single write is reset every time;
+  cut at 1 passes every time, for small and large (1529-byte) client hellos.
+- HTTP: respell the header name `Host:` as `hoSt:`. Splitting does not work for HTTP.
+- DNS: an NRPT rule sends only the listed suffix to a resolver on 127.0.0.2:53; other
+  names are unaffected, also with a stale rule after the resolver is gone.
+
+Carried into milestone 3 as acceptance checks, not blockers:
+
+- The Steam client itself resolving through the system resolver: the user's Chrome
+  did (DNS client log), the Steam client made no lookups during the window.
+- The port of Steam's plain HTTP downloads (Q3).
+
+## Elevated run with zapret stopped (2026-11-14 16:23-16:25)
+
+`tools/spike/elevated-window.ps1`, run once elevated with the owner's approval:
+stopped `zapret-steam` and waited until no `winws` process was left, ran the probes
+with a pktmon capture (ports 80 and 443, NICs only), restarted the service in a
+`finally` block (log: `zapret restored: Running, winws=True`), then ran the NRPT test
+and read the DNS client log. zapret was stopped for about one minute.
+
+### Steam HTTPS, `tls-split-probe.ps1 -Rounds 2`
+
+| Host | single | cut at 1 | cut mid-host | cut at 1 and mid-host |
+|---|---|---|---|---|
+| store.steampowered.com | FAIL 2/2 | PASS 2/2 (200) | FAIL 2/2 | PASS 2/2 |
+| steamcommunity.com | FAIL 2/2 | PASS 2/2 (200) | FAIL 2/2 | PASS 2/2 |
+| api.steampowered.com | FAIL 2/2 | PASS 2/2 (404 for `/`) | FAIL 2/2 | PASS 2/2 |
+| login.steampowered.com | FAIL 2/2 | PASS 2/2 (302) | FAIL 2/2 | PASS 2/2 |
+| cache5-hkg1.steamcontent.com | FAIL 2/2 | PASS 2/2 (200) | FAIL 2/2 | PASS 2/2 |
+| medium.com | FAIL 1/1 | PASS 1/1 | FAIL 1/1 | PASS 1/1 |
+
+Large hello through the loopback relay to store.steampowered.com (`big-hello.py`,
+1529-byte record): single write 0 bytes from the server 2/2; cut at 1 TLS 1.3 and
+`HTTP/1.1 200 OK` 2/2.
+
+### Steam HTTP, `http-variants.ps1 -Rounds 1`
+
+| Variant | store.steampowered.com | cache5-hkg1.steamcontent.com |
+|---|---|---|
+| control, hostcase, hostdot, hostnospace, domcase, methodspace, unixeol, methodeol, all splits, hostpad 1-8 KiB | FAIL | FAIL |
+| `hoSt:` | **PASS, 302** | **PASS, 200** |
+| hosttab | ISP passes, server 400 | ISP passes, server 400 |
+
+### Wire evidence (pktmon, `tools/spike/pcapng-segments.py`)
+
+- HTTPS: every write left as its own TCP segment. Cut-at-1 connections start with
+  segments `1+448`, `1+141+626`, `1+454`; single-write connections with one 449, 742
+  or 768-byte segment.
+- Every failed HTTPS connection received a RST from the server side; no passing
+  connection did.
+- HTTP: the split variants left as one 100-byte segment, so the pieces were merged
+  before the wire, even with Nagle off and 30 ms between writes. Blocked HTTP
+  connections also send a RST from this PC, matching the WSAECONNABORTED the probe
+  sees. The antivirus (`avp`) filters port 80 on this PC and is the likely cause; it
+  was not worked around, so HTTP splitting stays untested here. The `hoSt:` request
+  reached the wire byte for byte as written.
+
+### NRPT
+
+| Step | Result |
+|---|---|
+| `Add-DnsClientNrptRule -Namespace .nrpt-probe.example -NameServers 127.0.0.2` | 1 rule |
+| `Resolve-DnsName a.nrpt-probe.example` | 127.0.0.2 (answered by the test listener) |
+| `Resolve-DnsName example.org` | normal public addresses |
+| headless Chrome, no resolver flags, `http://a.nrpt-probe.example/` | its query reached the listener at 16:24:20: Chrome uses the system resolver and honours NRPT |
+| stale rule, listener stopped: `b.nrpt-probe.example` | no answer, after 2 ms |
+| stale rule: `example.org` | normal public addresses |
+| rule removed in `finally` | 0 rules left |
+
+A crash with the rule in place breaks only the listed names, and fails fast.
+
+### DNS client log
+
+`Microsoft-Windows-DNS-Client/Operational` events 3006 during the run, Steam and
+medium names only: the user's Chrome looked up `steamcommunity.com` and
+`cache4-hkg1.steamcontent.com` through the system resolver; the other lookups came
+from the short-lived probe processes. The Steam client made none in the window.
 
 ## Test domain: medium.com
 
@@ -46,7 +128,7 @@ Findings:
 - Not yet proven at wire level: that each write left as its own TCP segment. Single
   write fails and cut-at-1 passes on the same path, so the wire did differ; a pktmon
   capture in the elevated run will record the segment sizes.
-- Still to do: the same table for the Steam hosts with `zapret-steam` stopped.
+- Steam hosts: same result, see the elevated run above.
 
 ### Through a loopback relay (the relay design, no DNS change, no admin)
 
@@ -99,11 +181,9 @@ Findings:
   in place without changing the length.
 - Splitting the request does not help HTTP, matching the earlier zapret measurement
   (in-order split fails, only disorder worked).
-- Still to do: the HTTP Steam URL with `zapret-steam` stopped, and a check that
-  Steam's content servers accept `hoSt:`.
-- Blocked HTTP connections end with WSAECONNABORTED rather than a reset seen by curl
-  as 56. Whether the ISP or local software (the antivirus web scanner) ends them is
-  open; the pktmon capture will show whether a RST arrives from the network.
+- Steam store and content servers accept `hoSt:` (elevated run above).
+- The split rows are not a valid test of splitting on this PC: the pieces were merged
+  before the wire (see wire evidence above).
 
 ## Q3: do Steam downloads use port 80
 
@@ -132,10 +212,10 @@ A UDP socket bound to 127.0.0.2:53 received the query sent by
 header with one question). Internet Connection Sharing, which holds 0.0.0.0:53, does
 not take queries sent to 127.0.0.2. This closes the open point in question 5.
 
-Open, needs admin: listing the OS DNS cache (`Get-DnsClientCache` returns nothing
-without elevation on this PC), which is how the run will check that the Steam client
-and Chrome resolve the blocked names through the system resolver. A client that
-resolves on its own (DNS over HTTPS, cached addresses) would bypass the relay.
+`Get-DnsClientCache` returns nothing without elevation on this PC, so the elevated
+run used the DNS client event log instead (above). A client that resolves on its own
+(DNS over HTTPS, cached addresses) would bypass the relay; the Steam client is still
+to be checked.
 
 ## Q6: crates proposal (conditional on a go)
 

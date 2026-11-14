@@ -170,7 +170,7 @@ Each answer needs a command and its output, not a recollection.
        socket on 127.0.0.2:53 receives the queries sent there; ICS does not take
        them (docs/milestone-2-spike.md).
 
-Results for questions 1-4 and 6 so far: docs/milestone-2-spike.md.
+Results for questions 1-4 and 6, and the go recommendation: docs/milestone-2-spike.md.
 6. **Crates.** A DNS codec and a relay raise the no-new-crates rule: threads with
    std only, or an async runtime. Recorded as an open decision with a proposal.
 

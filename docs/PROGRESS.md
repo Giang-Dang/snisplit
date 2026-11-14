@@ -9,7 +9,7 @@ this file says where the work stands and what to do next.
 |---|---|
 | 0 Scaffold, licence, CI, WinDivert spike | Done (PLAN.md 5.1) |
 | 1 Core: parsers, matcher, strategy, segment planner, engine | Done (PLAN.md 5.2, docs/milestone-1.md) |
-| 2 Feasibility spike for the driverless design | **In progress**: results in docs/milestone-2-spike.md. Q1 and Q2 answered on medium.com (blocked the same way, not on zapret's list), Q3 partly, Q5 done, Q6 proposed; the Steam runs and NRPT need the elevated window |
+| 2 Feasibility spike for the driverless design | **Done, recommendation go** (docs/milestone-2-spike.md); awaiting the owner's go and the Q6 crates decision |
 | 3 and later | Not started; conditional on the milestone 2 go/no-go |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
@@ -19,10 +19,10 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 
 ## Next step
 
-Finish docs/milestone-2-spike.md and turn it into a go/no-go. What is left needs one
-elevated run with `zapret-steam` stopped (the Steam probes, pktmon segment sizes, the
-NRPT rule, the DNS client log); the spike scripts are in `tools/spike/`. The notes
-below are the original plan for the questions.
+The owner decides go/no-go and the Q6 crates proposal (docs/milestone-2-spike.md).
+On go: plan milestone 3 (relay + DNS, HTTPS only, foreground), using cut at byte 1
+for TLS and `hoSt:` for HTTP (milestone 4). The notes below are the original plan
+for the spike questions, kept for reference.
 
 - Question 1 (do two writes get HTTPS through where one write fails) and question 2
   (an HTTP method) need test runs against the ISP with the `zapret-steam` service
