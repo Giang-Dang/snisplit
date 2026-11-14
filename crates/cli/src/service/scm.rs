@@ -55,13 +55,16 @@ fn succeeded(result: BOOL) -> io::Result<()> {
 }
 
 pub fn open_manager(access: u32) -> io::Result<Handle> {
-    let raw = unsafe { OpenSCManagerW(ptr::null(), ptr::null(), access) };
+    let this_machine = ptr::null();
+    let active_database = ptr::null();
+    let raw = unsafe { OpenSCManagerW(this_machine, active_database, access) };
     Handle::checked(raw)
 }
 
 pub fn open_service(manager: &Handle, access: u32) -> io::Result<Option<Handle>> {
-    let name = wide(SERVICE_NAME);
-    let raw = unsafe { OpenServiceW(manager.0, name.as_ptr(), access) };
+    let wide_name = wide(SERVICE_NAME);
+    let name = wide_name.as_ptr();
+    let raw = unsafe { OpenServiceW(manager.0, name, access) };
     match Handle::checked(raw) {
         Ok(service) => Ok(Some(service)),
         Err(error) if is_error(&error, ERROR_SERVICE_DOES_NOT_EXIST) => Ok(None),
@@ -70,23 +73,30 @@ pub fn open_service(manager: &Handle, access: u32) -> io::Result<Option<Handle>>
 }
 
 pub fn create_service(manager: &Handle, command_line: &str) -> io::Result<Handle> {
-    let name = wide(SERVICE_NAME);
-    let binary = wide(command_line);
+    let wide_name = wide(SERVICE_NAME);
+    let name = wide_name.as_ptr();
+    let wide_binary = wide(command_line);
+    let binary = wide_binary.as_ptr();
+    let no_load_order_group = ptr::null();
+    let no_tag = ptr::null_mut();
+    let no_dependencies = ptr::null();
+    let local_system = ptr::null();
+    let no_password = ptr::null();
     let raw = unsafe {
         CreateServiceW(
             manager.0,
-            name.as_ptr(),
-            name.as_ptr(),
+            name,
+            name,
             SERVICE_ALL_ACCESS,
             SERVICE_WIN32_OWN_PROCESS,
             SERVICE_AUTO_START,
             SERVICE_ERROR_NORMAL,
-            binary.as_ptr(),
-            ptr::null(),
-            ptr::null_mut(),
-            ptr::null(),
-            ptr::null(),
-            ptr::null(),
+            binary,
+            no_load_order_group,
+            no_tag,
+            no_dependencies,
+            local_system,
+            no_password,
         )
     };
     Handle::checked(raw)
@@ -131,19 +141,22 @@ pub fn apply_failure_actions_to_error_exits(service: &Handle) -> io::Result<()> 
 }
 
 pub fn start(service: &Handle) -> io::Result<()> {
-    let result = unsafe { StartServiceW(service.0, 0, ptr::null()) };
+    let no_arguments = ptr::null();
+    let result = unsafe { StartServiceW(service.0, 0, no_arguments) };
     succeeded(result)
 }
 
 pub fn send_stop(service: &Handle) -> io::Result<()> {
-    let mut status = SERVICE_STATUS::default();
-    let result = unsafe { ControlService(service.0, SERVICE_CONTROL_STOP, &mut status) };
+    let mut last_status = SERVICE_STATUS::default();
+    let status = ptr::from_mut(&mut last_status);
+    let result = unsafe { ControlService(service.0, SERVICE_CONTROL_STOP, status) };
     succeeded(result)
 }
 
 pub fn current_state(service: &Handle) -> io::Result<SERVICE_STATUS_CURRENT_STATE> {
     let mut status = SERVICE_STATUS::default();
-    let result = unsafe { QueryServiceStatus(service.0, &mut status) };
+    let status_out = ptr::from_mut(&mut status);
+    let result = unsafe { QueryServiceStatus(service.0, status_out) };
     succeeded(result).map(|()| status.dwCurrentState)
 }
 

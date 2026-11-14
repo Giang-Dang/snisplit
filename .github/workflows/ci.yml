@@ -37,7 +37,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: rustup toolchain install stable --profile minimal
+        shell: pwsh
       - run: cargo build --release -p snisplit
+        shell: pwsh
 
       - name: Write the check helpers
         run: |

@@ -84,9 +84,12 @@ pub fn uninstall() -> io::Result<()> {
         .map_err(|error| needs_administrator(error, "uninstall"))?;
     match service {
         Some(service) => {
-            stop(&service)?;
+            stop(&service, "nothing was removed")?;
             scm::delete(&service)?;
-            stop(&service)?;
+            stop(
+                &service,
+                "it is marked for deletion and goes once it stops; run snisplit service uninstall again then",
+            )?;
             println!("service {SERVICE_NAME} stopped and removed");
         }
         None => println!("service {SERVICE_NAME} is not installed"),
@@ -160,7 +163,7 @@ fn restart_actions() -> Vec<SC_ACTION> {
         .collect()
 }
 
-fn stop(service: &Handle) -> io::Result<()> {
+fn stop(service: &Handle, on_timeout: &str) -> io::Result<()> {
     let deadline = Instant::now() + STOP_WAIT;
     loop {
         let state = scm::current_state(service)?;
@@ -174,7 +177,7 @@ fn stop(service: &Handle) -> io::Result<()> {
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
                 format!(
-                    "service {SERVICE_NAME} did not stop within {} s; nothing was removed",
+                    "service {SERVICE_NAME} did not stop within {} s; {on_timeout}",
                     STOP_WAIT.as_secs()
                 ),
             ));

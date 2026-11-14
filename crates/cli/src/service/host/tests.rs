@@ -108,3 +108,21 @@ fn other_dispatcher_errors_keep_their_windows_code() {
     let error = dispatcher_failure(io::Error::from_raw_os_error(5));
     assert_eq!(error.raw_os_error(), Some(5));
 }
+
+#[test]
+fn a_stop_requested_before_serve_listens_is_still_seen_when_it_starts_listening() {
+    let service = Service {
+        options: RunOptions {
+            verbose: false,
+            profiles: vec!["medium"],
+            profile_files: vec![],
+            routing: true,
+            upstreams: vec![],
+        },
+        stop: watch::Sender::new(false),
+        status: StatusReporter::new(),
+    };
+    service.request_stop();
+    let listener = service.stop.subscribe();
+    assert!(*listener.borrow());
+}

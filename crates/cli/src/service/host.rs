@@ -122,8 +122,9 @@ impl StatusReporter {
         if handle.is_null() {
             return;
         }
-        if let Some(status) = reported.next(phase) {
-            unsafe { SetServiceStatus(handle, &status) };
+        if let Some(next) = reported.next(phase) {
+            let status = ptr::from_ref(&next);
+            unsafe { SetServiceStatus(handle, status) };
         }
     }
 }
@@ -136,9 +137,11 @@ struct Service {
 
 impl Service {
     fn main(&'static self) {
-        let name = wide(SERVICE_NAME);
+        let wide_name = wide(SERVICE_NAME);
+        let name = wide_name.as_ptr();
         let handler: LPHANDLER_FUNCTION_EX = Some(handle_control);
-        let handle = unsafe { RegisterServiceCtrlHandlerExW(name.as_ptr(), handler, ptr::null()) };
+        let no_context = ptr::null();
+        let handle = unsafe { RegisterServiceCtrlHandlerExW(name, handler, no_context) };
         if handle.is_null() {
             return;
         }
@@ -249,16 +252,17 @@ pub fn run(options: RunOptions) -> io::Result<()> {
     if SERVICE.set(service).is_err() {
         return Err(io::Error::other("the service host can start only once"));
     }
-    let mut name = wide(SERVICE_NAME);
+    let mut wide_name = wide(SERVICE_NAME);
     let main: LPSERVICE_MAIN_FUNCTIONW = Some(service_main);
-    let table = [
+    let entries = [
         SERVICE_TABLE_ENTRYW {
-            lpServiceName: name.as_mut_ptr(),
+            lpServiceName: wide_name.as_mut_ptr(),
             lpServiceProc: main,
         },
         SERVICE_TABLE_ENTRYW::default(),
     ];
-    let dispatched = unsafe { StartServiceCtrlDispatcherW(table.as_ptr()) };
+    let table = entries.as_ptr();
+    let dispatched = unsafe { StartServiceCtrlDispatcherW(table) };
     if dispatched == 0 {
         return Err(dispatcher_failure(io::Error::last_os_error()));
     }
