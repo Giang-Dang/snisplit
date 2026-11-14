@@ -240,9 +240,13 @@ fn describe_event(event: &Event) -> String {
                 format!("; stopped respelling: {}", describe_stop(reason))
             });
             let noun = if *respelled == 1 { "header" } else { "headers" };
+            let respelled = match respelled {
+                0 => String::new(),
+                count => format!(", {count} Host {noun} respelled"),
+            };
             format!(
-                "closed {host}:{port}: {to_server} bytes sent, {to_client} received, \
-                 {respelled} Host {noun} respelled{stopped}"
+                "closed {host}:{port}: {to_server} bytes sent, {to_client} received\
+                 {respelled}{stopped}"
             )
         }
     }
@@ -359,6 +363,18 @@ mod tests {
             describe_event(&stopped),
             "closed store.steampowered.com:80: 90 bytes sent, 0 received, 1 Host header respelled; \
              stopped respelling: the request asks for a protocol upgrade"
+        );
+        let tls = Event::Closed {
+            host: "medium.com".to_string(),
+            port: 443,
+            to_server: 693,
+            to_client: 10713,
+            respelled: 0,
+            stopped: None,
+        };
+        assert_eq!(
+            describe_event(&tls),
+            "closed medium.com:443: 693 bytes sent, 10713 received"
         );
     }
 
