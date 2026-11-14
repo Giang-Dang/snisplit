@@ -94,7 +94,7 @@ async fn serve(options: RunOptions) -> io::Result<()> {
     if options.routing {
         if let Err(error) = install_rules(&selected) {
             let _ = remove_rules();
-            return Err(error);
+            return Err(routing_failure(&error));
         }
     }
     println!("{}", describe_start(&selected, &upstreams, options.routing));
@@ -126,6 +126,17 @@ fn install_rules(selected: &[Selected]) -> io::Result<()> {
         routing::install(selection.built_in.domains, selection.address)?;
     }
     routing::flush_cache()
+}
+
+fn routing_failure(error: &io::Error) -> io::Error {
+    let message = error.to_string();
+    let first_line = message.lines().next().unwrap_or_default();
+    io::Error::new(
+        error.kind(),
+        format!(
+            "adding DNS rules failed (run from an administrator terminal, or pass --no-routing): {first_line}"
+        ),
+    )
 }
 
 fn remove_rules() -> io::Result<()> {
@@ -256,6 +267,20 @@ mod tests {
             describe_event(&unknown),
             "failed a connection on port 27019: first flight timed out"
         );
+    }
+
+    #[test]
+    fn a_routing_failure_keeps_only_the_first_line_and_says_what_to_do() {
+        let raw = io::Error::other(
+            "powershell: Add-DnsClientNrptRule : Failed to load the NRPT information.\nAt line:1 char:88\n+ ...",
+        );
+        let shown = routing_failure(&raw);
+        assert_eq!(
+            shown.to_string(),
+            "adding DNS rules failed (run from an administrator terminal, or pass --no-routing): \
+             powershell: Add-DnsClientNrptRule : Failed to load the NRPT information."
+        );
+        assert_eq!(shown.kind(), io::ErrorKind::Other);
     }
 
     #[test]
