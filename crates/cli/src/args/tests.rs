@@ -140,6 +140,7 @@ fn usage_text_names_every_command_and_option() {
     for word in [
         "snisplit run",
         "snisplit cleanup",
+        "snisplit show-profile",
         "--profile",
         "--no-routing",
         "--upstream",
@@ -149,4 +150,28 @@ fn usage_text_names_every_command_and_option() {
     ] {
         assert!(USAGE.contains(word), "{word}");
     }
+}
+
+#[test]
+fn show_profile_takes_exactly_one_built_in_name() {
+    assert_eq!(
+        parsed(&["show-profile", "steam"]),
+        Ok(Command::ShowProfile("steam"))
+    );
+    assert_eq!(
+        parsed(&["show-profile", "medium"]),
+        Ok(Command::ShowProfile("medium"))
+    );
+    assert_eq!(
+        parsed(&["show-profile", "netflix"]),
+        Err(UsageError::UnknownProfile("netflix".to_string()))
+    );
+    assert_eq!(
+        parsed(&["show-profile"]),
+        Err(UsageError::MissingValue("show-profile".to_string()))
+    );
+    assert_eq!(
+        parsed(&["show-profile", "steam", "medium"]),
+        Err(UsageError::UnexpectedArgument("medium".to_string()))
+    );
 }

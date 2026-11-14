@@ -5,7 +5,7 @@ mod profile_file;
 mod routing;
 
 use std::env;
-use std::io;
+use std::io::{self, Write};
 use std::net::SocketAddr;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -40,6 +40,7 @@ fn main() -> ExitCode {
         }
         Ok(Command::Run(options)) => finish(run(options)),
         Ok(Command::Cleanup) => finish(remove_rules()),
+        Ok(Command::ShowProfile(name)) => finish(show_profile(name)),
         Err(error) => {
             eprintln!("snisplit: {error}\n\n{USAGE}");
             ExitCode::from(EXIT_USAGE_ERROR)
@@ -55,6 +56,16 @@ fn finish(result: io::Result<()>) -> ExitCode {
             ExitCode::from(EXIT_RUNTIME_ERROR)
         }
     }
+}
+
+fn show_profile(name: &str) -> io::Result<()> {
+    let built_in = profile::find(name).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("no built-in profile {name}"),
+        )
+    })?;
+    io::stdout().write_all(built_in.text.as_bytes())
 }
 
 fn run(options: RunOptions) -> io::Result<()> {

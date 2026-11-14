@@ -6,6 +6,8 @@ use crate::profile;
 pub const USAGE: &str = "usage:
     snisplit run [options]      relay the listed domains until Ctrl+C
     snisplit cleanup            remove snisplit's DNS rules (after a crash)
+    snisplit show-profile <name>
+                                print a built-in profile's file, as a template
     snisplit --version          print the version
     snisplit help               print this text
 
@@ -28,6 +30,7 @@ pub struct RunOptions {
 pub enum Command {
     Run(RunOptions),
     Cleanup,
+    ShowProfile(&'static str),
     Version,
     Help,
 }
@@ -63,6 +66,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, UsageErr
     let parsed = match command.as_str() {
         "run" => return parse_run_options(args).map(Command::Run),
         "cleanup" => Command::Cleanup,
+        "show-profile" => return parse_show_profile(args),
         "help" | "--help" | "-h" => Command::Help,
         "--version" | "-V" => Command::Version,
         _ if command.starts_with('-') => return Err(UsageError::UnknownOption(command)),
@@ -107,6 +111,15 @@ fn parse_run_options(mut args: impl Iterator<Item = String>) -> Result<RunOption
         options.profiles = profile::BUILT_IN.iter().map(|b| b.name).collect();
     }
     Ok(options)
+}
+
+fn parse_show_profile(mut args: impl Iterator<Item = String>) -> Result<Command, UsageError> {
+    let name = value_of("show-profile", args.next())?;
+    let built_in = profile::find(&name).ok_or(UsageError::UnknownProfile(name))?;
+    match args.next() {
+        Some(extra) => Err(UsageError::UnexpectedArgument(extra)),
+        None => Ok(Command::ShowProfile(built_in.name)),
+    }
 }
 
 fn value_of(option: &str, value: Option<String>) -> Result<String, UsageError> {
