@@ -1,6 +1,7 @@
 mod args;
 mod platform;
 mod profile;
+mod routing;
 
 use std::env;
 use std::process::ExitCode;
