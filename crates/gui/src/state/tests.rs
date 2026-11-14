@@ -109,14 +109,14 @@ fn a_routing_failure_says_administrator_rights_are_needed_and_start_can_be_press
     assert_eq!(
         state.failure(),
         Some(
-            "Adding the DNS rules failed. snisplit needs administrator rights for that: close this window and start snisplit-gui again with Run as administrator. Windows said: powershell: Access is denied."
+            "Changing the DNS rules failed. snisplit needs administrator rights for that: close this window and start snisplit-gui again with Run as administrator. Windows said: powershell: Access is denied."
         )
     );
     assert_eq!(
         log_of(&state),
         [
             "starting snisplit",
-            "snisplit stopped: adding the DNS rules failed: powershell: Access is denied."
+            "snisplit stopped: changing the DNS rules failed: powershell: Access is denied."
         ]
     );
     assert_eq!(state.start_stop_label(), Some("Start"));

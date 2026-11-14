@@ -7,7 +7,7 @@ pub const LOG_LINES: usize = 500;
 
 const RULES_MAY_REMAIN: &str = "DNS rules may remain: press Start and then Stop, or run snisplit cleanup from an administrator terminal, to remove them";
 
-const ADMIN_NEEDED: &str = "Adding the DNS rules failed. snisplit needs administrator rights for that: close this window and start snisplit-gui again with Run as administrator.";
+const ADMIN_NEEDED: &str = "Changing the DNS rules failed. snisplit needs administrator rights for that: close this window and start snisplit-gui again with Run as administrator.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Relay {
@@ -266,7 +266,7 @@ impl State {
             SessionEnd::RoutingFailed(cause) => {
                 self.restart_pending = false;
                 self.push_log(format!(
-                    "snisplit stopped: adding the DNS rules failed: {cause}"
+                    "snisplit stopped: changing the DNS rules failed: {cause}"
                 ));
                 Relay::Failed(format!("{ADMIN_NEEDED} Windows said: {cause}"))
             }

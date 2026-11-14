@@ -146,7 +146,7 @@ egui styling, English text.
   signals stop and waits up to 60 s for the session to end, then at most 1 s for the runtime,
   before the process exits. A second close request while the window is still stopping exits
   at once and logs that DNS rules may remain and how to remove them.
-- Without administrator rights, Start fails with: "Adding the DNS rules failed. snisplit
+- Without administrator rights, Start fails with: "Changing the DNS rules failed. snisplit
   needs administrator rights for that: close this window and start snisplit-gui again
   with Run as administrator. Windows said: ..." Everything else (site list, Check, Add,
   Remove, log, close) works unelevated. There is no up-front elevation check: that would
