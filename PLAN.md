@@ -11,6 +11,7 @@ Status:
 - 2026-11-14: the owner chose a driverless design (section 2, decision D1). It
   replaces the WinDivert packet engine. Whether it works on this ISP is unproven: the
   new milestone 2 is a measurement spike with a written go/no-go (section 5).
+  Question 5 (ports) answered; questions 1-4 and 6 open.
 - Milestone order after the spike is proposed, not confirmed.
 
 ## 1. What was measured
@@ -157,6 +158,16 @@ Each answer needs a command and its output, not a recollection.
 5. **Ports.** What already listens on loopback 53, 80 and 443 (the installed WARP
    client may hold loopback DNS addresses)? Does a dedicated address such as
    127.0.0.2 avoid conflicts?
+   - Answer (measured 2026-11-14 on the owner's PC, without admin rights):
+     - UDP 0.0.0.0:53 is held by the Windows service SharedAccess (Internet
+       Connection Sharing), so a resolver cannot bind the wildcard address on port 53.
+     - Binding a specific loopback address still works: UDP 127.0.0.2:53, UDP
+       127.0.0.1:53, TCP 127.0.0.2:443 and TCP 127.0.0.2:80 all bound successfully
+       (tested with .NET UdpClient and TcpListener).
+     - Nothing listens on TCP 80 or 443 on any address.
+     - There are no NRPT rules configured.
+     - A dedicated address such as 127.0.0.2 avoids the conflicts on this PC. Whether
+       ICS answers queries sent to 127.0.0.2:53 is not tested.
 6. **Crates.** A DNS codec and a relay raise the no-new-crates rule: threads with
    std only, or an async runtime. Recorded as an open decision with a proposal.
 
