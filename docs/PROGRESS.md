@@ -12,7 +12,8 @@ this file says where the work stands and what to do next.
 | 2 Feasibility spike for the driverless design | **Done.** Owner said go on 2026-11-14 (docs/milestone-2-spike.md); crates decided (PLAN.md D11) |
 | 3 Relay + DNS, HTTPS only, foreground | **Done** 2026-11-14 (docs/milestone-3.md): Steam URLs, Chrome, Steam client login and Store, medium.com through the relay with zapret stopped; Ctrl+C, kill and `cleanup` leave no rules |
 | 4 HTTP respelling, profile files, IPv6-only names | **Done** 2026-11-14 (docs/milestone-4.md): every HTTP request respelled to `hoSt:`; Steam HTTP store, content servers and a real game download (1.66 GB, all on port 80) through the relay with zapret stopped; `--profile-file`; IPv6-only names forwarded |
-| 5 and later | Not started |
+| 5 Windows service, crash-safe DNS rules, uninstall | **Blocked** 2026-11-14 (docs/milestone-5.md): implemented and proven in CI (install, kill and recovery, stop, uninstall); routed start-up 0.7-1.3 s, Ctrl+C at any moment leaves 0 rules; Kaspersky terminates `service install` on the owner's PC (twice), so zapret stays; next step is the owner's decision |
+| 6 and later | Not started |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
 snisplit answers DNS for listed domains with a loopback address and relays the
@@ -21,10 +22,13 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 
 ## Next step
 
-Milestone 5: Windows service, crash-safe DNS cleanup, faster start-up (batched rule
-install), Ctrl+C during start-up; Steam client login and a full game download with
-zapret removed (removing zapret is a separate step the owner must approve). The notes below are the original plan for the spike questions,
-kept for reference.
+Milestone 5 waits for the owner: Kaspersky terminates `snisplit service install`
+on this PC, so the switch from zapret is cancelled under the current design and
+zapret stays. Open choices: pause and use foreground `run` when needed; a
+false-positive report to Kaspersky (sample from a CI build); anything that changes
+the antivirus setup is the owner's alone. Do not retry the install or build variants
+to find one that passes. The notes below are the original plan for the spike
+questions, kept for reference.
 
 - Question 1 (do two writes get HTTPS through where one write fails) and question 2
   (an HTTP method) need test runs against the ISP with the `zapret-steam` service

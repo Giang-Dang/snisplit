@@ -326,9 +326,16 @@ milestone.
   0 rules after each stop. Ctrl+C at 50, 100, 200, 500, 1000, 2000 ms: each exited on
   its own, 0 rules.
 - `service install` registered the service (event 7045, 22:36:12); its start failed
-  with "Access is denied" (event 7000, 22:36:13). Kaspersky's System Watcher
-  terminated the `snisplit.exe` process in `target\release` as
-  `PDM:Trojan.Win32.Generic` (same MD5) and the file was removed afterwards.
+  with "Access is denied" (event 7000, 22:36:13).
+- Kaspersky's report (CSV exported by the owner) has times for both runs. Each time
+  one `snisplit.exe` process from `target\release` (process IDs 74304 and 15084) was
+  detected as `PDM:Trojan.Win32.Generic` ("behaviour analysis") and terminated at
+  22:11:01 and 22:36:13, the same second the service was created and its start was
+  refused; a backup was made and the file was deleted about a minute later
+  (22:11:56, 22:37:04). The process is the one running `service install`: the
+  routed foreground runs of the same file minutes earlier raised nothing, and the
+  install's exit line ("started") was never printed. The report does not name the
+  action that triggered the verdict.
 - With the fixed script the failed install was caught: no relaying within 60 s, the
   binary-free removal deleted the service and the folder, zapret was restarted. After
   the run (checked by the lead): no `snisplit` service, no install folder, 0 rules,
