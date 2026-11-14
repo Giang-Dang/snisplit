@@ -44,6 +44,23 @@ DNS rules. See "Antivirus" below before you decide to allow it.
 snisplit needs administrator rights while it runs, because adding and removing the
 DNS rules needs them.
 
+### Window
+
+Right-click `snisplit-gui.exe` and choose Run as administrator, or just start it and
+confirm the Windows prompt. The window has:
+
+- **Start / Stop** and a status line. Stopping, or closing the window, removes the
+  DNS rules before the program exits.
+- **Sites**: the built-in profiles (Steam, medium.com) and the sites you added, each
+  with a Check button that tests the site now.
+- **Add a site**: type a domain and press Check. snisplit tests it and shows what a
+  plain connection and each method did. If a method works, press Add; the site is
+  saved and, when the relay is running, it restarts so the site applies at once.
+- **Log**: what the relay reports.
+
+Sites you add are stored as small text files in `%APPDATA%\snisplit\sites`. The
+command line reads the same folder.
+
 ### Command line
 
 Open PowerShell or Terminal as administrator in the unpacked folder:
@@ -65,7 +82,7 @@ Other commands:
 | `snisplit cleanup` | Removes snisplit's DNS rules. Only needed if the process was killed; the next `run` also removes leftovers. |
 | `snisplit help` | All options. |
 
-## Adding a site
+## Adding a site from the command line
 
 1. Ask whether snisplit can help:
 
@@ -77,16 +94,14 @@ Other commands:
    is one of: not blocked here (nothing to add), a suggested profile, or no method
    worked.
 
-2. Save the suggested profile to a file as plain ASCII text, for example
-   `my-sites.profile`. In Windows PowerShell 5.1 do not use `>`, which writes UTF-16;
-   paste the text into Notepad and save it, or pipe it through
-   `Set-Content -Encoding ascii`.
+2. Save the suggested profile as plain ASCII text in `%APPDATA%\snisplit\sites`, in
+   a file called `<name>.profile` where `<name>` is the profile's `name` line. In
+   Windows PowerShell 5.1 do not use `>`, which writes UTF-16; paste the text into
+   Notepad and save it, or pipe it through `Set-Content -Encoding ascii`.
 
-3. Run with it. Built-in profiles run only when no profile is named, so name them too:
-
-   ```
-   .\snisplit run --profile steam --profile medium --profile-file my-sites.profile
-   ```
+3. `.\snisplit run` relays the built-in profiles plus every file in that folder. A
+   file with a mistake is reported by name and skipped. To run a chosen set instead,
+   name them: `--profile steam --profile-file my-sites.profile`.
 
 A profile file looks like this:
 
