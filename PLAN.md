@@ -123,7 +123,7 @@ page owned by the repo owner.
 ## 4. Milestones
 
 Each milestone ends with something that can be checked. Tests that need the ISP run
-on this PC with the `zapret-steam` service stopped for the duration, after asking.
+on this PC; until 2026-11-14 that meant stopping the `zapret-steam` service after asking. zapret has since been removed.
 
 | # | Milestone | Done when |
 |---|---|---|

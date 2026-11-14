@@ -7,11 +7,13 @@ describes was built, proven in CI, and removed (see "Rescoped" at the end).
 
 Done when (rescoped):
 
-1. Routed `snisplit run` is ready in under 1.5 s on this PC. Met: 0.7-1.3 s.
+1. Routed `snisplit run` is ready in under 1.5 s on this PC. Partly met: 0.7-1.3 s in
+   the two service-era runs; 703, 1789 and 2000 ms in the foreground run at 23:19.
 2. Ctrl+C at any moment of start-up or later leaves 0 snisplit rules. Met at 50 ms
    to 2000 ms in two elevated runs.
 3. Closing the window with X, and restarting the PC while `snisplit run` runs, leave
-   0 rules; if a rule is left, the next `run` removes it. Not yet checked (owner).
+   0 rules; if a rule is left, the next `run` removes it. Close with X: met (23:20).
+   Restart: not yet checked (owner).
 4. A killed process breaks only listed names, and the next `run` or `cleanup`
    removes its rules. Shown in milestones 3 and 4.
 5. With zapret removed, the Steam client logs in and downloads a game through
@@ -440,3 +442,17 @@ through the relay returned 200.)
   while it ran: one `snisplit` process, 2 snisplit rules, store HTTPS `200` via
   127.0.0.2, the binary on disk.
 - Random split positions: the owner asked only out of interest; no change.
+
+### Foreground acceptance, `m5.ps1`, elevated, 2026-11-14 23:19-23:20 (owner)
+
+- Routed `run` ready after 703, 1789 and 2000 ms (two of three over the 1.5 s
+  target; earlier runs 0.7-1.3 s; the cause of the spread is not known). Store HTTPS
+  `200` via 127.0.0.2 each time; 0 rules after each Ctrl+C.
+- Ctrl+C at 50, 100, 200, 500 ms (before the ready line) and 1000, 2000 ms (after):
+  each exited on its own with code 0, `stopping`, `snisplit DNS rules left: 0`.
+- Closing a running `snisplit run` window with its X button: the process exited with
+  code 0 and 0 rules were left.
+- `example.org` the same at start and end. After the run (checked by the lead): no
+  `snisplit` process, 0 rules, the binary on disk.
+- `m5.ps1` now refuses to start while a `snisplit` process runs, since it would
+  remove that session's rules.

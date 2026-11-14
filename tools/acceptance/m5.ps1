@@ -65,6 +65,7 @@ if ($AfterRestart) {
 }
 Log "snisplit binary present=$(Test-Path $built); snisplit rules: $((Rules).Count); example.org: $(Resolve 'example.org')"
 if (-not (Test-Path $built)) { Say "$built is missing (removed by the antivirus?). Nothing was changed."; exit 1 }
+if (Get-Process snisplit -ErrorAction SilentlyContinue) { Say 'snisplit is already running. Stop it with Ctrl+C in its window, then run this script again. Nothing was changed.'; exit 1 }
 if ((Rules).Count -gt 0) { Log 'stale snisplit rules found; removing them first'; Remove-RelayRules }
 
 Say 'Start-up time and Ctrl+C during start-up. No action needed.'
