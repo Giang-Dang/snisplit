@@ -463,5 +463,5 @@ through the relay returned 200.)
 - Milestone 5 is done as rescoped. Carried forward: start-up time 0.7-2.0 s against
   the 1.5 s target, cause unknown, awaiting the owner's call; stop at logoff and
   shutdown implemented but not shown in a real run; the unidentified direct
-  connection to `23.49.104.166:80` from milestone 4 (the DNS cache dumps found
-  nothing).
+  connection to `23.49.104.166:80` from milestone 4, not investigated further: it
+  was not seen again, and both DNS cache dumps for `23.49.104.*` were empty.

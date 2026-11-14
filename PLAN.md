@@ -245,8 +245,8 @@ packets (synthetic tests only).
 | Listed names that exist only over IPv6 | Milestone 4: a listed name with no A record is forwarded unchanged, so it resolves as without snisplit (checked in the elevated run). | Milestone 4 |
 | Start-up time | 13-21 s in milestone 3, 3.5 s in milestone 4, 0.7-1.3 s routed in milestone 5's first runs, then 703, 1789 and 2000 ms with the foreground build (cause of the spread unknown; target 1.5 s). | Milestone 5, owner decides |
 | IPv6 and HTTPS records | Done in milestone 3: listed names get empty AAAA and type-65 answers. | Closed |
-| Relay throughput | Every Steam byte, including game downloads, is copied through snisplit. | Milestone 5 |
-| Antivirus reaction | Kaspersky on the owner's PC (2026-11-14): 19 routed foreground runs passed; `snisplit service install` was terminated as `PDM:Trojan.Win32.Generic` twice, in the second it created the service, and the file was deleted; one stream C build was deleted on disk as `VHO:Backdoor.Win64.Agent.gen`. Milestone 5 is blocked on this PC (docs/milestone-5.md). | Owner decision; milestone 7 |
+| Relay throughput | Every Steam byte is copied through snisplit: about 9 MB/s for a 1.66 GB download in milestone 4, not compared with zapret; a download through the foreground build worked (owner, milestone 5). | Carried; measure if downloads feel slow |
+| Antivirus reaction | Kaspersky on the owner's PC (2026-11-14): `snisplit service install` was terminated as `PDM:Trojan.Win32.Generic` twice and the file deleted; one stream C build was deleted on disk as `VHO:Backdoor.Win64.Agent.gen`. The service was removed; the foreground build since then raised no alert. A friend's antivirus may react the same way. | Milestone 7 (false-positive reports, signing are owner decisions) |
 | New crates (DNS codec, async runtime) | Decided: D11 (tokio, minimal features; DNS codec hand-written). | Closed |
 | Resolver routing on Linux and macOS | Per-domain DNS routing exists (systemd-resolved domains, macOS `/etc/resolver/<domain>` files) but is untested for this use. | Milestone 10 |
 | Test machines for Linux and macOS | None identified yet. | Milestone 10 |
