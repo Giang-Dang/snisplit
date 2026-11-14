@@ -61,6 +61,7 @@ they span two packets (1384-1452 + 300-540 bytes).
 | D8 | Audience | The author and friends on similar ISPs |
 | D9 | Distribution | Public GitHub repo with per-OS release binaries; no driver in the release |
 | D10 | Name | `snisplit` (repo and binary) |
+| D11 | Crates (2026-11-14) | `tokio` with features `rt-multi-thread`, `net`, `time`, `signal`, `io-util` (no `macros`) for the relay and DNS loop, outside `core`. DNS codec hand-written. Any other crate still needs an explicit decision. Reasons and measured dependency counts: docs/milestone-2-spike.md, Q6 |
 
 Not in scope: fake-packet strategies, an all-traffic mode, automatic domain
 discovery, general proxy/VPN features, terminating TLS (snisplit never holds a
@@ -235,7 +236,7 @@ packets (synthetic tests only).
 | IPv6 and HTTPS records | Listed names must get empty AAAA and type-65 answers, or apps go direct or learn ECH config. | Milestone 3 |
 | Relay throughput | Every Steam byte, including game downloads, is copied through snisplit. | Milestone 5 |
 | Antivirus reaction to a local DNS server and proxy | Untested; likely milder than a kernel driver. | Milestone 7 |
-| New crates (DNS codec, async runtime) | The project has none so far. | Milestone 2 |
+| New crates (DNS codec, async runtime) | Decided: D11 (tokio, minimal features; DNS codec hand-written). | Closed |
 | Resolver routing on Linux and macOS | Per-domain DNS routing exists (systemd-resolved domains, macOS `/etc/resolver/<domain>` files) but is untested for this use. | Milestone 10 |
 | Test machines for Linux and macOS | None identified yet. | Milestone 10 |
 | ISP changes its DPI | Split may stop working. `probe` shows what still works. | Ongoing |

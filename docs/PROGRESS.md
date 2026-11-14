@@ -9,7 +9,7 @@ this file says where the work stands and what to do next.
 |---|---|
 | 0 Scaffold, licence, CI, WinDivert spike | Done (PLAN.md 5.1) |
 | 1 Core: parsers, matcher, strategy, segment planner, engine | Done (PLAN.md 5.2, docs/milestone-1.md) |
-| 2 Feasibility spike for the driverless design | **Recommendation go** (docs/milestone-2-spike.md). **Done. Owner said go on 2026-11-14.** Q6 crates proposal explained, decision pending |
+| 2 Feasibility spike for the driverless design | **Done.** Owner said go on 2026-11-14 (docs/milestone-2-spike.md); crates decided (PLAN.md D11) |
 | 3 Relay + DNS, HTTPS only, foreground | Next. Built-in profiles: Steam and medium.com |
 | 4 and later | Not started |
 
@@ -20,9 +20,8 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 
 ## Next step
 
-The owner said go. Get the owner's decision on the Q6 crates proposal
-(docs/milestone-2-spike.md), then plan milestone 3 (relay + DNS, HTTPS only, foreground), using cut at byte 1
-for TLS and `hoSt:` for HTTP (milestone 4). The notes below are the original plan
+Plan milestone 3 (relay + DNS, HTTPS only, foreground) on tokio (D11), using cut at
+byte 1 for TLS; `hoSt:` for HTTP follows in milestone 4. The notes below are the original plan
 for the spike questions, kept for reference.
 
 - Question 1 (do two writes get HTTPS through where one write fails) and question 2
@@ -60,7 +59,10 @@ for it was removed; no code from it exists.
   each test, name the bug that makes it fail.
 - Unit tests over ~150 lines go in `<module>/tests.rs`; public-API tests in
   `crates/<crate>/tests/`.
-- No new crates without an explicit decision.
+- No new crates without an explicit decision. Decided so far: `tokio` with minimal
+  features, outside `core` (PLAN.md D11).
+- Docs, code and commit messages in English. Console discussion with the owner is in
+  Vietnamese, addressed as a peer colleague.
 - Gates before every commit: `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets` with `RUSTFLAGS=-D warnings`,
   `cargo test --workspace`.

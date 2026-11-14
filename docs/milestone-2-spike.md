@@ -275,20 +275,34 @@ run used the DNS client event log instead (above). A client that resolves on its
 (DNS over HTTPS, cached addresses) would bypass the relay; for the Steam client see
 "Steam client DNS check".
 
-## Q6: crates proposal (conditional on a go)
+## Q6: crates
 
-Recommendation: std threads and a hand-written DNS codec; no async runtime.
+Decision (owner, 2026-11-14): tokio with minimal features for the relay and DNS loop;
+a hand-written DNS codec. Recorded as PLAN.md decision D11.
 
-- Load is small: one user's Steam client and browser, tens of concurrent
-  connections. Two threads per relayed connection (one per direction) with blocking
-  sockets stays in the low hundreds of threads.
-- The DNS side needs little: read the question name and type, answer A with the
-  relay address, answer AAAA and HTTPS (type 65) with an empty answer, forward
-  everything else as raw bytes, and build one A query per upstream lookup. That is a
-  few hundred lines with tests against real captured packets, the same pattern as the
-  TLS parser.
-- An async runtime would add a large dependency tree to a tool that friends run with
-  admin rights, for a gain that only shows at thousands of connections.
-- One gap std does not cover: Ctrl+C and service stop on Linux and macOS (signals).
-  Options are a small FFI shim as on Windows, or the `ctrlc` crate. Decide in
-  milestone 10.
+The first proposal was std threads with no async runtime, on the claim that tokio
+brings a large dependency tree. Measured instead, in a scratch project with
+`tokio = { version = "1.54.1", features = ["rt-multi-thread", "net", "time",
+"signal", "io-util", "macros"] }` and `cargo tree -e normal`:
+
+| Target | Crates, tokio included |
+|---|---|
+| x86_64-pc-windows-msvc | 12 |
+| x86_64-pc-windows-msvc without `macros` | 7: tokio, mio, bytes, socket2, pin-project-lite, windows-sys, windows-link |
+| all targets | 16 |
+
+Why tokio:
+
+- Throughput is not the reason: tens of connections need no async runtime.
+- The reason is stopping cleanly: cancelling pending accepts and reads, timeouts for
+  stalled and idle connections, Ctrl+C and signals on all three systems
+  (`tokio::signal`, which closes the Linux and macOS gap), and a service stop that
+  always removes the NRPT rules. With std threads all of that is hand-written.
+- `macros` stays off; the entry point builds the runtime explicitly.
+- `core` does no I/O and stays free of tokio.
+
+Why a hand-written DNS codec: the DNS side needs little (read the question name and
+type, answer A with the relay address, answer AAAA and HTTPS (type 65) with an empty
+answer, forward everything else as raw bytes, build one A query per upstream lookup).
+That is a few hundred lines with tests against real captured packets, the same
+pattern as the TLS parser.
