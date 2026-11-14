@@ -51,7 +51,7 @@ they span two packets (1384-1452 + 300-540 bytes).
 | - | Interception (superseded by D1) | Native packet engine per OS (WinDivert on Windows, NFQUEUE on Linux). Its code is kept, parked (section 4). |
 | D2 | Engine | Own implementation |
 | D3 | Coverage | Every app that resolves names through the OS resolver, transparently. Apps that connect to hard-coded IPs or use their own secure-DNS provider bypass snisplit. |
-| D4 | Platforms | Windows first. Proposed, needs the owner's confirmation: the relay is portable, so the same design could serve Linux and macOS and replace the NFQUEUE and macOS-spike milestones. |
+| D4 | Platforms (2026-11-14, owner) | Windows first, then the same DNS + relay design on Linux and macOS. It replaces the NFQUEUE backend and the macOS packet-interception spike. Only resolver routing (NRPT on Windows, its equivalents elsewhere) is per OS. |
 | D5 | Language | Rust |
 | D6 | Config | Profiles: each has a domain list and a strategy per protocol |
 | D7 | Targeting | Listed domains only; all other names resolve and connect as before |
@@ -126,7 +126,7 @@ on this PC with the `zapret-steam` service stopped for the duration, after askin
 | 7 | Releases: CI-built archives, README | A friend installs from the GitHub release and reaches Steam without help |
 | 8 | QUIC: measure first, then decide | A written result on whether this ISP blocks QUIC by SNI. With DNS pointing listed names at loopback, QUIC to them fails and apps fall back to TCP, which may already be enough |
 | 9 | Tray icon | Works on Windows; talks to the service, holds no engine logic |
-| 10 | Other platforms | Depends on D4: either the relay on Linux and macOS, or the original packet backends |
+| 10 | Linux and macOS (D4) | The relay and DNS run on both; resolver routing per OS; the milestone 3-5 checks pass on a Linux machine and a Mac |
 
 Ordering notes:
 
@@ -217,7 +217,8 @@ packets (synthetic tests only).
 | Relay throughput | Every Steam byte, including game downloads, is copied through snisplit. | Milestone 5 |
 | Antivirus reaction to a local DNS server and proxy | Untested; likely milder than a kernel driver. | Milestone 7 |
 | New crates (DNS codec, async runtime) | The project has none so far. | Milestone 2 |
-| Platforms beyond Windows | D4 is proposed, not confirmed. | Owner |
+| Resolver routing on Linux and macOS | Per-domain DNS routing exists (systemd-resolved domains, macOS `/etc/resolver/<domain>` files) but is untested for this use. | Milestone 10 |
+| Test machines for Linux and macOS | None identified yet. | Milestone 10 |
 | ISP changes its DPI | Split may stop working. `probe` shows what still works. | Ongoing |
 | Moot under D1 | WinDivert binding choice, bundled driver provenance, WinDivert licence, `nfq` crate, Linux NFQUEUE test machine, macOS packet interception. Kept here so they are not reopened by accident. | Closed |
 
