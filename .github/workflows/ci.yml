@@ -166,6 +166,12 @@ jobs:
           Get-CimInstance Win32_Service -Filter "Name='snisplit'" | Format-List Name, State, ProcessId, ExitCode, ServiceSpecificExitCode, PathName
           sc.exe qc snisplit
           sc.exe qfailure snisplit
+          Write-Host '--- listeners on ports 53, 80 and 443'
+          Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object LocalPort -in 53, 80, 443 | ForEach-Object { "tcp $($_.LocalAddress):$($_.LocalPort) pid $($_.OwningProcess) $((Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).Name)" }
+          Get-NetUDPEndpoint -ErrorAction SilentlyContinue | Where-Object LocalPort -eq 53 | ForEach-Object { "udp $($_.LocalAddress):$($_.LocalPort) pid $($_.OwningProcess) $((Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).Name)" }
+          netsh int ipv4 show excludedportrange protocol=tcp
+          netsh int ipv4 show excludedportrange protocol=udp
+          netsh http show urlacl | Select-String -Pattern ':80/|:443/'
           Write-Host '--- NRPT rules'
           Get-DnsClientNrptRule | Format-List Namespace, NameServers, Comment
           Write-Host '--- service log'
