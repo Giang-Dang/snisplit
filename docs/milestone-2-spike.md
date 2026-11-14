@@ -2,9 +2,14 @@
 
 Answers to PLAN.md section 4.1, measured on the owner's PC on 2026-11-14.
 
-## Recommendation: go
+## Recommendation: go, conditional on the steamwebhelper DNS result
 
-The driverless design works on this ISP for HTTPS and HTTP, for the Steam store,
+Blocking: Steam's embedded browser resolves names over DNS over HTTPS, bypassing the
+system resolver (see "Steam client DNS check"). Go holds only if a rerun with an
+NRPT rule present shows it falling back to the system resolver, or another routing
+(for example the hosts file, also unverified) reaches it.
+
+The relay part works on this ISP for HTTPS and HTTP, for the Steam store,
 community, API, login and content hosts, with zapret stopped:
 
 - HTTPS: cut the ClientHello at byte 1 (two writes). Single write is reset every time;
@@ -35,11 +40,16 @@ events by process name and turn the log off again.
   connection managers and `steamconnecttest.com`.
 - `steamwebhelper.exe` made 13 system lookups, all `wpad` or `disabled.invalid`, and
   none of a Steam name. At the same time it held about 30 established connections to
-  Akamai and Fastly addresses on 443 (`Get-NetTCPConnection`). It resolves those
-  names itself, most likely with Chromium's built-in DNS client, which sends queries
-  straight to the configured DNS servers. Its command line sets no DNS option.
+  Akamai and Fastly addresses on 443 (`Get-NetTCPConnection`), and one to
+  162.159.61.3:443, which is `chrome.cloudflare-dns.com`. It resolves names with DNS
+  over HTTPS: Chromium's automatic upgrade, because this PC's system DNS is 1.1.1.1
+  (Cloudflare). Its command line sets no DNS option.
+- So the bypass depends on the DNS provider: a PC whose DNS is the ISP's own resolver
+  would not get the automatic upgrade. Friends' setups vary.
 - Consequence: with only NRPT routing, the client's Store pages would keep going
   direct and stay blocked, unless the NRPT fallback holds for steamwebhelper.
+- Pass rule for the rerun with the dummy rule (`-WithDummyNrptRule`): steamwebhelper
+  makes system lookups of Steam web names while the rule exists.
 
 Carried into milestone 3 as an acceptance check: the port of Steam's plain HTTP
 downloads (Q3).
@@ -111,8 +121,10 @@ A crash with the rule in place breaks only the listed names, and fails fast.
 
 `Microsoft-Windows-DNS-Client/Operational` events 3006 during the run, Steam and
 medium names only: the user's Chrome looked up `steamcommunity.com` and
-`cache4-hkg1.steamcontent.com` through the system resolver; the other lookups came
-from the short-lived probe processes. The Steam client made none in the window.
+`cache4-hkg1.steamcontent.com` through the system resolver at 16:24:16, as the NRPT
+test rule was added, and at 16:25:17, around its removal. Both moments are NRPT
+changes, so this does not show whether Chrome uses the system resolver without a
+rule. The other lookups came from the short-lived probe processes.
 
 ## Test domain: medium.com
 

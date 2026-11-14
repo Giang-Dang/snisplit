@@ -48,6 +48,13 @@ try {
     $n = if ($names.ContainsKey($_.ProcessId)) { $names[$_.ProcessId] } else { "pid $($_.ProcessId)" }
     "{0} {1}" -f $n, $_.Properties[0].Value
   } | Group-Object | Sort-Object Count -Descending | ForEach-Object { "{0,4} {1}" -f $_.Count, $_.Name } | Log
+  $helperPids = @(Get-Process steamwebhelper -ErrorAction SilentlyContinue | ForEach-Object Id)
+  $steamNames = @($events | Where-Object { $helperPids -contains $_.ProcessId -and "$($_.Properties[0].Value)" -match 'steampowered|steamstatic|steamcommunity|steamcontent' })
+  $doh = @(Resolve-DnsName chrome.cloudflare-dns.com -Type A -ErrorAction SilentlyContinue | Where-Object IPAddress | ForEach-Object IPAddress)
+  $conns = @(Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue | Where-Object { $helperPids -contains [int]$_.OwningProcess -and $_.RemotePort -eq 443 })
+  Log "steamwebhelper system lookups of Steam web names: $($steamNames.Count)"
+  Log "steamwebhelper connections on 443: $($conns.Count); to the DoH endpoint ($($doh -join ',')): $(@($conns | Where-Object { $doh -contains $_.RemoteAddress }).Count)"
+  Log "verdict: $(if ($steamNames.Count -gt 0) { 'PASS steamwebhelper uses the system resolver' } else { 'FAIL steamwebhelper did not use the system resolver' })"
   Log '--- all processes that made lookups ---'
   $events | ForEach-Object { if ($names.ContainsKey($_.ProcessId)) { $names[$_.ProcessId] } else { "pid $($_.ProcessId)" } } | Group-Object | Sort-Object Count -Descending | ForEach-Object { "{0,5} {1}" -f $_.Count, $_.Name } | Log
 }
