@@ -5,11 +5,15 @@ splitting the TLS ClientHello (and HTTP request) across TCP segments. It works f
 every app on the machine, only touches domains listed in profiles, and is written
 in Rust as an original implementation (no zapret code or binaries).
 
-Status: approach agreed 2026-11-14; milestone order proposed, not yet confirmed
-(QUIC and the tray were requested for v1 and are placed after the first release
-here). Milestones 0 and 1 done 2026-11-14 (sections 4.1 and 4.2).
+Status:
 
-## 1. Why this is feasible: what was measured
+- Milestones 0 and 1 done 2026-11-14 (sections 5.1, 5.2).
+- 2026-11-14: the owner chose a driverless design (section 2, decision D1). It
+  replaces the WinDivert packet engine. Whether it works on this ISP is unproven: the
+  new milestone 2 is a measurement spike with a written go/no-go (section 5).
+- Milestone order after the spike is proposed, not confirmed.
+
+## 1. What was measured
 
 Today this PC reaches Steam through zapret (`winws.exe` + WinDivert) running as the
 `zapret-steam` service with a `fake,multidisorder` strategy. On 2026-11-14 each part
@@ -25,223 +29,202 @@ case ran twice against 4 HTTPS Steam URLs and 1 HTTP URL, with identical results
 | Fake packets only, no split | fail | fail |
 | Full zapret strategy (fakes + disorder) | works | works |
 
-Conclusions that shape the design:
+Conclusions:
 
-- Fake packets contribute nothing on this ISP. The tool does not need forged
-  packets, bad sequence numbers, MD5 options or TTL tricks.
-- HTTPS needs one split inside or next to the SNI. This is the core feature.
-- HTTP needs out-of-order segments. The in-order case that failed used zapret's
-  `midsld` position, which (per zapret's documentation, not re-confirmed locally)
-  resolves inside the `Host` value for HTTP, so an in-order mid-host split was
-  most likely already tested and does not work.
+- Fake packets contribute nothing on this ISP. No forged packets, bad sequence
+  numbers, MD5 options or TTL tricks are needed for HTTPS.
+- HTTPS needs one split inside or next to the SNI, in order. This is what two
+  separate socket writes produce, so the driverless design (section 3) matches a
+  measured working case, provided each write leaves as its own segment (untested).
+- HTTP needs out-of-order segments; an in-order mid-host split failed. The driverless
+  design cannot reorder segments directly and has no proven HTTP method yet.
 
-Limits of the evidence:
-
-- Tested with curl only. Its ClientHello fits one packet. Chrome and Firefox send a
-  post-quantum ClientHello that spans two packets; that case is untested.
-- One ISP, one day, IPv4 only. QUIC (UDP 443) was not tested.
+Limits of the evidence: curl only; one ISP, one day, IPv4 only; QUIC (UDP 443) not
+tested. Milestone 1 later captured Chrome and Steam client ClientHellos on this PC:
+they span two packets (1384-1452 + 300-540 bytes).
 
 ## 2. Decisions
 
-| Topic | Decision |
-|---|---|
-| Engine | Own implementation |
-| Coverage | Every app, transparently (no per-app proxy setup) |
-| Interception | Native packet engine per OS behind one shared core |
-| Platforms | Windows first; Linux next; macOS last, after a feasibility spike |
-| Language | Rust |
-| Config | Profiles: each has a domain list and a strategy per protocol |
-| Targeting | Listed domains only; all other traffic passes untouched |
-| Audience | The author and friends on similar ISPs |
-| Distribution | Public GitHub repo with per-OS release binaries |
-| Name | `snisplit` (repo and binary) |
+| # | Topic | Decision |
+|---|---|---|
+| D1 | Interception (2026-11-14, owner) | **User-mode DNS + relay, no kernel driver.** snisplit answers DNS for listed domains with a loopback address, accepts the app's connection, opens its own connection to the real server and sends the first bytes in pieces. Chosen over WinDivert because the owner does not want a third-party kernel driver (Kaspersky flags it as riskware; a driver of our own cannot be signed without a paid EV certificate tied to an organisation). |
+| - | Interception (superseded by D1) | Native packet engine per OS (WinDivert on Windows, NFQUEUE on Linux). Its code is kept, parked (section 4). |
+| D2 | Engine | Own implementation |
+| D3 | Coverage | Every app that resolves names through the OS resolver, transparently. Apps that connect to hard-coded IPs or use their own secure-DNS provider bypass snisplit. |
+| D4 | Platforms | Windows first. Proposed, needs the owner's confirmation: the relay is portable, so the same design could serve Linux and macOS and replace the NFQUEUE and macOS-spike milestones. |
+| D5 | Language | Rust |
+| D6 | Config | Profiles: each has a domain list and a strategy per protocol |
+| D7 | Targeting | Listed domains only; all other names resolve and connect as before |
+| D8 | Audience | The author and friends on similar ISPs |
+| D9 | Distribution | Public GitHub repo with per-OS release binaries; no driver in the release |
+| D10 | Name | `snisplit` (repo and binary) |
 
 Not in scope: fake-packet strategies, an all-traffic mode, automatic domain
-discovery, proxy/VPN features, DNS tampering fixes.
+discovery, general proxy/VPN features, terminating TLS (snisplit never holds a
+certificate or sees decrypted data).
 
-## 3. Architecture
-
-A Cargo workspace. The core has no OS dependencies, so nearly all logic is testable
-without a driver or admin rights.
-
-The core is layered so a non-packet backend can reuse it: the parsers and strategies
-work on the byte stream and return split offsets; the packet rewriter that turns
-offsets into IP packets is a separate layer used only by packet backends. A macOS
-backend built on a local transparent proxy would use the offsets directly.
+## 3. Architecture (driverless)
 
 ```
-snisplit/
-  crates/
-    core/        parsers, matcher, strategies, segment planner (pure, no I/O)
-    backend-windows/   WinDivert
-    backend-linux/     NFQUEUE + nftables
-    backend-macos/     later
-    cli/         the `snisplit` binary
-    tray/        later
-  profiles/      steam.toml and other shipped profiles
+app --DNS query--> snisplit DNS (loopback) --listed?--> answer: loopback address
+                                           \--other----> forward to upstream resolver
+app --TCP :443/:80--> snisplit relay (loopback)
+                        reads ClientHello / HTTP request, finds host, picks cuts
+                        resolves the real address upstream (never through itself)
+                        connects to the real server, writes piece 1, piece 2, ...
+                        then relays bytes both ways unchanged
 ```
 
-### core
+A diagram version of this and of the superseded design is in a private explainer
+page owned by the repo owner.
 
-- **TLS ClientHello parser**: returns the byte range of the SNI host name. Must
-  never panic on malformed input.
-- **HTTP request parser**: returns the byte range of the `Host` value.
-- **Host matcher**: suffix match of a host name against profile domain lists.
-- **Flow table**: small per-connection state, keyed by the 5-tuple, used only until
-  the first request is handled. Needed for a ClientHello spanning two packets.
-- **Segment planner**: a pure function. Input: one captured IP packet and a strategy.
-  Output: the list of IP packets to send instead, in order, with sequence numbers,
-  lengths, IP IDs and checksums fixed. IPv4 and IPv6.
-- **Strategies (v1)**: `split` (in order) and `disorder` (reversed order), each with
-  positions `HostStart`, `DomainMid` (middle of the first label of the matched listed
-  domain, zapret's `midsld`) and a fixed byte offset. Profile spellings are settled in
-  milestone 3 (see docs/milestone-1.md, decision 2).
-- **Profiles**: TOML. Example:
+### Components
 
-```toml
-name = "steam"
-domains = ["steampowered.com", "steamcommunity.com", "steamstatic.com"]
+- **Resolver routing.** Only listed domains go to snisplit's DNS. Candidate on
+  Windows: Name Resolution Policy Table (NRPT) rules per domain suffix, so a crash
+  breaks only the listed names. Fallback: system DNS pointed at snisplit, where a
+  crash breaks all lookups. Rules persist across crashes and reboots, so snisplit
+  removes stale rules on start and has a cleanup command.
+- **DNS server.** Answers A queries for listed names with the relay's loopback
+  address and a short TTL; answers AAAA and HTTPS (type 65) queries for listed names
+  with an empty answer so apps neither go direct over IPv6 nor learn ECH or
+  alternative endpoints; forwards everything else. Flushes the OS DNS cache on start
+  and stop.
+- **Relay.** Listens on the loopback address for 443 and 80. Per connection: buffer
+  the first bytes until `tls::inspect_client_hello` / `http::inspect_request`
+  decides, match with `DomainList`, compute cut offsets with `Strategy`, then write
+  the pieces to the upstream socket with Nagle disabled and relay both directions.
+  Upstream addresses come from a direct upstream DNS query, not from the OS resolver.
+- **cli.** `snisplit run` (foreground), later `service`, `probe`, `profile`.
 
-[tls]
-strategy = "split"
-positions = ["sni-mid"]
+### Existing work and where it goes
 
-[http]
-strategy = "disorder"
-positions = ["host-mid"]
-```
-
-### backends
-
-One trait: receive a matching outbound packet, then either pass it unchanged or
-replace it with the planner's packets.
-
-- **Windows**: WinDivert, using the official signed release, not a re-signed copy.
-  The driver filter is a milestone 2 decision with two candidates:
-  - Narrow: only outbound TCP 80/443 packets whose payload starts like a TLS
-    handshake or an HTTP method. Cheapest, but the second packet of a two-packet
-    ClientHello is never seen, so only a first-packet SNI can be handled.
-  - Wide: every outbound TCP 80/443 packet that carries payload. Handles a
-    two-packet ClientHello through the flow table, at the cost of passing uploads
-    through user space (downloads are unaffected; their outbound side is bare ACKs).
-  Start wide for correctness; narrow only if measurements show it is safe.
-- **Linux**: NFQUEUE fed by an nftables rule limited to the first packets of each
-  connection; extra segments go out through a raw socket with a firewall mark so
-  they are not queued again.
-- **macOS**: undecided. See milestone 10.
-
-### cli
-
-`snisplit run`, `snisplit service install|uninstall|start|stop|status`,
-`snisplit probe <domain>`, `snisplit profile list|check`.
+| Code | Status under D1 |
+|---|---|
+| `core::tls`, `core::http`, `core::domains`, `core::strategy`, `core::inspect`, `core::reader` | Reused as is: the relay needs exactly "find the host, match it, choose the cut". |
+| Real ClientHello fixtures, mutation tests, fixture privacy guard, CI | Reused. |
+| `core::segment`, `core::checksum`, `core::packet`, `core::flow`, `core::engine`, `core::pump` | Parked: tested and kept, unused by the relay. Revisit only if a packet-level backend returns (for example for HTTP disorder on Linux). |
+| `crates/backend-windows` (on `main`: raw-dylib WinDivert FFI, `sniff` and `capture` examples) | Parked. The `capture` example is still the tool for recording new fixtures, but it needs a WinDivert driver to run. |
+| Local branch `m2/windows` (commits 2c590a5, eb7aec0; never pushed) | Parked: runtime-loaded WinDivert, `Diverter` implementing `pump::PacketIo`, Ctrl+C hook. Two findings to keep if it is ever merged: the receive buffer must be 65575 bytes (`WINDIVERT_MTU_MAX`), not 65535, and `shutdown()` returns a Result the caller must handle. |
+| `crates/cli` on `main` | `snisplit run` is wired to the parked packet engine and currently exits with "unsupported". Rewired to the relay in milestone 3. The built-in Steam profile module is reused. |
+| docs/milestone-2.md | Superseded (WinDivert plan); kept for the record. |
 
 ## 4. Milestones
 
-Each milestone ends with something that can be checked. Windows work is validated on
-this PC with the `zapret-steam` service stopped for the duration of the test.
+Each milestone ends with something that can be checked. Tests that need the ISP run
+on this PC with the `zapret-steam` service stopped for the duration, after asking.
 
 | # | Milestone | Done when |
 |---|---|---|
-| 0 | Scaffold: workspace, licence, CI (fmt, clippy, test), WinDivert binding spike | CI is green; a 50-line program opens WinDivert and prints captured SNIs |
-| 1 | Core: parsers, matcher, segment planner | Unit tests pass on captured real ClientHellos (curl, Chrome, Firefox, Steam client); fuzzing the parsers finds no panic |
-| 2 | Windows engine, HTTPS split, foreground only | The 4 HTTPS Steam URLs return 200/302 with zapret stopped, from curl and from Chrome |
-| 3 | HTTP disorder, profile files, Steam profile | The HTTP Steam URL works; a non-listed site is byte-for-byte untouched in a capture |
-| 4 | Windows service, logging, clean uninstall | Survives reboot; Steam client logs in and downloads a game with zapret removed |
-| 5 | `probe` command | Running it on a Steam domain reproduces the no-bypass, split and disorder rows of section 1 and prints a suggested profile |
-| 6 | Linux backend, systemd unit | Same checks as milestones 2-4 pass on a Linux machine |
-| 7 | Releases: CI-built archives, README, antivirus note | A friend installs from the GitHub release and reaches Steam without help |
-| 8 | QUIC: measure first, then decide | A written result on whether this ISP blocks QUIC by SNI; implementation only if it does |
-| 9 | Tray icon: on/off, status, active profiles | Works on Windows; talks to the service, holds no engine logic |
-| 10 | macOS feasibility spike, then backend | A written recommendation with a working prototype of the chosen approach |
+| 0 | Scaffold, licence, CI, WinDivert spike | Done (5.1) |
+| 1 | Core: parsers, matcher, segment planner, engine | Done (5.2) |
+| 2 | **Feasibility spike (go/no-go)** | A written result in `docs/` for every question in section 4.1, with the commands run and their output; and a go or no-go recommendation |
+| 3 | Relay + DNS, HTTPS only, foreground (if go) | With zapret stopped, `snisplit run` makes the 4 HTTPS Steam URLs return 200/302 from curl and from Chrome, through normal name resolution |
+| 4 | HTTP method, profile files, Steam profile | The HTTP Steam URL works (method chosen in the spike); a non-listed name resolves exactly as without snisplit |
+| 5 | Windows service, crash-safe DNS cleanup, uninstall | Survives reboot and a killed process without breaking non-listed names; Steam client logs in and downloads a game with zapret removed |
+| 6 | `probe` command | Reproduces the no-bypass and split rows of section 1 for a domain and prints a suggested profile |
+| 7 | Releases: CI-built archives, README | A friend installs from the GitHub release and reaches Steam without help |
+| 8 | QUIC: measure first, then decide | A written result on whether this ISP blocks QUIC by SNI. With DNS pointing listed names at loopback, QUIC to them fails and apps fall back to TCP, which may already be enough |
+| 9 | Tray icon | Works on Windows; talks to the service, holds no engine logic |
+| 10 | Other platforms | Depends on D4: either the relay on Linux and macOS, or the original packet backends |
 
 Ordering notes:
 
-- Milestone 4 is where this PC switches from zapret to snisplit. Removing the zapret
+- If the spike finds no user-mode HTTP method that passes this ISP, the choice goes
+  back to the owner before milestone 4: HTTPS-only, or a packet-level piece for HTTP.
+- Milestone 5's "downloads a game" depends on HTTP if Steam downloads use port 80 on
+  this PC; the spike checks which ports a real download uses.
+- Milestone 5 is where this PC switches from zapret to snisplit. Removing the zapret
   service is a separate, explicit step.
-- The repo is public on GitHub from the start; milestone 7 is the first release
-  meant for others to install.
-- QUIC is after the release on purpose: today's setup ignores UDP and Steam works.
-  If the ISP does block QUIC by SNI, the cheap fix is to drop those QUIC packets so
-  apps fall back to TCP; the alternative needs forged packets, which is out of scope.
+- The repo is public on GitHub from the start; milestone 7 is the first release meant
+  for others to install.
 
-### 4.1 Milestone 0 result (2026-11-14)
+### 4.1 Questions the spike must answer
 
-- Workspace: `crates/core` (pure; a first SNI extractor and IPv4/IPv6 TCP parser
-  with tests that include truncated and random input), `crates/backend-windows`
-  (WinDivert bindings; compiles to an empty crate off Windows), `crates/cli`
-  (placeholder binary). Linux, macOS and tray crates are added when their
-  milestones start.
-- WinDivert binding: hand-written FFI for the few functions used, linked with
-  `raw-dylib`. Building needs no WinDivert SDK, import library or download, so CI
-  builds on every OS. Revisit the wrapper crates only if the API surface grows a lot.
-- Spike: `cargo run -p snisplit-backend-windows --example sniff` (elevated, with
-  `WinDivert.dll` on PATH). It opens WinDivert in sniff mode with `NO_INSTALL` at
-  the highest priority, so it never changes traffic and only attaches to an
-  already-loaded driver. Run next to the live zapret service, with curl traffic,
-  it printed `store.steampowered.com`, `steamcommunity.com` and `example.com` as
-  the original SNIs, not zapret's fakes.
-- Not proven: the driver it attached to was the zapret bundle's third-party-signed
-  copy, not the official WinDivert build. Browser two-packet ClientHellos print as
-  "no SNI in first packet"; that is milestone 1-2 work.
-- CI: fmt, clippy (`-D warnings`) and tests on Windows, Linux and macOS.
+Each answer needs a command and its output, not a recollection.
 
-### 4.2 Milestone 1 result (2026-11-14)
+1. **Two writes, two segments, past the ISP.** A minimal relay on loopback, used by
+   `curl --connect-to` (no DNS change, no admin rights). Control: one write must fail
+   with zapret stopped. Test: two writes at the measured cut points must succeed.
+   Same through Chrome, if `--host-resolver-rules` gives an equivalent test.
+2. **HTTP.** Candidate user-mode methods, tried against the HTTP Steam URL: header
+   rewrites the relay can make because it sees plaintext, a low-TTL first piece, and
+   prior art in zapret's `tpws` documentation and ByeDPI. TLS record fragmentation
+   is also checked as a fallback for HTTPS.
+3. **Does a Steam game download on this PC use port 80?**
+4. **NRPT.** Can a rule point a suffix at a loopback DNS server on port 53? Does Chrome
+   honour it? How does a stale rule behave after a crash?
+5. **Ports.** What already listens on loopback 53, 80 and 443 (the installed WARP
+   client may hold loopback DNS addresses)? Does a dedicated address such as
+   127.0.0.2 avoid conflicts?
+6. **Crates.** A DNS codec and a relay raise the no-new-crates rule: threads with
+   std only, or an async runtime. Recorded as an open decision with a proposal.
 
-Plan, decisions and contract: docs/milestone-1.md. `crates/core` now holds:
+## 5. Results
+
+### 5.1 Milestone 0 result (2026-11-14)
+
+- Workspace with `crates/core`, `crates/backend-windows`, `crates/cli`; MIT OR
+  Apache-2.0; CI runs fmt, clippy (`-D warnings`) and tests on Windows, Linux, macOS.
+- WinDivert binding: hand-written FFI linked with `raw-dylib`.
+- Spike: the `sniff` example, in sniff mode with `NO_INSTALL`, printed the original
+  SNIs of Steam connections next to the live zapret service.
+- The driver it attached to was the zapret bundle's third-party-signed copy.
+
+### 5.2 Milestone 1 result (2026-11-14)
+
+Plan, decisions and contract: docs/milestone-1.md. `crates/core` holds:
 
 - `tls::inspect_client_hello` and `http::inspect_request`: return the host's byte
   range, "need more data" or "no host"; never panic.
 - `domains::DomainList`: suffix match at label boundaries, returns where the matched
   listed domain sits in the host.
-- `segment::split`: one packet into checksummed segments (IPv4/IPv6, options kept,
-  PSH/FIN on the last segment; refuses SYN, URG, RST, fragments, IPv6 extension headers).
-- `strategy`, `flow`, `engine`: `Engine::process(packet, now_ms)` returns pass or the
-  replacement packets. TLS is tracked per connection across packets, bounded in
-  entries, bytes and idle time; every HTTP request is inspected on its own.
+- `strategy`: split positions `HostStart`, `DomainMid` (middle of the first label of
+  the matched domain, zapret's `midsld`) and fixed offsets.
+- `segment::split`, `flow`, `engine`: the packet-level planner (parked under D1).
 
 Evidence:
 
-- 134 tests. Every expected value is independent of the code under test: published
+- 134 tests with expected values independent of the code under test: published
   vectors (RFC 1071, a published IPv4 header, Wireshark sample `http.cap` frame 4 with
-  its checksums checked against the file), hand-derived offsets, round-trips, and 12 real
-  Steam ClientHellos captured on this PC (curl, Chrome, Steam client) in
-  `crates/core/tests/fixtures`.
-- A test audit planted deliberate bugs in the code; 18 tests that would not have caught them
-  were rewritten or removed, and each rewrite was shown to fail on its planted bug.
-- Mutation tests over the real captures (every truncation, every bit flip, corrupted
-  length fields, random overwrites) find no panic.
-- An independent review of the segment planner found no high or medium defects; it
-  led to refusing RST packets.
+  its checksums checked against the file), hand-derived offsets, round-trips, and 12
+  real Steam ClientHellos captured on this PC (curl, Chrome, Steam client).
+- A test audit planted deliberate bugs; 18 tests that missed them were rewritten or
+  removed, each rewrite shown to fail on its planted bug.
+- Mutation tests over the real captures find no panic.
 - A test fails if any fixture carries a session-resumption ticket.
 
-Not covered:
+Not covered: Firefox (not installed); a real capture with the host straddling two
+packets (synthetic tests only).
 
-- Firefox ClientHellos (not installed on this PC).
-- A real capture with the host name straddling two packets (none of the 80 captured
-  did); covered by synthetic tests only.
-- IPv6 through the engine; nothing has run against WinDivert yet (milestone 2).
-- The first packet of a two-packet ClientHello is never held back, so an offset that
-  falls in it after it was sent is dropped (docs/milestone-1.md, decision 7).
+### 5.3 After milestone 1 (2026-11-14, on `main`, not pushed)
 
-## 5. Open questions and risks
+- docs/milestone-2.md: the WinDivert plan, now superseded.
+- `core::pump`: a packet loop that re-sends every diverted packet, 11 tests (parked).
+- `crates/cli`: `snisplit run [--verbose]`, `--version`, `help`, the built-in Steam
+  profile, exit codes; the platform call returns "unsupported" until milestone 3.
+
+## 6. Open questions and risks
 
 | Item | Why it matters | Resolved in |
 |---|---|---|
-| Which WinDivert binding to use | Resolved: hand-written FFI with `raw-dylib` (section 4.1). | Done |
-| ClientHello spanning two packets | Confirmed on this PC: Chrome and the Steam client send 1384-1452 + 300-540 byte hellos, with the host in either packet. The core handles both (milestone 1). Whether split-only gets them past this ISP is untested. | Milestone 2 |
-| Is the bundled zapret driver the upstream WinDivert build? | It is signed by a third party, not the WinDivert author. A hash comparison against the official 2.2.2 release was blocked by the antivirus on download. Irrelevant once snisplit ships the official build, but development needs the official zip, which needs the user to allow it past the antivirus. | Milestone 2 |
-| `nfq` crate: can it return a modified payload, and is it maintained? | Last release 2022. A fork and a libnetfilter_queue binding exist. | Milestone 6 |
-| Linux test machine | WSL2 on this PC may work for NFQUEUE; unverified. Otherwise a VM. | Milestone 6 |
-| macOS packet interception | No WinDivert/NFQUEUE equivalent. The only documented route short of Apple's signed Network Extension is a pf redirect into a local transparent proxy, which changes the backend shape. | Milestone 10 |
-| Antivirus flags WinDivert | Kaspersky reported the driver as riskware on this PC. Friends will see the same. Needs a README section and the official driver build. | Milestone 7 |
-| Licence | snisplit is MIT OR Apache-2.0 (licence files added; still changeable while there are no outside contributors). WinDivert's official LICENSE: "dual-licensed under your choice of the GNU Lesser General Public License (LGPL) Version 3 or the GNU General Public License (GPL) Version 2". snisplit loads it as a separate, unmodified DLL; releases must include its licence. | Milestone 7 |
-| ISP changes its DPI | Split may stop working. `probe` shows what still works; fake-packet strategies would be the next step and are deliberately left out for now. | Ongoing |
+| Two writes may not leave as two segments | The whole HTTPS approach rests on it. Usual with Nagle off, not guaranteed. | Milestone 2 |
+| No known user-mode HTTP method | HTTP needed out-of-order segments here. Steam content may use port 80. | Milestone 2, then the owner |
+| Crash leaves DNS broken | System-wide DNS on loopback breaks every lookup if snisplit dies. NRPT per suffix would limit it to listed names. | Milestones 2 and 5 |
+| Browsers with their own secure DNS | They bypass the OS resolver and so snisplit. Needs a README note or a browser setting. | Milestone 7 |
+| Port conflicts on loopback 53/80/443 | Local dev servers or WARP may already listen there. | Milestone 2 |
+| IPv6 and HTTPS records | Listed names must get empty AAAA and type-65 answers, or apps go direct or learn ECH config. | Milestone 3 |
+| Relay throughput | Every Steam byte, including game downloads, is copied through snisplit. | Milestone 5 |
+| Antivirus reaction to a local DNS server and proxy | Untested; likely milder than a kernel driver. | Milestone 7 |
+| New crates (DNS codec, async runtime) | The project has none so far. | Milestone 2 |
+| Platforms beyond Windows | D4 is proposed, not confirmed. | Owner |
+| ISP changes its DPI | Split may stop working. `probe` shows what still works. | Ongoing |
+| Moot under D1 | WinDivert binding choice, bundled driver provenance, WinDivert licence, `nfq` crate, Linux NFQUEUE test machine, macOS packet interception. Kept here so they are not reopened by accident. | Closed |
 
-## 6. References
+## 7. References
 
 - Current working setup, in the local zapret-win-bundle checkout: `zapret-winws/steam_service_install.cmd`
 - Steam domain list to seed `profiles/steam.toml`: `zapret-winws/files/list-steam.txt`
-- Reachability check to port: `zapret-winws/steam_verify.ps1`
-- WinDivert: https://reqrypt.org/windivert.html
-- Rust bindings: https://lib.rs/crates/windivert-sys , https://docs.rs/nfq
-- zapret notes on BSD and macOS limits: https://github.com/bol-van/zapret (docs/bsd.en.md)
+- zapret, including the user-mode `tpws` proxy documentation: https://github.com/bol-van/zapret
+- Windows NRPT: `Add-DnsClientNrptRule` in the DnsClient PowerShell module
+- WinDivert (parked design): https://reqrypt.org/windivert.html

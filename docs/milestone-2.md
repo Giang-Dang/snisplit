@@ -1,5 +1,8 @@
 # Milestone 2 plan: Windows engine, foreground
 
+Superseded 2026-11-14: the owner chose the driverless DNS + relay design (PLAN.md,
+decision D1). This WinDivert plan is kept for the record; its code is parked.
+
 Done when (PLAN.md section 4): with the `zapret-steam` service stopped, `snisplit run`
 in an elevated console makes the 4 HTTPS Steam URLs return 200/302 from curl and from
 Chrome. The URLs are the ones in section 1:
