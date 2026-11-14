@@ -7,6 +7,7 @@ use std::process::ExitCode;
 
 use args::{Command, USAGE};
 use snisplit::session::{self, RunOptions};
+use snisplit::sites;
 use snisplit::{VERSION, profile};
 
 const EXIT_RUNTIME_ERROR: u8 = 1;
@@ -16,7 +17,7 @@ fn main() -> ExitCode {
     let args = env::args_os()
         .skip(1)
         .map(|arg| arg.to_string_lossy().into_owned());
-    match args::parse(args) {
+    match args::parse(args, sites::folder()) {
         Ok(Command::Help) => {
             println!("{USAGE}");
             ExitCode::SUCCESS

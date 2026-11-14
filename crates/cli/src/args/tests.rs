@@ -2,8 +2,13 @@ use super::*;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 
+const USER_SITES: &str = "user-sites";
+
 fn parsed(args: &[&str]) -> Result<Command, UsageError> {
-    parse(args.iter().map(|arg| arg.to_string()))
+    parse(
+        args.iter().map(|arg| arg.to_string()),
+        Some(PathBuf::from(USER_SITES)),
+    )
 }
 
 fn run_options(args: &[&str]) -> RunOptions {
@@ -21,6 +26,7 @@ fn plain_run_relays_every_built_in_profile_with_routing_and_system_dns() {
             verbose: false,
             profiles: vec!["steam", "medium"],
             profile_files: vec![],
+            site_folder: Some(PathBuf::from(USER_SITES)),
             routing: true,
             upstreams: vec![],
         }
@@ -45,6 +51,7 @@ fn run_options_are_read_in_any_order() {
             verbose: true,
             profiles: vec!["medium"],
             profile_files: vec![],
+            site_folder: None,
             routing: false,
             upstreams: vec![Ipv4Addr::new(9, 9, 9, 9), Ipv4Addr::new(1, 0, 0, 1)],
         }
@@ -200,6 +207,7 @@ fn profile_files_keep_the_command_line_order_and_are_paths_not_read() {
 fn a_profile_file_alone_does_not_bring_the_built_ins_along() {
     let options = run_options(&["run", "--profile-file", "a.profile"]);
     assert!(options.profiles.is_empty());
+    assert_eq!(options.site_folder, None);
     assert_eq!(options.profile_files, vec![PathBuf::from("a.profile")]);
 }
 

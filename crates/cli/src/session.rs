@@ -1,7 +1,7 @@
 use std::future::{Future, poll_fn};
 use std::io::{self, Write};
 use std::net::{Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::{Pin, pin};
 use std::sync::Arc;
 use std::task::Poll;
@@ -17,14 +17,16 @@ use tokio::task::{JoinError, JoinSet, spawn_blocking};
 
 use crate::VERSION;
 use crate::plan::{self, Selected};
+use crate::profile_file::ProfileSpec;
 use crate::routing::{self, ProfileRule, StartFailure};
-use crate::{profile, system_dns};
+use crate::{profile, sites, system_dns};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunOptions {
     pub verbose: bool,
     pub profiles: Vec<&'static str>,
     pub profile_files: Vec<PathBuf>,
+    pub site_folder: Option<PathBuf>,
     pub routing: bool,
     pub upstreams: Vec<Ipv4Addr>,
 }
@@ -180,7 +182,7 @@ async fn serve_on<H: Host>(
     stop_requested: impl Future<Output = ()> + Send,
     out: Output,
 ) -> io::Result<()> {
-    let selected = load_selection(&options)?;
+    let selected = load_selection(&options, &out)?;
     let mut stop = pin!(stop_requested);
     let pending = if options.routing {
         Some(host.begin_rules(&profile_rules(&selected))?)
@@ -374,13 +376,45 @@ fn start_failure(failure: StartFailure) -> io::Error {
     }
 }
 
-fn load_selection(options: &RunOptions) -> io::Result<Vec<Selected>> {
-    let files = options
+fn load_selection(options: &RunOptions, out: &Output) -> io::Result<Vec<Selected>> {
+    let mut files = options
         .profile_files
         .iter()
         .map(|path| profile::read_file(path))
         .collect::<io::Result<Vec<_>>>()?;
+    if let Some(folder) = &options.site_folder {
+        files.extend(load_sites(&options.profiles, &files, folder, out)?);
+    }
     plan::select(&options.profiles, files).map_err(io::Error::other)
+}
+
+fn load_sites(
+    built_in_names: &[&str],
+    files: &[ProfileSpec],
+    folder: &Path,
+    out: &Output,
+) -> io::Result<Vec<ProfileSpec>> {
+    let site_files = match sites::list(folder) {
+        Ok(site_files) => site_files,
+        Err(error) => {
+            out(&format!(
+                "user sites not loaded: cannot read the site folder: {error}"
+            ));
+            return Ok(Vec::new());
+        }
+    };
+    let mut taken = Vec::new();
+    for name in built_in_names {
+        if let Some(built_in) = profile::find(name) {
+            taken.push(built_in.spec().map_err(io::Error::other)?);
+        }
+    }
+    taken.extend_from_slice(files);
+    let admitted = sites::admit(&taken, site_files);
+    for note in &admitted.notes {
+        out(note);
+    }
+    Ok(admitted.sites)
 }
 
 fn profile_rules(selected: &[Selected]) -> Vec<ProfileRule<'_>> {

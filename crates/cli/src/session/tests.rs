@@ -188,6 +188,7 @@ mod start_up {
             verbose: false,
             profiles: vec!["medium"],
             profile_files: Vec::new(),
+            site_folder: None,
             routing,
             upstreams: upstreams.to_vec(),
         }
@@ -458,6 +459,56 @@ mod start_up {
             host.calls()[0],
             "begin medium.com@127.0.0.3, game.example.com cdn.example.org@127.0.0.4"
         );
+    }
+
+    #[test]
+    fn user_sites_follow_the_built_ins_and_a_broken_or_covered_one_is_reported_not_fatal() {
+        let folder =
+            std::env::temp_dir().join(format!("snisplit-session-sites-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("a-broken.profile"), "name a-broken\nports 1\n").unwrap();
+        std::fs::write(
+            folder.join("news.profile"),
+            "name news\ndomains news.example.com help.medium.com\n",
+        )
+        .unwrap();
+        std::fs::write(
+            folder.join("shop.profile"),
+            "name shop\ndomains shop.example.org\n",
+        )
+        .unwrap();
+        let host = FakeHost::default();
+        let recorder = Recorder::stopping_when(never_stops);
+        let mut options = options(true, &[ip(192, 0, 2, 1)]);
+        options.site_folder = Some(folder.clone());
+        let served = serve_fake(&host, options, std::future::ready(()), recorder.output());
+        let _ = std::fs::remove_dir_all(&folder);
+        assert!(served.is_ok());
+        assert_eq!(
+            host.calls()[0],
+            "begin medium.com@127.0.0.3, news.example.com@127.0.0.4, shop.example.org@127.0.0.5"
+        );
+        assert_eq!(
+            recorder.lines()[..2],
+            [
+                "skipped a site: a-broken.profile:2: unknown key \"ports\"",
+                "site news: help.medium.com left out, the built-in profile medium already covers it",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_missing_site_folder_runs_the_built_ins_alone() {
+        let folder =
+            std::env::temp_dir().join(format!("snisplit-session-nosites-{}", std::process::id()));
+        let host = FakeHost::default();
+        let recorder = Recorder::stopping_when(never_stops);
+        let mut options = options(true, &[ip(192, 0, 2, 1)]);
+        options.site_folder = Some(folder);
+        let served = serve_fake(&host, options, std::future::ready(()), recorder.output());
+        assert!(served.is_ok());
+        assert_eq!(host.calls()[0], BEGIN_MEDIUM);
+        assert_eq!(recorder.lines(), ["stopping", RULES_LEFT]);
     }
 
     #[test]

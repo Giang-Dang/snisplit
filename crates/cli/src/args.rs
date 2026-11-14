@@ -25,7 +25,10 @@ pub const USAGE: &str = "usage:
 run options:
     --profile <name>            relay this built-in profile (steam, medium); repeatable
     --profile-file <path>       relay the profile in this file; repeatable
-                                (with neither option, every built-in profile runs)
+                                (with neither option, every built-in profile runs,
+                                plus every site file in the user site folder,
+                                %APPDATA%\\snisplit\\sites\\<name>.profile on Windows;
+                                a site file that does not parse is skipped)
     --no-routing                do not add DNS rules; only the relay and DNS server run
     --upstream <ipv4>           DNS server used to find real addresses; repeatable
                                 (default: the system's DNS servers)
@@ -104,11 +107,14 @@ impl fmt::Display for UsageError {
     }
 }
 
-pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, UsageError> {
+pub fn parse(
+    args: impl IntoIterator<Item = String>,
+    site_folder: Option<PathBuf>,
+) -> Result<Command, UsageError> {
     let mut args = args.into_iter();
     let command = args.next().ok_or(UsageError::MissingCommand)?;
     let parsed = match command.as_str() {
-        "run" => return parse_run_options(args).map(Command::Run),
+        "run" => return parse_run_options(args, site_folder).map(Command::Run),
         "cleanup" => Command::Cleanup,
         "show-profile" => return parse_show_profile(args),
         "probe" => return parse_probe(args).map(Command::Probe),
@@ -123,11 +129,15 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, UsageErr
     }
 }
 
-fn parse_run_options(mut args: impl Iterator<Item = String>) -> Result<RunOptions, UsageError> {
+fn parse_run_options(
+    mut args: impl Iterator<Item = String>,
+    site_folder: Option<PathBuf>,
+) -> Result<RunOptions, UsageError> {
     let mut options = RunOptions {
         verbose: false,
         profiles: Vec::new(),
         profile_files: Vec::new(),
+        site_folder: None,
         routing: true,
         upstreams: Vec::new(),
     };
@@ -166,6 +176,7 @@ fn parse_run_options(mut args: impl Iterator<Item = String>) -> Result<RunOption
     }
     if options.profiles.is_empty() && options.profile_files.is_empty() {
         options.profiles = profile::BUILT_IN.iter().map(|b| b.name).collect();
+        options.site_folder = site_folder;
     }
     Ok(options)
 }

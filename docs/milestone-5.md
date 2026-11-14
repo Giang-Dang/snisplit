@@ -411,6 +411,13 @@ milestone.
 
 ## Adding a site today
 
+Since milestone 9 (docs/milestone-9.md) there is a per-user site folder,
+`%APPDATA%\snisplit\sites`. Save the profile that `snisplit probe <domain>` prints there as
+`<name>.profile`, where `<name>` is the profile's `name` line, and a plain `snisplit run`
+(neither `--profile` nor `--profile-file`) loads it next to the built-in profiles. The UI
+`snisplit-gui` adds and removes these files for you. The steps below still work and are
+what `--profile-file` does.
+
 A profile file adds sites without code changes; a built-in prints a template. In
 Windows PowerShell 5.1, `>` writes UTF-16, which the profile parser rejects, so
 write the file as ASCII:
