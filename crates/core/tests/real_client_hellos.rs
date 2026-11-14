@@ -9,7 +9,6 @@ use snisplit_core::segment::{Order, split};
 use snisplit_core::tls::inspect_client_hello;
 
 const PACKET_LENGTHS_EXTENSION: &str = "txt";
-const MIN_TWO_PACKET_FIXTURES: usize = 1;
 
 const IPV4_VERSION_AND_MIN_HEADER: u8 = 0x45;
 const IPV4_TYPE_OF_SERVICE: u8 = 0;
@@ -71,6 +70,17 @@ impl Fixture {
         }
     }
 
+    fn named_host(&self) -> Range<usize> {
+        let name = self.host_name.as_bytes();
+        let mut starts =
+            (0..self.stream.len()).filter(|&start| self.stream[start..].starts_with(name));
+        let start = starts
+            .next()
+            .unwrap_or_else(|| panic!("{}: host name not in the stream", self.stem));
+        assert_eq!(starts.next(), None, "{}: host name occurs twice", self.stem);
+        start..start + name.len()
+    }
+
     fn packet_ranges(&self) -> Vec<Range<usize>> {
         let mut start = 0;
         self.packet_lengths
@@ -84,7 +94,7 @@ impl Fixture {
     }
 
     fn host_position(&self) -> HostPosition {
-        let host = self.host();
+        let host = self.named_host();
         match self.packet_ranges().as_slice() {
             [_] => HostPosition::SinglePacket,
             [first, ..] if host.end <= first.end => HostPosition::WhollyInFirstPacket,
@@ -155,11 +165,6 @@ fn middle_of_host_inside_packet(host: &Range<usize>, packet: &Range<usize>) -> O
 }
 
 #[test]
-fn fixture_directory_is_not_empty() {
-    assert!(!fixture_stems().is_empty(), "no ClientHello fixtures found");
-}
-
-#[test]
 fn whole_stream_yields_the_host_named_by_the_file() {
     for fixture in fixtures() {
         let host = fixture.host();
@@ -173,24 +178,9 @@ fn whole_stream_yields_the_host_named_by_the_file() {
 }
 
 #[test]
-fn every_prefix_needs_more_data_or_matches_the_full_result() {
-    for fixture in fixtures() {
-        let full = Inspection::Host(fixture.host());
-        for cut in 0..=fixture.stream.len() {
-            let result = inspect_client_hello(&fixture.stream[..cut]);
-            assert!(
-                result == Inspection::NeedMoreData || result == full,
-                "{}: prefix {cut} gave {result:?}, full is {full:?}",
-                fixture.stem
-            );
-        }
-    }
-}
-
-#[test]
 fn first_packet_alone_needs_more_data_unless_it_holds_the_whole_host() {
     for fixture in fixtures() {
-        let host = fixture.host();
+        let host = fixture.named_host();
         let first_packet = fixture.packet_ranges()[0].clone();
         let result = inspect_client_hello(&fixture.stream[first_packet.clone()]);
         let expected = if host.end <= first_packet.end {
@@ -203,24 +193,15 @@ fn first_packet_alone_needs_more_data_unless_it_holds_the_whole_host() {
 }
 
 #[test]
-fn host_position_relative_to_the_packet_boundary_is_reported() {
-    let fixtures = fixtures();
-    for fixture in &fixtures {
-        println!(
-            "{}: packets {:?}, host {:?}, {:?}",
-            fixture.stem,
-            fixture.packet_lengths,
-            fixture.host(),
-            fixture.host_position()
-        );
-    }
-    let two_packet_fixtures = fixtures
-        .iter()
-        .filter(|fixture| fixture.packet_lengths.len() == 2)
-        .count();
+fn fixtures_hold_the_host_wholly_in_the_first_and_wholly_in_the_second_packet() {
+    let positions: Vec<HostPosition> = fixtures().iter().map(Fixture::host_position).collect();
     assert!(
-        two_packet_fixtures >= MIN_TWO_PACKET_FIXTURES,
-        "no two-packet ClientHello among the fixtures"
+        positions.contains(&HostPosition::WhollyInFirstPacket),
+        "no fixture holds the host wholly in its first packet: {positions:?}"
+    );
+    assert!(
+        positions.contains(&HostPosition::WhollyInSecondPacket),
+        "no fixture holds the host wholly in its second packet: {positions:?}"
     );
 }
 

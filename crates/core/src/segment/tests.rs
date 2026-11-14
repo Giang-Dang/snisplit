@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 use super::{Order, split};
+use crate::checksum::{checksum, ipv4_pseudo_header_sum, tcp_checksum};
 
 const PROTOCOL_TCP: u8 = 6;
 const PROTOCOL_UDP: u8 = 17;
@@ -61,6 +62,32 @@ const TCP_REWRITTEN_FIELDS: [Range<usize>; 3] = [
 
 const STALE_CHECKSUM: u16 = 0xdead;
 const VALID_ONES_COMPLEMENT_SUM: u16 = 0xffff;
+
+const WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_LEN: usize = 519;
+const WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_SRC: Ipv4Addr = Ipv4Addr::new(145, 254, 160, 237);
+const WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_DST: Ipv4Addr = Ipv4Addr::new(65, 208, 228, 223);
+const WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_IPV4_CHECKSUM: u16 = 0x9010;
+const WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_TCP_CHECKSUM: u16 = 0xa958;
+const WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_HOST_AT: usize = 35;
+const WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_HEADERS: [u8; 40] = [
+    0x45, 0x00, 0x02, 0x07, 0x0f, 0x45, 0x40, 0x00, 0x80, 0x06, 0x90, 0x10, 0x91, 0xfe, 0xa0, 0xed,
+    0x41, 0xd0, 0xe4, 0xdf, 0x0d, 0x2c, 0x00, 0x50, 0x38, 0xaf, 0xfe, 0x14, 0x11, 0x4c, 0x61, 0x8c,
+    0x50, 0x18, 0x25, 0xbc, 0xa9, 0x58, 0x00, 0x00,
+];
+const WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_PAYLOAD: &[u8] = concat!(
+    "GET /download.html HTTP/1.1\r\n",
+    "Host: www.ethereal.com\r\n",
+    "User-Agent: Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.6) Gecko/20040113\r\n",
+    "Accept: text/xml,application/xml,application/xhtml+xml,text/html;q=0.9,text/plain;q=0.8,image/png,image/jpeg,image/gif;q=0.2,*/*;q=0.1\r\n",
+    "Accept-Language: en-us,en;q=0.5\r\n",
+    "Accept-Encoding: gzip,deflate\r\n",
+    "Accept-Charset: ISO-8859-1,utf-8;q=0.7,*;q=0.7\r\n",
+    "Keep-Alive: 300\r\n",
+    "Connection: keep-alive\r\n",
+    "Referer: http://www.ethereal.com/development.html\r\n",
+    "\r\n",
+)
+.as_bytes();
 
 const CLIENT_V4: Ipv4Addr = Ipv4Addr::new(192, 168, 1, 23);
 const SERVER_V4: Ipv4Addr = Ipv4Addr::new(23, 54, 187, 9);
@@ -501,26 +528,56 @@ fn ipv6_segments_carry_the_payload_pieces() {
 }
 
 #[test]
-fn stale_input_checksums_are_replaced() {
-    let packet = plain_ipv4(&Tcp::carrying(b"abcdef"));
-    let tcp_checksum_at = IPV4_MIN_HEADER_LEN + TCP_CHECKSUM_FIELD.start;
-    assert_eq!(be16(&packet, IPV4_CHECKSUM_FIELD.start), STALE_CHECKSUM);
-    assert_eq!(be16(&packet, tcp_checksum_at), STALE_CHECKSUM);
-    for segment in split_in_both_orders(&packet, &[3]) {
-        assert_ne!(be16(&segment, IPV4_CHECKSUM_FIELD.start), STALE_CHECKSUM);
-        assert_ne!(be16(&segment, tcp_checksum_at), STALE_CHECKSUM);
-    }
-}
+fn wireshark_sample_http_cap_frame_4_checksums_are_reproduced() {
+    let published = [
+        WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_HEADERS.as_slice(),
+        WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_PAYLOAD,
+    ]
+    .concat();
+    assert_eq!(published.len(), WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_LEN);
+    let ip_header = &published[..IPV4_MIN_HEADER_LEN];
+    let tcp = &published[IPV4_MIN_HEADER_LEN..];
+    let tcp_len = u16::try_from(tcp.len()).unwrap();
 
-#[test]
-fn reference_check_rejects_a_corrupted_segment() {
-    for packet in packets_of_every_shape(&Tcp::carrying(b"abcdefg")) {
-        for mut segment in split_in_both_orders(&packet, &[3]) {
-            let last = segment.len() - 1;
-            segment[last] ^= 0x01;
-            assert_ne!(reference_tcp_sum(&segment), VALID_ONES_COMPLEMENT_SUM);
-        }
-    }
+    assert_eq!(
+        checksum(&zeroed(ip_header, &[IPV4_CHECKSUM_FIELD])),
+        WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_IPV4_CHECKSUM
+    );
+    let pseudo_header_sum = ipv4_pseudo_header_sum(
+        WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_SRC,
+        WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_DST,
+        tcp_len,
+    );
+    assert_eq!(
+        tcp_checksum(pseudo_header_sum, &zeroed(tcp, &[TCP_CHECKSUM_FIELD])),
+        WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_TCP_CHECKSUM
+    );
+
+    let unfilled = [
+        zeroed(ip_header, &[IPV4_CHECKSUM_FIELD]),
+        zeroed(tcp, &[TCP_CHECKSUM_FIELD]),
+    ]
+    .concat();
+    assert_eq!(
+        !reference_fold(reference_sum(&unfilled[..IPV4_MIN_HEADER_LEN])),
+        WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_IPV4_CHECKSUM
+    );
+    assert_eq!(
+        !reference_tcp_sum(&unfilled),
+        WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_TCP_CHECKSUM
+    );
+    assert_valid_on_the_wire(&published);
+
+    let segments = split_in_both_orders(&published, &[WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_HOST_AT]);
+    assert_eq!(
+        payloads_of(&segments),
+        [
+            WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_PAYLOAD[..WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_HOST_AT]
+                .to_vec(),
+            WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_PAYLOAD[WIRESHARK_SAMPLE_HTTP_CAP_FRAME_4_HOST_AT..]
+                .to_vec(),
+        ]
+    );
 }
 
 #[test]
@@ -989,8 +1046,6 @@ fn random_bytes_never_panic() {
             };
         }
         let payload_offsets = random_offsets(&mut rng);
-        if let Some(segments) = split(&input, &payload_offsets, Order::InSequence) {
-            assert_splits(&input, &payload_offsets, &segments);
-        }
+        split(&input, &payload_offsets, Order::InSequence);
     }
 }

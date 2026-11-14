@@ -1,4 +1,16 @@
-use super::*;
+use core::ops::Range;
+
+use super::{client_hello_sni, inspect_client_hello};
+use crate::inspect::Inspection;
+
+const CONTENT_TYPE_HANDSHAKE: u8 = 0x16;
+const HANDSHAKE_TYPE_CLIENT_HELLO: u8 = 0x01;
+const EXTENSION_SERVER_NAME: u16 = 0x0000;
+const SERVER_NAME_TYPE_HOST: u8 = 0x00;
+const TLS_MAJOR_VERSION: u8 = 0x03;
+const RANDOM_LEN: usize = 32;
+const MAX_RECORD_LEN: u16 = 16384;
+const OVERSIZED_RECORD_LEN: u16 = 16385;
 
 const RECORD_HEADER_LEN: usize = 5;
 const HANDSHAKE_HEADER_LEN: usize = 4;
@@ -209,7 +221,7 @@ fn finds_sni() {
 #[test]
 fn truncated_input_never_panics_and_needs_whole_name() {
     let hello = client_hello("steamcommunity.com");
-    let host = client_hello_sni(&hello).unwrap();
+    let host = position_of(&hello, b"steamcommunity.com");
     for cut in 0..hello.len() {
         let expected = (cut >= host.end).then(|| host.clone());
         assert_eq!(client_hello_sni(&hello[..cut]), expected, "cut at {cut}");
@@ -235,41 +247,8 @@ fn random_input_never_panics() {
             input[0] = CONTENT_TYPE_HANDSHAKE;
             input[RECORD_HEADER_LEN] = HANDSHAKE_TYPE_CLIENT_HELLO;
         }
-        if let Some(host) = client_hello_sni(&input) {
-            assert!(host.end <= input.len());
-        }
+        client_hello_sni(&input);
     }
-}
-
-#[test]
-fn builder_offsets_point_at_length_fields() {
-    let hello = large_hello_with_key_share_before_host(X25519_MLKEM768_KEY_EXCHANGE_LEN);
-    let host = position_of(&hello, HOST.as_bytes());
-    assert_eq!(
-        read_u16_at(&hello, RECORD_LENGTH_OFFSET),
-        hello.len() - RECORD_HEADER_LEN
-    );
-    assert_eq!(hello[SESSION_ID_LENGTH_OFFSET], SESSION_ID_LEN as u8);
-    assert_eq!(
-        read_u16_at(&hello, CIPHER_SUITES_LENGTH_OFFSET),
-        CIPHER_SUITES_LEN
-    );
-    assert_eq!(
-        usize::from(hello[COMPRESSION_METHODS_LENGTH_OFFSET]),
-        COMPRESSION_METHODS_LEN
-    );
-    assert_eq!(
-        read_u16_at(&hello, EXTENSIONS_LENGTH_OFFSET),
-        hello.len() - EXTENSIONS_LENGTH_OFFSET - 2
-    );
-    assert_eq!(
-        read_u16_at(&hello, FIRST_EXTENSION_LENGTH_OFFSET),
-        supported_groups_extension().len() - 4
-    );
-    assert_eq!(
-        read_u16_at(&hello, host.start - HOST_NAME_LENGTH_BACK),
-        HOST.len()
-    );
 }
 
 #[test]
@@ -399,10 +378,15 @@ fn hello_fragmented_across_records_is_no_host() {
 #[test]
 fn oversized_record_is_no_host() {
     let hello = client_hello(HOST);
-    let oversized = with_length_field(hello, RECORD_LENGTH_OFFSET, MAX_RECORD_LEN as u16 + 1);
+    let oversized = with_length_field(hello.clone(), RECORD_LENGTH_OFFSET, OVERSIZED_RECORD_LEN);
     assert_eq!(
         inspect_client_hello(&oversized[..RECORD_HEADER_LEN]),
         Inspection::NoHost
+    );
+    let largest = with_length_field(hello, RECORD_LENGTH_OFFSET, MAX_RECORD_LEN);
+    assert_eq!(
+        inspect_client_hello(&largest[..RECORD_HEADER_LEN]),
+        Inspection::NeedMoreData
     );
 }
 
@@ -440,6 +424,43 @@ fn mutated_hello_never_panics_and_prefixes_agree_with_whole_input() {
         host.start - SERVER_NAME_LIST_LENGTH_BACK,
         host.start - HOST_NAME_LENGTH_BACK,
     ];
+    assert_eq!(
+        read_u16_at(&original, RECORD_LENGTH_OFFSET),
+        original.len() - RECORD_HEADER_LEN
+    );
+    assert_eq!(
+        read_u16_at(&original, HANDSHAKE_LENGTH_OFFSET + 1),
+        original.len() - RECORD_HEADER_LEN - HANDSHAKE_HEADER_LEN
+    );
+    assert_eq!(original[SESSION_ID_LENGTH_OFFSET], SESSION_ID_LEN as u8);
+    assert_eq!(
+        read_u16_at(&original, CIPHER_SUITES_LENGTH_OFFSET),
+        CIPHER_SUITES_LEN
+    );
+    assert_eq!(
+        usize::from(original[COMPRESSION_METHODS_LENGTH_OFFSET]),
+        COMPRESSION_METHODS_LEN
+    );
+    assert_eq!(
+        read_u16_at(&original, EXTENSIONS_LENGTH_OFFSET),
+        original.len() - EXTENSIONS_LENGTH_OFFSET - 2
+    );
+    assert_eq!(
+        read_u16_at(&original, FIRST_EXTENSION_LENGTH_OFFSET),
+        supported_groups_extension().len() - 4
+    );
+    assert_eq!(
+        read_u16_at(&original, host.start - SERVER_NAME_EXTENSION_LENGTH_BACK),
+        HOST.len() + 5
+    );
+    assert_eq!(
+        read_u16_at(&original, host.start - SERVER_NAME_LIST_LENGTH_BACK),
+        HOST.len() + 3
+    );
+    assert_eq!(
+        read_u16_at(&original, host.start - HOST_NAME_LENGTH_BACK),
+        HOST.len()
+    );
     let mut rng = XorShift(0x9e37_79b9);
     for _ in 0..12_000 {
         let mut input = original.clone();

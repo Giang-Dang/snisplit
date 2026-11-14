@@ -1,5 +1,11 @@
-use super::*;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+use super::parse_tcp;
+
+const PROTOCOL_TCP: u8 = 6;
+const BYTES_PER_WORD: usize = 4;
+const IPV4_MIN_HEADER_LEN: usize = 20;
+const TCP_MIN_HEADER_LEN: usize = 20;
 const TCP_FLAGS_PSH_ACK: u8 = 0x18;
 const IPV4_VERSION: u8 = 0x40;
 const IPV4_VERSION_AND_MIN_HEADER: u8 = 0x45;
@@ -121,16 +127,32 @@ fn short_or_garbage_input_is_rejected() {
 }
 
 #[test]
+fn packets_shorter_than_their_declared_length_are_rejected() {
+    let segment = tcp_segment(50000, 443, b"hello");
+    let ipv4 = ipv4_packet(Ipv4Addr::LOCALHOST, Ipv4Addr::LOCALHOST, &segment);
+    let ipv6 = ipv6_packet(Ipv6Addr::LOCALHOST, Ipv6Addr::LOCALHOST, &segment);
+    assert_eq!(ipv4.len(), 20 + 20 + 5);
+    assert_eq!(ipv6.len(), 40 + 20 + 5);
+    assert_eq!(parse_tcp(&ipv4).unwrap().payload, b"hello");
+    assert_eq!(parse_tcp(&ipv6).unwrap().payload, b"hello");
+    for packet in [ipv4, ipv6] {
+        for cut in 0..packet.len() {
+            assert_eq!(parse_tcp(&packet[..cut]), None, "cut at {cut}");
+        }
+    }
+}
+
+#[test]
 fn minimal_headers_report_their_lengths() {
     let segment = tcp_segment(50000, 443, b"hello");
     let ipv4 = ipv4_packet(Ipv4Addr::LOCALHOST, Ipv4Addr::LOCALHOST, &segment);
     let ipv6 = ipv6_packet(Ipv6Addr::LOCALHOST, Ipv6Addr::LOCALHOST, &segment);
     let ipv4 = parse_tcp(&ipv4).unwrap();
     let ipv6 = parse_tcp(&ipv6).unwrap();
-    assert_eq!(ipv4.ip_header_len, IPV4_MIN_HEADER_LEN);
-    assert_eq!(ipv6.ip_header_len, IPV6_HEADER_LEN);
-    assert_eq!(ipv4.tcp_header_len, TCP_MIN_HEADER_LEN);
-    assert_eq!(ipv6.tcp_header_len, TCP_MIN_HEADER_LEN);
+    assert_eq!(ipv4.ip_header_len, 20);
+    assert_eq!(ipv6.ip_header_len, 40);
+    assert_eq!(ipv4.tcp_header_len, 20);
+    assert_eq!(ipv6.tcp_header_len, 20);
 }
 
 #[test]
@@ -146,10 +168,7 @@ fn options_extend_header_lengths_and_sequence_number_is_exposed() {
     );
     let tcp = parse_tcp(&packet).unwrap();
     assert_eq!(tcp.sequence_number, sequence_number);
-    assert_eq!(
-        tcp.ip_header_len,
-        IPV4_MIN_HEADER_LEN + IPV4_OPTION_ROUTER_ALERT.len()
-    );
-    assert_eq!(tcp.tcp_header_len, TCP_MIN_HEADER_LEN + tcp_options.len());
+    assert_eq!(tcp.ip_header_len, 24);
+    assert_eq!(tcp.tcp_header_len, 28);
     assert_eq!(tcp.payload, b"hello");
 }

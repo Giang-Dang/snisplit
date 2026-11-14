@@ -1,4 +1,7 @@
-use super::*;
+use core::ops::Range;
+
+use super::inspect_request;
+use crate::inspect::Inspection;
 
 const HOST: &str = "store.steampowered.com";
 const CRLF: &str = "\r\n";
@@ -58,8 +61,9 @@ fn finds_host_header() {
 
 #[test]
 fn every_method_is_recognised() {
-    for method in METHODS {
-        let method = core::str::from_utf8(method).unwrap();
+    for method in [
+        "GET", "POST", "HEAD", "PUT", "DELETE", "OPTIONS", "PATCH", "CONNECT", "TRACE",
+    ] {
         let request = request_with(&format!("{method} / HTTP/1.1"), &[&format!("Host: {HOST}")]);
         assert_eq!(host_of(&request), Some(HOST.as_bytes()), "{method}");
     }

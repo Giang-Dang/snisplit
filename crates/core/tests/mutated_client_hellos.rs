@@ -166,22 +166,34 @@ fn streams() -> Vec<(String, Vec<u8>)> {
         .collect()
 }
 
-fn host_of(stem: &str, stream: &[u8]) -> Range<usize> {
-    match inspect_client_hello(stream) {
-        Inspection::Host(host) => host,
-        other => panic!("{stem}: unmutated stream gave {other:?}"),
-    }
+fn named_host(stem: &str, stream: &[u8]) -> Range<usize> {
+    let (host_name, _connection_number) = stem
+        .rsplit_once('-')
+        .unwrap_or_else(|| panic!("{stem}: file name has no -<n> suffix"));
+    let name = host_name.as_bytes();
+    let mut starts = (0..stream.len()).filter(|&start| stream[start..].starts_with(name));
+    let start = starts
+        .next()
+        .unwrap_or_else(|| panic!("{stem}: host name not in the stream"));
+    assert_eq!(starts.next(), None, "{stem}: host name occurs twice");
+    start..start + name.len()
 }
 
 #[test]
 fn truncation_at_every_length_never_misreports_the_host() {
     for (stem, stream) in streams() {
-        let host = host_of(&stem, &stream);
+        let host = named_host(&stem, &stream);
         for cut in 0..=stream.len() {
-            let result = inspect_client_hello(&stream[..cut]);
-            let allowed = result == Inspection::NeedMoreData
-                || (result == Inspection::Host(host.clone()) && cut >= host.end);
-            assert!(allowed, "{stem}: cut {cut} gave {result:?}");
+            let expected = if cut >= host.end {
+                Inspection::Host(host.clone())
+            } else {
+                Inspection::NeedMoreData
+            };
+            assert_eq!(
+                inspect_client_hello(&stream[..cut]),
+                expected,
+                "{stem}: cut {cut}"
+            );
         }
     }
 }
@@ -201,21 +213,16 @@ fn single_bit_flip_at_every_byte_never_panics() {
 }
 
 #[test]
-fn located_length_fields_include_the_host_name_length() {
+fn corrupted_length_fields_never_panic() {
     for (stem, stream) in streams() {
-        let host = host_of(&stem, &stream);
-        let name_length_field = locate_length_fields(&stream)
-            .into_iter()
+        let host = named_host(&stem, &stream);
+        let length_fields = locate_length_fields(&stream);
+        let name_length_field = length_fields
+            .iter()
             .find(|field| field.end() == host.start)
             .unwrap_or_else(|| panic!("{stem}: host name length field not located"));
         assert_eq!(name_length_field.read(&stream), host.len(), "{stem}");
-    }
-}
-
-#[test]
-fn corrupted_length_fields_never_panic() {
-    for (stem, stream) in streams() {
-        for field in locate_length_fields(&stream) {
+        for field in length_fields {
             let original = field.read(&stream);
             for value in field.corrupt_values(original) {
                 let mut mutated = stream.clone();
