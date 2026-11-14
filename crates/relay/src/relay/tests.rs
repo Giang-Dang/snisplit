@@ -33,6 +33,8 @@ const SERVER_WORDS: &[u8] = b"server says hello";
 const CLIENT_FOLLOW_UP: &[u8] = b"application data after the hello";
 const HTTP_REQUEST: &[u8] =
     b"GET /app/220 HTTP/1.1\r\nHost: Store.SteamPowered.com:80\r\nAccept: */*\r\n\r\n";
+const HTTP_REQUEST_RESPELLED: &[u8] =
+    b"GET /app/220 HTTP/1.1\r\nhoSt: Store.SteamPowered.com:80\r\nAccept: */*\r\n\r\n";
 
 fn block_on<F: Future>(future: F) -> F::Output {
     tokio::runtime::Builder::new_multi_thread()
@@ -149,6 +151,15 @@ impl Harness {
         within(self.running).await.expect("run returns");
         self.events
     }
+
+    async fn shut_down_and_collect(self) -> Vec<Event> {
+        let mut events = self.shut_down().await;
+        let mut remaining = Vec::new();
+        while let Some(event) = within(events.recv()).await {
+            remaining.push(event);
+        }
+        remaining
+    }
 }
 
 async fn fake_upstream() -> (TcpListener, u16) {
@@ -247,7 +258,7 @@ fn a_hello_arriving_in_two_parts_is_reassembled_before_forwarding() {
 }
 
 #[test]
-fn an_http_request_is_relayed_unchanged_in_one_piece_by_its_lowercased_host() {
+fn an_http_request_is_relayed_respelled_in_one_piece_by_its_lowercased_host() {
     block_on(async {
         let (upstream, upstream_port) = fake_upstream().await;
         let mut harness = Harness::start(Protocol::Http, upstream_port, vec![LOOPBACK]).await;
@@ -256,8 +267,8 @@ fn an_http_request_is_relayed_unchanged_in_one_piece_by_its_lowercased_host() {
         let (mut at_server, _) = within(upstream.accept()).await.unwrap();
 
         assert_eq!(
-            read_exactly(&mut at_server, HTTP_REQUEST.len()).await,
-            HTTP_REQUEST
+            read_exactly(&mut at_server, HTTP_REQUEST_RESPELLED.len()).await,
+            HTTP_REQUEST_RESPELLED
         );
         assert_eq!(
             harness.next_event().await,
@@ -316,16 +327,26 @@ fn shutdown_closes_connections_that_are_in_flight() {
             Event::Forwarded { .. }
         ));
 
-        let mut events = harness.shut_down().await;
+        let events = harness.shut_down_and_collect().await;
 
         assert!(reaches_end_of_stream(&mut client).await);
         assert!(reaches_end_of_stream(&mut at_server).await);
-        assert!(events.try_recv().is_err());
+        assert_eq!(
+            events,
+            [Event::Closed {
+                host: STORE_HOST.to_owned(),
+                port: upstream_port,
+                to_server: u64::try_from(STORE_HELLO.len()).unwrap(),
+                to_client: 0,
+                respelled: 0,
+                stopped: None,
+            }]
+        );
     });
 }
 
 #[test]
-fn a_connection_that_ends_normally_emits_nothing_after_forwarded() {
+fn a_connection_that_ends_normally_emits_one_closed_with_what_each_side_was_sent() {
     block_on(async {
         let (upstream, upstream_port) = fake_upstream().await;
         let mut harness = Harness::start(Protocol::Tls, upstream_port, vec![LOOPBACK]).await;
@@ -338,12 +359,26 @@ fn a_connection_that_ends_normally_emits_nothing_after_forwarded() {
             Event::Forwarded { .. }
         ));
 
+        at_server.write_all(SERVER_WORDS).await.unwrap();
+        read_exactly(&mut client, SERVER_WORDS.len()).await;
+        client.write_all(CLIENT_FOLLOW_UP).await.unwrap();
         client.shutdown().await.unwrap();
+        read_exactly(&mut at_server, CLIENT_FOLLOW_UP.len()).await;
         assert!(reaches_end_of_stream(&mut at_server).await);
         at_server.shutdown().await.unwrap();
         assert!(reaches_end_of_stream(&mut client).await);
 
-        let mut events = harness.shut_down().await;
-        assert!(events.try_recv().is_err());
+        assert_eq!(
+            harness.next_event().await,
+            Event::Closed {
+                host: STORE_HOST.to_owned(),
+                port: upstream_port,
+                to_server: u64::try_from(STORE_HELLO.len() + CLIENT_FOLLOW_UP.len()).unwrap(),
+                to_client: u64::try_from(SERVER_WORDS.len()).unwrap(),
+                respelled: 0,
+                stopped: None,
+            }
+        );
+        assert_eq!(harness.shut_down_and_collect().await, []);
     });
 }

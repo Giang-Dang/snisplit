@@ -1,9 +1,17 @@
+use std::future::{Future, poll_fn};
+use std::io;
+use std::mem;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::pin::{Pin, pin};
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
-use snisplit_core::first_flight::{Decision, Protocol, Refusal, RelayProfile, decide};
-use tokio::io::{AsyncReadExt, copy_bidirectional};
+use snisplit_core::first_flight::{Decision, HttpMethod, Protocol, Refusal, RelayProfile, decide};
+use snisplit_core::http_stream::HostRespeller;
+use tokio::io::{
+    AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf, copy, copy_bidirectional,
+};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 
@@ -13,6 +21,7 @@ use crate::pieces::write_pieces;
 use crate::resolve::ResolveBoxed;
 
 const READ_CHUNK: usize = 4096;
+const COPY_CHUNK: usize = 8192;
 const FIRST_FLIGHT_TIMED_OUT: &str = "first flight timed out";
 const CLIENT_CLOSED_EARLY: &str = "client closed before the first flight was complete";
 const RESOLVE_TIMED_OUT: &str = "resolving timed out";
@@ -95,20 +104,200 @@ impl Stop {
 
 pub(crate) async fn serve(mut client: TcpStream, shared: Arc<Shared>, route: Route) {
     let port = route.upstream_port;
-    let flight = match read_first_flight(&mut client, &shared, route).await {
+    let mut flight = match read_first_flight(&mut client, &shared, route).await {
         Ok(flight) => flight,
         Err(stop) => return shared.emit(stop.into_event(port)),
     };
+    let mut respeller = respeller_for(&shared.profiles[route.profile], route.protocol);
+    if let Some(respeller) = respeller.as_mut() {
+        flight.bytes = respelled_first_flight(respeller, &flight.bytes);
+    }
     match open_upstream(&shared, port, &flight).await {
-        Ok((mut upstream, pieces)) => {
+        Ok((upstream, pieces)) => {
             shared.emit(Event::Forwarded {
-                host: flight.host,
+                host: flight.host.clone(),
                 port,
                 pieces,
             });
-            let _ = copy_bidirectional(&mut client, &mut upstream).await;
+            let mut report = CloseReport {
+                shared: &shared,
+                host: flight.host,
+                port,
+                to_server: byte_count(flight.bytes.len()),
+                to_client: 0,
+                respeller,
+            };
+            report.relay(client, upstream).await;
         }
         Err(stop) => shared.emit(stop.into_event(port)),
+    }
+}
+
+fn respeller_for(profile: &RelayProfile, protocol: Protocol) -> Option<HostRespeller> {
+    let respells = protocol == Protocol::Http && profile.http_method == HttpMethod::HostSpell;
+    respells.then(HostRespeller::new)
+}
+
+fn respelled_first_flight(respeller: &mut HostRespeller, bytes: &[u8]) -> Vec<u8> {
+    let mut respelled = Vec::with_capacity(bytes.len());
+    respeller.feed(bytes, &mut respelled);
+    respelled
+}
+
+fn byte_count(len: usize) -> u64 {
+    u64::try_from(len).unwrap_or(u64::MAX)
+}
+
+struct CloseReport<'a> {
+    shared: &'a Shared,
+    host: String,
+    port: u16,
+    to_server: u64,
+    to_client: u64,
+    respeller: Option<HostRespeller>,
+}
+
+impl CloseReport<'_> {
+    async fn relay(&mut self, mut client: TcpStream, mut upstream: TcpStream) {
+        match self.respeller.as_mut() {
+            Some(respeller) => {
+                let (mut client_reader, client_writer) = client.split();
+                let (mut upstream_reader, upstream_writer) = upstream.split();
+                let mut to_server = Counted::new(upstream_writer, &mut self.to_server);
+                let mut to_client = Counted::new(client_writer, &mut self.to_client);
+                let requests = copy_respelled(&mut client_reader, &mut to_server, respeller);
+                let responses = copy_then_shut_down(&mut upstream_reader, &mut to_client);
+                let _ = until_both_end(requests, responses).await;
+            }
+            None => {
+                let mut client = Counted::new(&mut client, &mut self.to_client);
+                let mut upstream = Counted::new(&mut upstream, &mut self.to_server);
+                let _ = copy_bidirectional(&mut client, &mut upstream).await;
+            }
+        }
+    }
+}
+
+impl Drop for CloseReport<'_> {
+    fn drop(&mut self) {
+        let respeller = self.respeller.as_ref();
+        self.shared.emit(Event::Closed {
+            host: mem::take(&mut self.host),
+            port: self.port,
+            to_server: self.to_server,
+            to_client: self.to_client,
+            respelled: respeller.map_or(0, HostRespeller::respelled),
+            stopped: respeller.and_then(HostRespeller::stopped),
+        });
+    }
+}
+
+async fn copy_respelled<R, W>(
+    reader: &mut R,
+    writer: &mut W,
+    respeller: &mut HostRespeller,
+) -> io::Result<()>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let mut chunk = vec![0; COPY_CHUNK];
+    let mut respelled = Vec::with_capacity(COPY_CHUNK);
+    loop {
+        let read = reader.read(&mut chunk).await?;
+        respelled.clear();
+        if read == 0 {
+            respeller.finish(&mut respelled);
+            writer.write_all(&respelled).await?;
+            return writer.shutdown().await;
+        }
+        respeller.feed(&chunk[..read], &mut respelled);
+        writer.write_all(&respelled).await?;
+    }
+}
+
+async fn copy_then_shut_down<R, W>(reader: &mut R, writer: &mut W) -> io::Result<()>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    copy(reader, writer).await?;
+    writer.shutdown().await
+}
+
+async fn until_both_end(
+    first: impl Future<Output = io::Result<()>>,
+    second: impl Future<Output = io::Result<()>>,
+) -> io::Result<()> {
+    let mut first = pin!(first);
+    let mut second = pin!(second);
+    let mut first_ended = false;
+    let mut second_ended = false;
+    poll_fn(|context| {
+        if !first_ended {
+            match first.as_mut().poll(context) {
+                Poll::Ready(Ok(())) => first_ended = true,
+                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                Poll::Pending => {}
+            }
+        }
+        if !second_ended {
+            match second.as_mut().poll(context) {
+                Poll::Ready(Ok(())) => second_ended = true,
+                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                Poll::Pending => {}
+            }
+        }
+        if first_ended && second_ended {
+            Poll::Ready(Ok(()))
+        } else {
+            Poll::Pending
+        }
+    })
+    .await
+}
+
+struct Counted<'a, S> {
+    stream: S,
+    written: &'a mut u64,
+}
+
+impl<'a, S> Counted<'a, S> {
+    fn new(stream: S, written: &'a mut u64) -> Self {
+        Self { stream, written }
+    }
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for Counted<'_, S> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().stream).poll_read(context, buffer)
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for Counted<'_, S> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        let written = Pin::new(&mut this.stream).poll_write(context, bytes);
+        if let Poll::Ready(Ok(len)) = written {
+            *this.written += byte_count(len);
+        }
+        written
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().stream).poll_flush(context)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().stream).poll_shutdown(context)
     }
 }
 
