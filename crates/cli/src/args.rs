@@ -4,10 +4,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use snisplit::session::RunOptions;
-use snisplit::{DNS_PORT, parse_domain, profile};
+use snisplit::{DEFAULT_PROBE_RUNS, DEFAULT_PROBE_TIMEOUT, DNS_PORT, parse_domain, profile};
 
-pub const DEFAULT_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
-pub const DEFAULT_PROBE_RUNS: usize = 2;
 const MAX_PROBE_TIMEOUT_SECONDS: u64 = 60;
 const MAX_PROBE_RUNS: usize = 10;
 

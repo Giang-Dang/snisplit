@@ -17,6 +17,8 @@ const FIRST_FLIGHT_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_FIRST_FLIGHT: usize = 16 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(2);
+pub const DEFAULT_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+pub const DEFAULT_PROBE_RUNS: usize = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Selected {

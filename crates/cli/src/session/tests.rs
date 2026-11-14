@@ -178,6 +178,7 @@ mod start_up {
     const HANG_LIMIT: Duration = Duration::from_secs(20);
     const RULES_LEFT: &str = "snisplit DNS rules left: 0";
     const BEGIN_MEDIUM: &str = "begin medium.com@127.0.0.3";
+    const READY_MARK: &str = "(ready signalled)";
 
     fn ip(a: u8, b: u8, c: u8, d: u8) -> Ipv4Addr {
         Ipv4Addr::new(a, b, c, d)
@@ -334,12 +335,14 @@ mod start_up {
         stop_requested: impl Future<Output = ()> + Send,
         out: Output,
     ) -> io::Result<()> {
+        let ready_out = Arc::clone(&out);
         run(serve_on(
             host.clone(),
             &TEST_TIMING,
             options,
             stop_requested,
             out,
+            move || ready_out(READY_MARK),
         ))
     }
 
@@ -358,6 +361,7 @@ mod start_up {
             error.to_string(),
             "no usable upstream DNS server found; pass --upstream <ipv4>"
         );
+        assert!(!is_routing_failure(&error));
         assert_eq!(recorder.lines(), [RULES_LEFT]);
         assert_eq!(host.calls(), [BEGIN_MEDIUM, "lookup", "abandon", "remove"]);
     }
@@ -619,6 +623,7 @@ mod start_up {
                 recorder.lines(),
                 [
                     ready_line("192.0.2.1:53", "DNS rules added"),
+                    READY_MARK.to_string(),
                     "stopping".to_string(),
                     RULES_LEFT.to_string()
                 ]
@@ -684,6 +689,7 @@ mod start_up {
                 )
                 .unwrap_err();
                 assert_eq!(error.to_string(), expected);
+                assert!(is_routing_failure(&error));
                 assert_eq!(recorder.lines(), [RULES_LEFT]);
                 assert_eq!(
                     host.calls(),
@@ -707,6 +713,7 @@ mod start_up {
             )
             .unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
+            assert!(!is_routing_failure(&error));
             assert_eq!(recorder.lines(), [RULES_LEFT]);
             assert_eq!(host.calls(), [BEGIN_GAME, "abandon", "remove"]);
         }
@@ -735,6 +742,7 @@ mod start_up {
                 recorder.lines(),
                 [
                     ready_line("192.0.2.1:53", "no DNS rules"),
+                    READY_MARK.to_string(),
                     "upstream DNS now 192.0.2.7:53".to_string(),
                     "stopping".to_string()
                 ]
@@ -764,6 +772,7 @@ mod start_up {
                 recorder.lines(),
                 [
                     ready_line("192.0.2.1:53", "no DNS rules"),
+                    READY_MARK.to_string(),
                     "stopping".to_string()
                 ]
             );

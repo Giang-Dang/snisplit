@@ -1,3 +1,4 @@
+use std::fmt;
 use std::future::{Future, poll_fn};
 use std::io::{self, Write};
 use std::net::{Ipv4Addr, SocketAddr};
@@ -168,7 +169,22 @@ pub async fn serve(
     stop_requested: impl Future<Output = ()> + Send,
     out: Output,
 ) -> io::Result<()> {
-    serve_on(System, &TIMING, options, stop_requested, out).await
+    serve_on(System, &TIMING, options, stop_requested, out, || {}).await
+}
+
+pub async fn serve_with_ready(
+    options: RunOptions,
+    stop_requested: impl Future<Output = ()> + Send,
+    out: Output,
+    ready: impl FnOnce() + Send,
+) -> io::Result<()> {
+    serve_on(System, &TIMING, options, stop_requested, out, ready).await
+}
+
+pub fn is_routing_failure(error: &io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|inner| inner.is::<RoutingFailure>())
 }
 
 pub fn remove_rules(out: &Output) -> io::Result<()> {
@@ -181,6 +197,7 @@ async fn serve_on<H: Host>(
     options: RunOptions,
     stop_requested: impl Future<Output = ()> + Send,
     out: Output,
+    ready: impl FnOnce() + Send,
 ) -> io::Result<()> {
     let selected = load_selection(&options, &out)?;
     let mut stop = pin!(stop_requested);
@@ -197,7 +214,7 @@ async fn serve_on<H: Host>(
         out: &out,
     };
     match session.start_up(pending, stop.as_mut()).await {
-        Ok(Raced::Done(bound)) => session.relay_until_stopped(bound, stop).await,
+        Ok(Raced::Done(bound)) => session.relay_until_stopped(bound, stop, ready).await,
         Ok(Raced::Stopped) => {
             out("stopping");
             session.remove_rules_if_routed().await
@@ -269,12 +286,14 @@ impl<H: Host> Session<'_, H> {
         &self,
         bound: Bound,
         stop: Pin<&mut impl Future<Output = ()>>,
+        ready: impl FnOnce(),
     ) -> io::Result<()> {
         (self.out)(&describe_start(
             self.selected,
             &bound.first_upstreams,
             self.options.routing,
         ));
+        ready();
         let (stop_tasks, stopped) = watch::channel(false);
         let mut tasks = JoinSet::new();
         tasks.spawn(bound.relay.run(wait_for_stop(stopped.clone())));
@@ -370,11 +389,23 @@ fn join_failure(error: JoinError) -> io::Error {
 }
 
 fn start_failure(failure: StartFailure) -> io::Error {
-    match failure {
+    let failed = match failure {
         StartFailure::RemovingStale(error) => error,
         StartFailure::Adding(error) => routing_failure(&error),
+    };
+    io::Error::new(failed.kind(), RoutingFailure(failed.to_string()))
+}
+
+#[derive(Debug)]
+struct RoutingFailure(String);
+
+impl fmt::Display for RoutingFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
+
+impl std::error::Error for RoutingFailure {}
 
 fn load_selection(options: &RunOptions, out: &Output) -> io::Result<Vec<Selected>> {
     let mut files = options
