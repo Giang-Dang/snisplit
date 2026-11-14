@@ -18,14 +18,14 @@ function Rules { @(Get-DnsClientNrptRule | Where-Object Comment -eq 'snisplit') 
 function RulesToRelay { @(Get-DnsClientNrptRule | Where-Object { $ns = $_.NameServers; @($relayAddresses | Where-Object { $ns -contains $_ }).Count -gt 0 }) }
 function Remove-RelayRules { @(Rules) + @(RulesToRelay) | Sort-Object Name -Unique | ForEach-Object { Remove-DnsClientNrptRule -Name $_.Name -Force }; Clear-DnsClientCache }
 function Resolve($name) { ((Resolve-DnsName $name -Type A -DnsOnly -ErrorAction SilentlyContinue | Where-Object IPAddress | ForEach-Object IPAddress | Sort-Object) -join ',') }
-function Curl([string] $url) { (curl.exe -s -o NUL -w '%{http_code} ip=%{remote_ip}' --max-time 20 $url 2>&1) -join ' ' }
+function Fetch([string] $url) { (curl.exe -s -o NUL -w '%{http_code} ip=%{remote_ip}' --max-time 20 $url 2>&1) -join ' ' }
 function Is-Elevated { ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }
 function Snisplit-Processes { @(Get-Process snisplit* -ErrorAction SilentlyContinue) }
 function Site-Files { @(Get-ChildItem $sites -Filter *.profile -ErrorAction SilentlyContinue | ForEach-Object Name) -join ', ' }
 function Log-State($step) {
   Clear-DnsClientCache
   Log "$step | processes: $((Snisplit-Processes).Name -join ',') | snisplit rules: $((Rules).Count), rules pointing at the relay: $((RulesToRelay).Count) | site files: $(Site-Files)"
-  Log "  store.steampowered.com -> $(Resolve 'store.steampowered.com'); https: $(Curl 'https://store.steampowered.com/')"
+  Log "  store.steampowered.com -> $(Resolve 'store.steampowered.com'); https: $(Fetch 'https://store.steampowered.com/')"
   Log "  example.org -> $(Resolve 'example.org')"
 }
 
@@ -47,7 +47,7 @@ $null = Ask '   What does the status line say?'
 Log-State 'step 1, after Start'
 
 Wait-Owner '2. Nothing to click: the script now fetches https://store.steampowered.com/ through 127.0.0.2.'
-Log "  curl store https: $(Curl 'https://store.steampowered.com/'); store http: $(Curl 'http://store.steampowered.com/')"
+Log "  curl store https: $(Fetch 'https://store.steampowered.com/'); store http: $(Fetch 'http://store.steampowered.com/')"
 Log-State 'step 2'
 
 Say '3. Add a site: type a blocked domain that is not a Steam or medium.com name into the Add a site field, press Check, wait for the table, then press Add if it is offered.'
@@ -56,18 +56,20 @@ Wait-Owner '   When the log says the site was added and the status says Running 
 $null = Ask '   What did the window say under the table (the Add button, Not blocked, or No method worked)?'
 Log-State 'step 3, after adding a site'
 if ($domain) {
-  Log "  $domain -> $(Resolve $domain); https: $(Curl "https://$domain/")"
+  Log "  $domain -> $(Resolve $domain); https: $(Fetch "https://$domain/")"
 }
 
 Wait-Owner '4. Press Stop and wait until the status says Stopped.'
 Log-State 'step 4, after Stop'
 if ($domain) { Log "  $domain -> $(Resolve $domain)" }
 
-Wait-Owner '5. Press Start again and wait until the status says Running. Then close the window with its X button while it runs.'
+Wait-Owner '5. Press Start again and wait until the status says Running.'
+Log-State 'step 5, running again before the close'
+Say '6. Now close the window with its X button while it runs. The script waits up to 120 s for it to exit.'
 $closedInTime = $gui.WaitForExit(120000)
 Start-Sleep 2
-Log "step 5: closed while running: exited=$closedInTime, exit code $(if ($closedInTime) { $gui.ExitCode })"
-Log-State 'step 5, after closing'
+Log "step 6: closed while running: exited=$closedInTime, exit code $(if ($closedInTime) { $gui.ExitCode })"
+Log-State 'step 6, after closing'
 if (-not $closedInTime) { Log 'snisplit-gui did not exit within 120 s; it was left running for you to look at' }
 if ($closedInTime -and (RulesToRelay).Count -gt 0) { Log 'RULES LEFT after closing the window; removing them'; Remove-RelayRules; Log "rules now: $((RulesToRelay).Count)" }
 
