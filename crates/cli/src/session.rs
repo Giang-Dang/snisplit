@@ -33,6 +33,24 @@ pub fn stdout() -> Output {
     })
 }
 
+#[cfg(windows)]
+pub fn ctrl_c() -> io::Result<impl Future<Output = ()> + Send> {
+    let mut signal = tokio::signal::windows::ctrl_c()?;
+    Ok(async move {
+        let _ = signal.recv().await;
+    })
+}
+
+#[cfg(not(windows))]
+pub fn ctrl_c() -> io::Result<impl Future<Output = ()> + Send> {
+    use tokio::signal::unix::{SignalKind, signal};
+
+    let mut signal = signal(SignalKind::interrupt())?;
+    Ok(async move {
+        let _ = signal.recv().await;
+    })
+}
+
 fn load_selection(options: &RunOptions) -> io::Result<Vec<Selected>> {
     let files = options
         .profile_files

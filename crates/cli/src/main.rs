@@ -64,18 +64,11 @@ fn show_profile(name: &str) -> io::Result<()> {
 }
 
 fn run(options: RunOptions) -> io::Result<()> {
-    let ctrl_c = async {
-        if let Err(error) = tokio::signal::ctrl_c().await {
-            eprintln!("snisplit: error: listening for Ctrl+C failed: {error}");
-        }
-    };
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
-        .block_on(session::serve(
-            options,
-            FOREGROUND,
-            ctrl_c,
-            session::stdout(),
-        ))
+        .block_on(async {
+            let ctrl_c = session::ctrl_c()?;
+            session::serve(options, FOREGROUND, ctrl_c, session::stdout()).await
+        })
 }
