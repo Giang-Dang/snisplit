@@ -11,7 +11,7 @@ const START_MS: u64 = 1_000;
 const IDLE_TIMEOUT_MS: u64 = 5_000;
 const MAX_FLOWS: usize = 2;
 const MAX_PREFIX_BYTES: usize = 64;
-const HANDSHAKE_START: [u8; 4] = [TLS_CONTENT_TYPE_HANDSHAKE, 0x03, 0x01, 0x00];
+const HANDSHAKE_START: [u8; 4] = [0x16, 0x03, 0x01, 0x00];
 const APPLICATION_DATA_START: [u8; 4] = [0x17, 0x03, 0x03, 0x00];
 
 fn limits() -> Limits {
