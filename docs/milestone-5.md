@@ -317,3 +317,22 @@ milestone.
   other hash); its `PDM:Trojan.Win32.Generic` entry is not in this report. Builds
   without the service code were never flagged; whether the current binary is safe to
   keep on disk for foreground use is not established.
+
+### Part 1 retry, elevated, 2026-11-14 22:35-22:37 (owner chose to retry the same design)
+
+- Same code; a fresh release build (MD5 `caeba4b7...`) that stayed on disk and ran
+  before the run started.
+- Routed `run` ready after 1303, 815, 664 ms, store HTTPS `200` through the relay,
+  0 rules after each stop. Ctrl+C at 50, 100, 200, 500, 1000, 2000 ms: each exited on
+  its own, 0 rules.
+- `service install` registered the service (event 7045, 22:36:12); its start failed
+  with "Access is denied" (event 7000, 22:36:13). Kaspersky's System Watcher
+  terminated the `snisplit.exe` process in `target\release` as
+  `PDM:Trojan.Win32.Generic` (same MD5) and the file was removed afterwards.
+- With the fixed script the failed install was caught: no relaying within 60 s, the
+  binary-free removal deleted the service and the folder, zapret was restarted. After
+  the run (checked by the lead): no `snisplit` service, no install folder, 0 rules,
+  zapret and `winws` running, store HTTPS `200`.
+- Outcome: the self-installing service is flagged on this PC twice, each time at the
+  install step, while foreground runs of the same file pass. Per the rule agreed
+  before the retry, there is no further retry and no variant.
