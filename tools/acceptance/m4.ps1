@@ -25,7 +25,8 @@ function RulesToRelay { @(Get-DnsClientNrptRule | Where-Object { $ns = $_.NameSe
 function Remove-RelayRules { RulesToRelay | ForEach-Object { Remove-DnsClientNrptRule -Name $_.Name -Force }; Clear-DnsClientCache }
 function Resolve($name, $type = 'A') { ((Resolve-DnsName $name -Type $type -DnsOnly -ErrorAction SilentlyContinue | Where-Object IPAddress | ForEach-Object IPAddress | Sort-Object) -join ',') }
 function Curl([string[]] $urls, [string[]] $extra = @()) {
-  (curl.exe -s -o NUL -w '%{http_code} ip=%{remote_ip} connects=%{num_connects};' --max-time 20 @extra @urls 2>&1) -join ' '
+  $targets = @($urls | ForEach-Object { '-o'; 'NUL'; $_ })
+  (curl.exe -s -w '%{http_code} ip=%{remote_ip} connects=%{num_connects};' --max-time 20 @extra @targets 2>&1) -join ' '
 }
 
 function Start-Snisplit($name, [string[]] $runArgs) {
@@ -116,26 +117,35 @@ try {
   Log "store http: $(Curl 'http://store.steampowered.com/')"
   Log "content http: $(Curl $contentUrl)"
   Log "store http, two requests on one connection: $(Curl 'http://store.steampowered.com/', 'http://store.steampowered.com/about/')"
+  Log "content http, two requests (second should say connects=0): $(Curl $contentUrl, $contentUrl)"
   Log "store https: $(Curl 'https://store.steampowered.com/')"
   Log "$ipv6Name during: A=[$(Resolve $ipv6Name 'A')] AAAA=[$(Resolve $ipv6Name 'AAAA')]"
   Log "example.org during: $(Resolve 'example.org')"
-  $before = (Closed-Lines $run).Count
-  Say "NOW (optional): in Steam, start a small download or update. Watching $DownloadObserveSeconds s. Pause it afterwards if you like."
+  $before = @(Get-Content $run.Out).Count
+  Say "NOW (optional): exit Steam fully (Steam menu > Exit), start it again, then start a small download or update. Watching $DownloadObserveSeconds s; Steam processes are picked up as they start."
   $ports = @{}
   $end = (Get-Date).AddSeconds($DownloadObserveSeconds)
-  $steamProcs = @(Get-Process steam -ErrorAction SilentlyContinue | ForEach-Object Id)
   while ((Get-Date) -lt $end) {
+    $steamProcs = @(Get-Process steam -ErrorAction SilentlyContinue | ForEach-Object Id)
     Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue | Where-Object { $steamProcs -contains [int]$_.OwningProcess } | ForEach-Object { $ports["$($_.RemoteAddress):$($_.RemotePort)"] = 1 }
     Start-Sleep 2
   }
   Log "steam.exe remote endpoints seen: $(($ports.Keys | Sort-Object) -join ' ')"
-  $closed = @(Closed-Lines $run | Select-Object -Skip $before)
-  Log "connections closed during the download window: $($closed.Count)"
-  $closed | ForEach-Object { if ($_ -match '^closed ([^:]+):(\d+): (\d+) bytes sent, (\d+) received, (\d+)') { "{0}:{1} received={2} respelled={3}" -f ($Matches[1] -replace '^[^.]+', '*'), $Matches[2], $Matches[4], $Matches[5] } } | Group-Object { ($_ -split ' ')[0] } | ForEach-Object { "{0,4} {1} received={2}" -f $_.Count, $_.Name, (($_.Group | ForEach-Object { [long](($_ -split ' ')[1] -replace 'received=') }) | Measure-Object -Sum).Sum } | Log
+  $window = @(Get-Content $run.Out | Select-Object -Skip $before)
+  Log "connections relayed during the download window, by host and port:"
+  $window | Where-Object { $_ -match '^relayed ' } | ForEach-Object { ($_ -split ' ')[1] } | Group-Object | Sort-Object Count -Descending | Select-Object -First 25 | ForEach-Object { "{0,4} {1}" -f $_.Count, $_.Name } | Log
 }
 catch { Log "error: $_" }
 finally {
-  if ($run) { Stop-Snisplit $run }
+  if ($run) {
+    Stop-Snisplit $run
+    Log 'bytes received per host and port, all connections of the Steam run (open ones close at stop):'
+    Closed-Lines $run | ForEach-Object {
+      if ($_ -match '^closed (\S+): (\d+) bytes sent, (\d+) received(, (\d+) Host)?') { [pscustomobject]@{ Key = $Matches[1]; Received = [long]$Matches[3]; Respelled = [int]$Matches[5] } }
+    } | Group-Object Key | Sort-Object { ($_.Group | Measure-Object Received -Sum).Sum } -Descending | Select-Object -First 25 | ForEach-Object {
+      "{0,4} {1} received={2} respelled={3}" -f $_.Count, $_.Name, ($_.Group | Measure-Object Received -Sum).Sum, ($_.Group | Measure-Object Respelled -Sum).Sum
+    } | Log
+  }
   if ((Rules).Count -gt 0) { & $exe cleanup | Log }
   if ((RulesToRelay).Count -gt 0) { Log 'rules pointing at the relay remain; removing by name server'; Remove-RelayRules }
   Start-Service zapret-steam
