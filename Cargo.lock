@@ -73,6 +73,16 @@ name = "snisplit-core"
 version = "0.0.0"
 
 [[package]]
+name = "snisplit-gui"
+version = "0.0.0"
+dependencies = [
+ "snisplit",
+ "snisplit-core",
+ "snisplit-relay",
+ "tokio",
+]
+
+[[package]]
 name = "snisplit-relay"
 version = "0.0.0"
 dependencies = [
