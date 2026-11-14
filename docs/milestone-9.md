@@ -134,7 +134,8 @@ egui styling, English text.
 - Adding or removing a site while the relay runs or starts stops the session and starts
   it again; the log says `site shop added; restarting snisplit so the change applies`.
   Changes that arrive while it is stopping fold into one restart. A failed stop cancels
-  the restart. The relay is not restarted when it is stopped.
+  the restart. The relay is not restarted when it is stopped. A stop the user asked for
+  with Stop ends in Stopped whatever site changes arrive while it stops.
 - Closing the window while running cancels the close (`ViewportCommand::CancelClose`),
   stops the session through the same stop path as Stop (the session removes its rules),
   and closes once the session has ended. A close during a pending restart cancels the

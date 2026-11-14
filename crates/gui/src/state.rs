@@ -383,9 +383,8 @@ impl State {
                 self.restart_pending = true;
                 effects.extend(self.stop());
             }
-            Relay::Stopping if !self.closing => {
+            Relay::Stopping if !self.closing && self.restart_pending => {
                 line.push_str("; snisplit starts again once it has stopped");
-                self.restart_pending = true;
             }
             _ => {}
         }

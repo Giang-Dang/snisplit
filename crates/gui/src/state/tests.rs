@@ -213,6 +213,31 @@ fn two_changes_while_stopping_coalesce_into_one_restart() {
 }
 
 #[test]
+fn a_site_removed_after_an_explicit_stop_does_not_restart_the_session() {
+    let mut state = running();
+    assert_eq!(state.update(Event::StopPressed), [Effect::StopSession]);
+    assert_eq!(
+        state.update(Event::SiteRemoved(Ok("news".to_string()))),
+        [Effect::LoadSites]
+    );
+    assert_eq!(state.update(Event::SessionEnded(SessionEnd::Clean)), []);
+    assert_eq!(state.relay, Relay::Stopped);
+    assert_eq!(state.notice.as_deref(), Some("site news removed"));
+}
+
+#[test]
+fn a_site_added_after_an_explicit_stop_does_not_restart_the_session() {
+    let mut state = running();
+    state.update(Event::StopPressed);
+    assert_eq!(
+        state.update(Event::SiteSaved(Ok("shop".to_string()))),
+        [Effect::LoadSites]
+    );
+    assert_eq!(state.update(Event::SessionEnded(SessionEnd::Clean)), []);
+    assert_eq!(state.relay, Relay::Stopped);
+}
+
+#[test]
 fn a_close_during_a_pending_restart_cancels_the_restart() {
     let mut state = running();
     state.update(Event::SiteSaved(Ok("shop".to_string())));
