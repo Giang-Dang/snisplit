@@ -26,7 +26,7 @@ while pos + 12 <= len(data):
         ip = pkt[off:]
         if len(ip) >= 20 and ip[0] >> 4 == 4 and ip[9] == 6:
             ihl = (ip[0] & 15) * 4
-            total = struct.unpack_from("!H", ip, 2)[0]
+            total = struct.unpack_from("!H", ip, 2)[0] or (origlen - off)
             src = ".".join(map(str, ip[12:16]))
             dst = ".".join(map(str, ip[16:20]))
             tcp = ip[ihl:]

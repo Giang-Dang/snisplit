@@ -9,15 +9,23 @@ community, API, login and content hosts, with zapret stopped:
 
 - HTTPS: cut the ClientHello at byte 1 (two writes). Single write is reset every time;
   cut at 1 passes every time, for small and large (1529-byte) client hellos.
-- HTTP: respell the header name `Host:` as `hoSt:`. Splitting does not work for HTTP.
+- HTTP: respell the header name `Host:` as `hoSt:`, tested on the store and one
+  content host. HTTP splitting is untested on this PC: the antivirus merged the
+  pieces before the wire.
+- Not tested, not needed: a low-TTL first piece and TLS record fragmentation
+  (PLAN.md 4.1 Q2).
 - DNS: an NRPT rule sends only the listed suffix to a resolver on 127.0.0.2:53; other
   names are unaffected, also with a stale rule after the resolver is gone.
 
-Carried into milestone 3 as acceptance checks, not blockers:
+Open before milestone 2 is closed:
 
-- The Steam client itself resolving through the system resolver: the user's Chrome
-  did (DNS client log), the Steam client made no lookups during the window.
-- The port of Steam's plain HTTP downloads (Q3).
+- The Steam client itself resolving through the system resolver. The user's Chrome
+  did (DNS client log); the Steam client made no lookups during the window. If it
+  resolves on its own, the relay never sees its connections. Check: DNS client log
+  on, restart Steam, open the store in the client, read the events by process name.
+
+Carried into milestone 3 as an acceptance check: the port of Steam's plain HTTP
+downloads (Q3).
 
 ## Elevated run with zapret stopped (2026-11-14 16:23-16:25)
 
@@ -46,22 +54,26 @@ Large hello through the loopback relay to store.steampowered.com (`big-hello.py`
 
 | Variant | store.steampowered.com | cache5-hkg1.steamcontent.com |
 |---|---|---|
-| control, hostcase, hostdot, hostnospace, domcase, methodspace, unixeol, methodeol, all splits, hostpad 1-8 KiB | FAIL | FAIL |
+| control, hostcase, hostdot, hostnospace, domcase, methodspace, unixeol, hostpad 1-8 KiB | FAIL | FAIL |
+| methodeol, all splits | untested: changed before the wire (see below) | same |
 | `hoSt:` | **PASS, 302** | **PASS, 200** |
 | hosttab | ISP passes, server 400 | ISP passes, server 400 |
 
 ### Wire evidence (pktmon, `tools/spike/pcapng-segments.py`)
 
-- HTTPS: every write left as its own TCP segment. Cut-at-1 connections start with
-  segments `1+448`, `1+141+626`, `1+454`; single-write connections with one 449, 742
-  or 768-byte segment.
+- HTTPS: every write left as its own TCP send. Cut-at-1 connections start with
+  `1+448`, `1+141+626`, `1+454`; single-write connections with one 449, 742 or
+  768-byte segment. The large hello through the relay: single write one 1529-byte
+  send, cut at 1 `1+1528`. The 1529 and 1528-byte sends are large-send offload
+  packets (IP total length 0 in the capture), which the NIC cuts to the path MTU.
 - Every failed HTTPS connection received a RST from the server side; no passing
-  connection did.
+  connection did. This holds for the small and the large hello.
 - HTTP: the split variants left as one 100-byte segment, so the pieces were merged
-  before the wire, even with Nagle off and 30 ms between writes. Blocked HTTP
+  before the wire, even with Nagle off and 30 ms between writes. methodeol left
+  without its leading CRLF (100 bytes, not the 102 written). Blocked HTTP
   connections also send a RST from this PC, matching the WSAECONNABORTED the probe
   sees. The antivirus (`avp`) filters port 80 on this PC and is the likely cause; it
-  was not worked around, so HTTP splitting stays untested here. The `hoSt:` request
+  was not worked around, so those rows stay untested here. The `hoSt:` request
   reached the wire byte for byte as written.
 
 ### NRPT
@@ -179,8 +191,9 @@ Findings:
   are case-insensitive (RFC 9110 section 5.1), so a conforming server must accept it;
   medium.com's server did. The relay sees plain HTTP and can rewrite the header name
   in place without changing the length.
-- Splitting the request does not help HTTP, matching the earlier zapret measurement
-  (in-order split fails, only disorder worked).
+- The split rows here failed, but the elevated run showed the pieces were merged
+  before the wire, so splitting is untested for HTTP on this PC. The earlier zapret
+  measurement (in-order split fails, only disorder worked) points the same way.
 - Steam store and content servers accept `hoSt:` (elevated run above).
 - The split rows are not a valid test of splitting on this PC: the pieces were merged
   before the wire (see wire evidence above).
