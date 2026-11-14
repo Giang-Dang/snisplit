@@ -109,15 +109,42 @@ fn only_tls_handshake_payloads_start_tracking() {
 
 #[test]
 fn flows_are_keyed_by_the_four_tuple() {
-    let mut table = FlowTable::new(limits());
-    assert!(starts_flow(&mut table, CLIENT_PORT, START_MS));
+    let mut table = FlowTable::new(Limits {
+        max_flows: 8,
+        ..limits()
+    });
     let payload = handshake_payload(8);
-    let other_server = TcpPacket {
-        dst: CLIENT,
-        ..tcp_from(CLIENT_PORT, FIRST_SEQUENCE_NUMBER, &payload)
-    };
-    assert!(table.flow_for(&other_server, START_MS).is_some());
-    assert_eq!(table.flows.len(), 2);
+    let original = tcp_from(CLIENT_PORT, FIRST_SEQUENCE_NUMBER, &payload);
+    let other_client = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 24));
+    let other_server = IpAddr::V4(Ipv4Addr::new(23, 54, 187, 10));
+    let variants = [
+        original.clone(),
+        TcpPacket {
+            src: other_client,
+            ..original.clone()
+        },
+        TcpPacket {
+            src_port: CLIENT_PORT + 1,
+            ..original.clone()
+        },
+        TcpPacket {
+            dst: other_server,
+            ..original.clone()
+        },
+        TcpPacket {
+            dst_port: SERVER_PORT + 1,
+            ..original.clone()
+        },
+    ];
+    for (index, packet) in variants.iter().enumerate() {
+        assert!(
+            table.flow_for(packet, START_MS).is_some(),
+            "variant {index}"
+        );
+        assert_eq!(table.flows.len(), index + 1, "variant {index}");
+    }
+    assert!(table.flow_for(&original, START_MS).is_some());
+    assert_eq!(table.flows.len(), variants.len());
 }
 
 #[test]

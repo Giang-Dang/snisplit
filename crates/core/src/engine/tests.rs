@@ -411,12 +411,19 @@ fn unlisted_host_passes_untouched() {
 fn first_matching_profile_wins_even_without_a_tls_strategy() {
     let hello = TwoPacketHello::listed_at(HOST_START_IN_FIRST_PACKET);
     let http_only = profile(LISTED, None, Some(strategy(Order::InSequence)));
-    let mut engine = Engine::new(vec![http_only.clone(), steam_profile()], test_limits());
+    let offset_only = Strategy {
+        order: Order::InSequence,
+        positions: vec![SplitPosition::Offset(3)],
+    };
+    let later = profile(LISTED, Some(strategy(Order::InSequence)), Some(offset_only));
+    let mut engine = Engine::new(vec![http_only, later], test_limits());
     assert_eq!(engine.process(&hello.first, START_MS), Verdict::Pass);
-    assert!(matches!(
-        engine.process(&http_packet(HOST), START_MS),
-        Verdict::Replace(_)
-    ));
+    let request = http_packet(HOST);
+    let host_start = 47;
+    let domain_mid = host_start + HOST_BEFORE_DOMAIN_MID.len();
+    let verdict = engine.process(&request, START_MS);
+    assert_split_at(&verdict, &request, &[host_start, domain_mid]);
+    assert_piece_starts_with(&verdict, 1, HOST_BEFORE_DOMAIN_MID);
 }
 
 #[test]
