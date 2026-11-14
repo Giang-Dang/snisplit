@@ -105,7 +105,7 @@ jobs:
         run: |
           . (Join-Path $env:RUNNER_TEMP 'checks.ps1')
           $profileFile = Join-Path $env:RUNNER_TEMP 'ci-medium.profile'
-          @('name ci-medium', 'domains medium.com', 'tls-ports 443', 'tls-split 1') | Set-Content -Path $profileFile -Encoding ascii
+          @('name ci-medium', 'domains medium.com', 'tls-ports 443', 'tls-split 1', 'http-ports none') | Set-Content -Path $profileFile -Encoding ascii
           Invoke-Snisplit @('service', 'install', '--profile-file', $profileFile)
           sc.exe qc snisplit
           sc.exe qfailure snisplit

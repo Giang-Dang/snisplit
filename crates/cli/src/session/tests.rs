@@ -523,7 +523,7 @@ mod start_up {
             std::env::temp_dir().join(format!("snisplit-rule-{}.profile", std::process::id()));
         std::fs::write(
             &path,
-            "name game\ndomains game.example.com cdn.example.org\ntls-ports 443\n",
+            "name game\ndomains game.example.com cdn.example.org\ntls-ports 443\nhttp-ports none\n",
         )
         .unwrap();
         let host = FakeHost::default();
@@ -598,7 +598,8 @@ mod start_up {
 
         static LOOPBACK_PORTS: Mutex<()> = Mutex::new(());
         const BEGIN_GAME: &str = "begin game.example.com@127.0.0.4";
-        const GAME_FILE: &str = "name game\ndomains game.example.com\ntls-ports 443\n";
+        const GAME_FILE: &str =
+            "name game\ndomains game.example.com\ntls-ports 443\nhttp-ports none\n";
 
         struct GameProfile(PathBuf);
 
