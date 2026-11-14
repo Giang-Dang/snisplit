@@ -19,10 +19,27 @@ community, API, login and content hosts, with zapret stopped:
 
 Open before milestone 2 is closed:
 
-- The Steam client itself resolving through the system resolver. The user's Chrome
-  did (DNS client log); the Steam client made no lookups during the window. If it
-  resolves on its own, the relay never sees its connections. Check: DNS client log
-  on, restart Steam, open the store in the client, read the events by process name.
+- steamwebhelper (Steam's embedded Chromium, which draws the Store and Community
+  pages) does not use the system resolver. See "Steam client DNS check" below. Next
+  test: the same check with a dummy NRPT rule present, since Chromium is believed to
+  fall back to the system resolver when NRPT rules exist (unverified).
+
+## Steam client DNS check (2026-11-14 16:35-16:38)
+
+`tools/spike/steam-dns-check.ps1`, elevated: DNS client log on, wait for a new
+`steam.exe`, observe 120 s while the owner opened the Store, then read the 3006
+events by process name and turn the log off again.
+
+- `steam.exe` resolves through the system resolver: 17 lookups, including
+  `api.steampowered.com`, `steamcommunity.com`, the `cmp*-hkg1/sgp1.steamserver.net`
+  connection managers and `steamconnecttest.com`.
+- `steamwebhelper.exe` made 13 system lookups, all `wpad` or `disabled.invalid`, and
+  none of a Steam name. At the same time it held about 30 established connections to
+  Akamai and Fastly addresses on 443 (`Get-NetTCPConnection`). It resolves those
+  names itself, most likely with Chromium's built-in DNS client, which sends queries
+  straight to the configured DNS servers. Its command line sets no DNS option.
+- Consequence: with only NRPT routing, the client's Store pages would keep going
+  direct and stay blocked, unless the NRPT fallback holds for steamwebhelper.
 
 Carried into milestone 3 as an acceptance check: the port of Steam's plain HTTP
 downloads (Q3).
