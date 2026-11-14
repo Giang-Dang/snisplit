@@ -38,10 +38,12 @@ fn main() -> ExitCode {
 }
 
 fn run(verbose: bool) -> ExitCode {
-    let mut engine = Engine::new(vec![profile::steam()], Limits::default());
+    let profiles = profile::built_in();
+    let profile_count = profiles.len();
+    let mut engine = Engine::new(profiles, Limits::default());
     println!(
-        "snisplit {VERSION}: splitting {} Steam domains, filter: {}",
-        profile::STEAM_DOMAINS.len(),
+        "snisplit {VERSION}: splitting {} domains in {profile_count} profiles, filter: {}",
+        profile::domain_count(),
         platform::DIVERT_FILTER
     );
     let started = Instant::now();

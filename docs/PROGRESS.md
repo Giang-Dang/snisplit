@@ -9,8 +9,9 @@ this file says where the work stands and what to do next.
 |---|---|
 | 0 Scaffold, licence, CI, WinDivert spike | Done (PLAN.md 5.1) |
 | 1 Core: parsers, matcher, strategy, segment planner, engine | Done (PLAN.md 5.2, docs/milestone-1.md) |
-| 2 Feasibility spike for the driverless design | **Recommendation go** (docs/milestone-2-spike.md). steamwebhelper uses DoH without NRPT rules and the system resolver with one (rerun PASS). Awaiting the owner's go and the Q6 crates decision |
-| 3 and later | Not started; conditional on the milestone 2 go/no-go |
+| 2 Feasibility spike for the driverless design | **Recommendation go** (docs/milestone-2-spike.md). **Done. Owner said go on 2026-11-14.** Q6 crates proposal explained, decision pending |
+| 3 Relay + DNS, HTTPS only, foreground | Next. Built-in profiles: Steam and medium.com |
+| 4 and later | Not started |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
 snisplit answers DNS for listed domains with a loopback address and relays the
@@ -19,8 +20,8 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 
 ## Next step
 
-The owner decides go/no-go and the Q6 crates proposal (docs/milestone-2-spike.md).
-On go: plan milestone 3 (relay + DNS, HTTPS only, foreground), using cut at byte 1
+The owner said go. Get the owner's decision on the Q6 crates proposal
+(docs/milestone-2-spike.md), then plan milestone 3 (relay + DNS, HTTPS only, foreground), using cut at byte 1
 for TLS and `hoSt:` for HTTP (milestone 4). The notes below are the original plan
 for the spike questions, kept for reference.
 
@@ -42,7 +43,7 @@ for it was removed; no code from it exists.
 
 - `crates/core`: TLS ClientHello and HTTP Host inspection, domain matcher, split
   strategy (reused by the relay); segment planner, flow table, engine, packet loop
-  (parked). 12 real Steam ClientHello fixtures. The workspace has 160 passing tests.
+  (parked). 12 real Steam ClientHello fixtures. The workspace has 164 passing tests.
 - `crates/cli`: `snisplit run [--verbose]`, `--version`, `help`, built-in Steam
   profile. `run` currently exits with "unsupported": it was wired to the parked
   engine and will be rewired to the relay in milestone 3.

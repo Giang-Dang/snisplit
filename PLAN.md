@@ -11,7 +11,9 @@ Status (current state and next step: docs/PROGRESS.md):
 - 2026-11-14: the owner chose a driverless design (section 2, decision D1). It
   replaces the WinDivert packet engine. Whether it works on this ISP is unproven: the
   new milestone 2 is a measurement spike with a written go/no-go (section 5).
-  Spike done: recommendation go (docs/milestone-2-spike.md), awaiting the owner.
+  Spike done (docs/milestone-2-spike.md); the owner said go on 2026-11-14. Milestone 3
+  is next. A built-in medium.com profile was added at the owner's request (TLS cut at
+  byte 1, the measured cut; HTTP waits for the `hoSt:` rewrite in milestone 4).
 - Milestone order after the spike is proposed, not confirmed.
 
 ## 1. What was measured
