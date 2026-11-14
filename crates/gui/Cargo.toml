@@ -14,5 +14,13 @@ snisplit-core.workspace = true
 snisplit-relay.workspace = true
 tokio.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts"] }
+
+[[bin]]
+name = "snisplit-gui"
+path = "src/main.rs"
+test = false
+
 [lints]
 workspace = true
