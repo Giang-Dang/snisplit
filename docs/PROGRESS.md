@@ -11,7 +11,8 @@ this file says where the work stands and what to do next.
 | 1 Core: parsers, matcher, strategy, segment planner, engine | Done (PLAN.md 5.2, docs/milestone-1.md) |
 | 2 Feasibility spike for the driverless design | **Done.** Owner said go on 2026-11-14 (docs/milestone-2-spike.md); crates decided (PLAN.md D11) |
 | 3 Relay + DNS, HTTPS only, foreground | **Done** 2026-11-14 (docs/milestone-3.md): Steam URLs, Chrome, Steam client login and Store, medium.com through the relay with zapret stopped; Ctrl+C, kill and `cleanup` leave no rules |
-| 4 and later | Not started |
+| 4 HTTP respelling, profile files, IPv6-only names | **In progress** (docs/milestone-4.md): code merged on `main`; no-admin acceptance passed (medium HTTP keep-alive, profile file); elevated Steam run with zapret stopped pending |
+| 5 and later | Not started |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
 snisplit answers DNS for listed domains with a loopback address and relays the
@@ -20,9 +21,11 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 
 ## Next step
 
-Milestone 4: HTTP through the relay with the `hoSt:` rewrite, profile files, and
-the open items at the end of docs/milestone-3.md. The notes below are the original plan
-for the spike questions, kept for reference.
+Milestone 4: the elevated run `tools/acceptance/m4.ps1` with `zapret-steam` stopped
+(ask the owner first): Steam HTTP store and content server, keep-alive, the
+IPv6-only name, and the ports of a Steam download. Then record the results in
+docs/milestone-4.md. The notes below are the original plan for the spike questions,
+kept for reference.
 
 - Question 1 (do two writes get HTTPS through where one write fails) and question 2
   (an HTTP method) need test runs against the ISP with the `zapret-steam` service
@@ -42,14 +45,16 @@ for it was removed; no code from it exists.
 
 - `crates/core`: TLS ClientHello and HTTP Host inspection, domain matcher, split
   strategy (reused by the relay); segment planner, flow table, engine, packet loop
-  (parked). 12 real Steam ClientHello fixtures. The workspace has 287 passing tests.
-- `crates/core` also has the DNS codec (`dns`) and the relay's first-flight decision
-  (`first_flight`).
-- `crates/relay`: tokio TCP relay (cut writes), per-profile DNS server, UDP upstream
-  resolver.
-- `crates/cli`: `snisplit run [--profile] [--no-routing] [--upstream] [--verbose]`,
-  `cleanup`, `--version`, `help`; built-in profiles steam (127.0.0.2) and medium
-  (127.0.0.3); Windows NRPT routing through PowerShell.
+  (parked). 12 real Steam ClientHello fixtures. The workspace has 374 passing tests.
+- `crates/core` also has the DNS codec (`dns`), the relay's first-flight decision
+  (`first_flight`) and the HTTP `Host` respeller (`http_stream`).
+- `crates/relay`: tokio TCP relay (cut writes; every HTTP request head respelled to
+  `hoSt:`; a `closed` event per connection), per-profile DNS server (listed names with
+  no A record are forwarded unchanged), UDP upstream resolver shared by both.
+- `crates/cli`: `snisplit run [--profile] [--profile-file] [--no-routing] [--upstream]
+  [--verbose]`, `cleanup`, `show-profile`, `--version`, `help`; built-in profiles are
+  files in `crates/cli/profiles/` (steam 127.0.0.2, medium 127.0.0.3), profile files
+  from 127.0.0.4; Windows NRPT routing through PowerShell.
 - `crates/backend-windows`: WinDivert FFI and the `sniff` / `capture` examples
   (parked; `capture` is how the fixtures were recorded).
 - Local-only branch `m2/windows` (never pushed): runtime-loaded WinDivert and a
