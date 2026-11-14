@@ -307,3 +307,13 @@ milestone.
   falls back to `sc.exe stop`/`delete`, rule removal by comment and name server, and
   folder removal when the binary is missing; `tools/acceptance/m5-restore.ps1` does
   the same on its own and starts zapret.
+- Kaspersky's report (owner, 2026-11-14) also shows a separate detection by the file
+  antivirus with cloud protection: stream C's release build in its worktree, named
+  `VHO:Backdoor.Win64.Agent.gen` (the report labels its precision "behaviour
+  analysis"; threat level high), was backed up and deleted from `target\release` and
+  `target\release\deps`, with `bash.exe` and `cargo.exe` as initiators. The report
+  has no times. This is consistent with the stream C release binary that would not
+  start and then vanished. The build installed in Part 1 was a different file (main,
+  other hash); its `PDM:Trojan.Win32.Generic` entry is not in this report. Builds
+  without the service code were never flagged; whether the current binary is safe to
+  keep on disk for foreground use is not established.
