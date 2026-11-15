@@ -1,38 +1,35 @@
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const LOG_FILE: &str = "snisplit-log.txt";
 const DESKTOP: &str = "Desktop";
 const NOWHERE: &str = "no Desktop folder and no snisplit folder to save the file in";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Place {
-    Desktop,
-    SnisplitFolder,
-}
-
-pub fn save(lines: &[String], home: Option<&Path>, app_folder: Option<&Path>) -> io::Result<Place> {
+pub fn save(
+    lines: &[String],
+    home: Option<&Path>,
+    app_folder: Option<&Path>,
+) -> io::Result<PathBuf> {
     let desktop = home
         .map(|home| home.join(DESKTOP))
         .filter(|desktop| desktop.is_dir());
-    let (folder, place) = match (desktop, app_folder) {
-        (Some(desktop), _) => (desktop, Place::Desktop),
+    let folder = match (desktop, app_folder) {
+        (Some(desktop), _) => desktop,
         (None, Some(app_folder)) => {
             fs::create_dir_all(app_folder)?;
-            (app_folder.to_path_buf(), Place::SnisplitFolder)
+            app_folder.to_path_buf()
         }
         (None, None) => return Err(io::Error::new(io::ErrorKind::NotFound, NOWHERE)),
     };
     let text: String = lines.iter().map(|line| format!("{line}\r\n")).collect();
-    fs::write(folder.join(LOG_FILE), text)?;
-    Ok(place)
+    let path = folder.join(LOG_FILE);
+    fs::write(&path, text)?;
+    Ok(path)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
 
     struct TempHome(PathBuf);
@@ -58,14 +55,20 @@ mod tests {
     }
 
     #[test]
-    fn the_file_goes_on_the_desktop_when_the_home_folder_has_one() {
+    fn the_file_goes_on_the_desktop_when_the_home_folder_has_one_and_replaces_an_older_one() {
         let home = TempHome::new("desktop");
+        let expected = home.0.join("Desktop").join("snisplit-log.txt");
         fs::create_dir(home.0.join("Desktop")).unwrap();
+        fs::write(
+            &expected,
+            "an older log that is longer than the new one\r\n",
+        )
+        .unwrap();
         let app_folder = home.0.join("AppData").join("snisplit");
-        let place = save(&lines(), Some(&home.0), Some(&app_folder)).unwrap();
-        assert_eq!(place, Place::Desktop);
+        let written = save(&lines(), Some(&home.0), Some(&app_folder)).unwrap();
+        assert_eq!(written, expected);
         assert_eq!(
-            fs::read_to_string(home.0.join("Desktop").join("snisplit-log.txt")).unwrap(),
+            fs::read_to_string(&expected).unwrap(),
             "starting snisplit\r\nstopping\r\n"
         );
         assert!(!app_folder.exists());
@@ -75,10 +78,10 @@ mod tests {
     fn without_a_desktop_the_file_goes_to_the_snisplit_folder() {
         let home = TempHome::new("no-desktop");
         let app_folder = home.0.join("AppData").join("snisplit");
-        let place = save(&lines(), Some(&home.0), Some(&app_folder)).unwrap();
-        assert_eq!(place, Place::SnisplitFolder);
+        let written = save(&lines(), Some(&home.0), Some(&app_folder)).unwrap();
+        assert_eq!(written, home.0.join("AppData/snisplit/snisplit-log.txt"));
         assert_eq!(
-            fs::read_to_string(app_folder.join("snisplit-log.txt")).unwrap(),
+            fs::read_to_string(&written).unwrap(),
             "starting snisplit\r\nstopping\r\n"
         );
         let nowhere = save(&lines(), None, None).unwrap_err();

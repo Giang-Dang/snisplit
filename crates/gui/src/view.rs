@@ -4,7 +4,6 @@ use snisplit::session::Failure;
 use snisplit_core::probe::Verdict;
 
 use crate::address;
-use crate::log_file::Place;
 use crate::state::{Adding, Event, Note, Open, Relay, Row, Site, SiteKind, State, Target};
 
 const OFF_HINT: &str = "The sites switched on below will not open until you press Start.";
@@ -28,9 +27,8 @@ const BROWSER_ANYWAY: &str =
 const NOTHING_ANSWERED: &str = "Nothing snisplit tried got an answer. The site may be down, or blocked in a way snisplit cannot get around.";
 const PART_ANSWERED: &str = "Part of what snisplit tried got an answer, but snisplit has no setting that opens the whole site.";
 const CHECK_CONNECTION: &str = "Check your internet connection and try again.";
-const SAVE_HINT: &str = "Saves snisplit-log.txt on your Desktop to send to whoever helps you.";
-const SAVED_ON_DESKTOP: &str = "Saved snisplit-log.txt on your Desktop.";
-const SAVED_IN_FOLDER: &str = "Saved snisplit-log.txt in the snisplit folder, %APPDATA%\\snisplit.";
+const SAVE_HINT: &str =
+    "Saves snisplit-log.txt to send to whoever helps you, and shows where it went.";
 const APPLY_TOGETHER: &str = "several quick changes apply together";
 const NOTHING_CHANGED: &str = "nothing was changed on this PC";
 const START_REMOVES: &str = "pressing Start also removes them";
@@ -344,8 +342,7 @@ pub fn lines_count(state: &State) -> String {
 pub fn save_note(state: &State) -> String {
     match state.log_saved() {
         None => SAVE_HINT.to_string(),
-        Some(Ok(Place::Desktop)) => SAVED_ON_DESKTOP.to_string(),
-        Some(Ok(Place::SnisplitFolder)) => SAVED_IN_FOLDER.to_string(),
+        Some(Ok(path)) => format!("Saved as {}", path.display()),
         Some(Err(message)) => format!("Could not save the file: {message}"),
     }
 }

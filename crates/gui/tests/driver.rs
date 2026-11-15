@@ -6,7 +6,6 @@ use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use snisplit_gui::driver::{Driver, Folders};
-use snisplit_gui::log_file::Place;
 use snisplit_gui::state::{Effect, Event, SaveRefusal, SiteKind};
 
 const NEWS_PROFILE: &str = "name news-example-com\ndomains news.example.com\ntls-ports 443\ntls-split 1\nhttp-ports 80\nhttp-method host-spell\n";
@@ -149,7 +148,11 @@ fn the_activity_file_goes_to_the_desktop_of_the_given_home_folder() {
     driver.run(Effect::SaveLog(vec!["starting snisplit".to_string()]));
     assert_eq!(
         events.recv_timeout(WAIT).unwrap(),
-        Event::LogSaved(Ok(Place::Desktop))
+        Event::LogSaved(Ok(folder
+            .root
+            .join("home")
+            .join("Desktop")
+            .join("snisplit-log.txt")))
     );
     assert_eq!(
         fs::read_to_string(

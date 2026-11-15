@@ -1002,8 +1002,10 @@ fn activity_is_a_page_of_its_own_and_saving_hands_over_every_line() {
         state.update(Event::SaveLogPressed),
         [Effect::SaveLog(vec!["first".to_string()])]
     );
-    state.update(Event::LogSaved(Ok(Place::Desktop)));
-    assert_eq!(state.log_saved(), Some(&Ok(Place::Desktop)));
+    state.update(Event::LogSaved(Ok(PathBuf::from(
+        "D:\\Shared\\Desktop\\snisplit-log.txt",
+    ))));
+    assert_eq!(log_of(&state), ["first"]);
     state.update(Event::LogSaved(Err("disk full".to_string())));
     assert_eq!(
         last_log(&state),

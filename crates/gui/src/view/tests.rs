@@ -4,7 +4,6 @@ use snisplit::session::Failure;
 use snisplit_core::probe::Verdict;
 
 use super::*;
-use crate::log_file::Place;
 use crate::state::{ProbeView, Row, SessionEnd, Site, SiteKind};
 
 fn site(name: &str, title: &str, kind: SiteKind, on: bool) -> Site {
@@ -680,14 +679,14 @@ fn activity_counts_lines_and_says_where_the_file_was_saved() {
     assert_eq!(lines_count(&state), "2 lines");
     assert_eq!(
         save_note(&state),
-        "Saves snisplit-log.txt on your Desktop to send to whoever helps you."
+        "Saves snisplit-log.txt to send to whoever helps you, and shows where it went."
     );
-    state.update(Event::LogSaved(Ok(Place::Desktop)));
-    assert_eq!(save_note(&state), "Saved snisplit-log.txt on your Desktop.");
-    state.update(Event::LogSaved(Ok(Place::SnisplitFolder)));
+    state.update(Event::LogSaved(Ok(std::path::PathBuf::from(
+        "D:\\Shared\\Desktop\\snisplit-log.txt",
+    ))));
     assert_eq!(
         save_note(&state),
-        "Saved snisplit-log.txt in the snisplit folder, %APPDATA%\\snisplit."
+        "Saved as D:\\Shared\\Desktop\\snisplit-log.txt"
     );
     state.update(Event::LogSaved(Err("access denied".to_string())));
     assert_eq!(save_note(&state), "Could not save the file: access denied");

@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::time::Instant;
 
 use snisplit::ProfileSpec;
@@ -7,7 +8,6 @@ use snisplit::sites::SiteFile;
 use snisplit_core::probe::{Verdict, profile_name};
 
 use crate::address;
-use crate::log_file::Place;
 
 pub const LOG_LINES: usize = 500;
 
@@ -193,7 +193,7 @@ pub enum Event {
     ActivityPressed,
     BackPressed,
     SaveLogPressed,
-    LogSaved(Result<Place, String>),
+    LogSaved(Result<PathBuf, String>),
     CloseRequested,
 }
 
@@ -233,7 +233,7 @@ pub struct State {
     adding: Adding,
     field: String,
     page: Page,
-    log_saved: Option<Result<Place, String>>,
+    log_saved: Option<Result<PathBuf, String>>,
 }
 
 impl Default for State {
@@ -355,7 +355,7 @@ impl State {
         self.page
     }
 
-    pub fn log_saved(&self) -> Option<&Result<Place, String>> {
+    pub fn log_saved(&self) -> Option<&Result<PathBuf, String>> {
         self.log_saved.as_ref()
     }
 

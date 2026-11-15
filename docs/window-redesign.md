@@ -186,11 +186,13 @@ also writes the technical table and the verdict to Activity.
 
 Activity: the session's lines as before, at most 500. "Save to a file" writes
 `snisplit-log.txt` (CRLF lines) to `%USERPROFILE%\Desktop` when that folder exists,
-otherwise to `%APPDATA%\snisplit`. The note beside the button: "Saves snisplit-log.txt on
-your Desktop to send to whoever helps you.", then "Saved snisplit-log.txt on your
-Desktop.", "Saved snisplit-log.txt in the snisplit folder, %APPDATA%\snisplit." or "Could
-not save the file: `<error>`". The place is named in words, never as a full path, because
-the path holds the user name. No clipboard.
+otherwise to `%APPDATA%\snisplit`, replacing a file of that name saved earlier. The note
+beside the button: "Saves snisplit-log.txt to send to whoever helps you, and shows where it
+went.", then "Saved as `<full path of the file written>`" or "Could not save the file:
+`<error>`". The full path is shown because `%USERPROFILE%\Desktop` is not always the
+Desktop the user sees (OneDrive folder backup moves it; an administrator run may use
+another account's profile). The path appears only in the note, never in Activity, since
+Activity is what gets saved and sent. No clipboard.
 
 ## Behaviour
 
@@ -265,7 +267,8 @@ the path holds the user name. No clipboard.
 13. The typing step of the add panel has a Close button (the mockup shows none).
 14. Display titles and the Steam test address (above).
 15. Footer texts per state (above); "on for under 1 min" in the first minute.
-16. "Save to a file" names the place in words.
+16. "Save to a file" shows the full path it wrote (changed in the review fixes; it first
+    named the place in words).
 17. The whole set of `off.list` details above (order, lossy read, atomic rename name).
 
 ## Mockup items drawn differently in egui
