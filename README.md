@@ -151,9 +151,11 @@ a byte offset, `host-start`, or `domain-mid`.
 
 snisplit starts a hidden PowerShell process to add and remove DNS rules, listens on
 loopback ports 53, 80 and 443, and is unsigned and new. Security software can react
-to that combination. On the author's PC, Kaspersky allows the current foreground
-builds; it terminated an earlier experimental build that installed itself as a
-Windows service, and that feature was removed.
+to that combination. On the author's PC, Kaspersky ran the current foreground builds
+without an alert in the acceptance runs. Once, a file scan flagged one local build of
+the window with a generic cloud verdict and removed the file; rebuilt files from the
+same source were not flagged, so the cause is unknown. An earlier experimental build
+that installed itself as a Windows service was terminated, and that feature was removed.
 
 If your antivirus blocks snisplit, the decision to allow it is yours. Read the source
 or build it yourself first if you are unsure:
