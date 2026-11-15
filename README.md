@@ -154,7 +154,11 @@ loopback ports 53, 80 and 443, and is unsigned and new. Security software can re
 to that combination. On the author's PC, Kaspersky ran the current foreground builds
 without an alert in the acceptance runs. Once, a file scan flagged one local build of
 the window with a generic cloud verdict and removed the file; rebuilt files from the
-same source were not flagged, so the cause is unknown. An earlier experimental build
+same source were not flagged, so the cause is unknown. The window binary in the 0.2.0 archive built by the release
+workflow was also flagged by the same product with a generic verdict, while the
+command-line binary and local builds of the same source were not. The cause is
+unknown here too, and for this reason 0.2.0 has not been published as a release;
+building from source remains the documented route. An earlier experimental build
 that installed itself as a Windows service was terminated, and that feature was removed.
 
 If your antivirus blocks snisplit, the decision to allow it is yours. Read the source

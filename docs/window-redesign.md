@@ -907,3 +907,33 @@ once or later.
   shutdown with the window open, Escape and the Keep / Remove order on screen.
 - Both scripts had never been run elevated before; this was also their first real run,
   and every wait behaved as intended (no timeout, no early return).
+
+## The 0.2.0 release archive and the antivirus, 2026-11-15
+
+1. On 2026-11-15 the Release workflow was run for version 0.2.0 at commit 3b4afc4. It
+   produced the draft release v0.2.0 with `snisplit-0.2.0-windows-x86_64.zip` (SHA-256
+   f335954c645d75a68966b6b4293326af586093880b9e3a18f58b3b4b9f0b6e01, matching the
+   published `.sha256` file), which holds `snisplit-gui.exe`, `snisplit.exe`,
+   `README.md` and the two licence files. No git tag v0.2.0 exists.
+2. The lead downloaded the archive and scanned it with the antivirus command-line
+   scanner in report-only mode. The first pass said "ok" for every file. About 55
+   seconds later the same scan reported `snisplit-gui.exe` inside the archive as a
+   suspicion, `VHO:Trojan-Spy.Win32.Convagent.gen`, and the extracted copy of that
+   file was removed from the download folder. A second scan minutes later reported the
+   same. `snisplit.exe` in the same archive was "ok" every time. This verdict name
+   differs from the one given to the 11:40 local build earlier that day.
+3. Controls, scanned the same way twice about three minutes apart with the scanner's
+   caches off: the window binary inside the draft v0.1.0 archive (built by the same
+   workflow on 2026-11-14) was "ok" both times, and the local release build of the
+   window (product code 80beab3, the build that passed the owner's acceptance runs)
+   was "ok" both times.
+4. A difference observed, not shown to be the cause: the workflow built with rustc
+   1.100.0 (it installs the current stable); the local builds use rustc 1.98.1.
+5. Decision by the owner: the 0.2.0 draft is not published; both drafts are left as
+   they are; for now the tool is used from local builds. No code was changed in
+   response to the detection and no further builds were made. An automatic (local
+   proxy) mode is not being prototyped for now; `docs/automatic-mode-research.md`
+   holds the research.
+6. Lesson for the release procedure: an immediate clean scan of a new binary is weak
+   evidence, because the cloud verdict arrived about a minute after the first pass. A
+   release archive must be rescanned some minutes after download before any publish.

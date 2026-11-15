@@ -45,6 +45,18 @@ person and cannot be met by the lead.
   ones built on this PC, so an antivirus may treat them differently.
 - SmartScreen behaviour on a downloaded, unsigned executable.
 
+## Version 0.2.0 draft, 2026-11-15
+
+The Release workflow built version 0.2.0 at commit 3b4afc4 and created the draft
+release `v0.2.0`; no tag exists. The antivirus on this PC flagged `snisplit-gui.exe`
+inside the downloaded archive about a minute after a clean first scan, while
+`snisplit.exe` and the window binary of the v0.1.0 draft stayed clean. The owner
+decided not to publish the 0.2.0 draft and to leave both drafts as they are; the tool
+is used from local builds for now. Details: docs/window-redesign.md, last section.
+
+Publish rule added: rescan the downloaded archive some minutes after download, not
+only straight away, before publishing any draft. A clean first pass is weak evidence.
+
 ## Awaiting the owner
 
 1. Done 2026-11-15: the elevated window acceptance passed (docs/milestone-9.md).
