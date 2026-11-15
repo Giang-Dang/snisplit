@@ -32,7 +32,17 @@ pub struct RunOptions {
     pub upstreams: Vec<Ipv4Addr>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Failure {
+    Binding,
+    ChangingRules,
+    RemovingRules,
+    NothingSwitchedOn,
+    Other,
+}
+
 const NO_UPSTREAM: &str = "no usable upstream DNS server found; pass --upstream <ipv4>";
+const NOTHING_SWITCHED_ON: &str = "every site is switched off: turn one on in snisplit-gui or take its name out of off.list in the snisplit folder, or choose sites with --profile or --profile-file";
 const TIMING: Timing = Timing {
     refresh_every: Duration::from_secs(30),
 };
@@ -188,6 +198,18 @@ pub fn routing_failure_cause(error: &io::Error) -> Option<&str> {
         .map(|failure| failure.cause.as_str())
 }
 
+pub fn failure(error: &io::Error) -> Failure {
+    let Some(inner) = error.get_ref() else {
+        return Failure::Other;
+    };
+    if inner.downcast_ref::<RoutingFailure>().is_some() {
+        return Failure::ChangingRules;
+    }
+    inner
+        .downcast_ref::<Tagged>()
+        .map_or(Failure::Other, |tagged| tagged.failure)
+}
+
 pub fn remove_rules(out: &Output) -> io::Result<()> {
     remove_rules_with(&System, out)
 }
@@ -220,10 +242,13 @@ async fn serve_on<H: Host>(
             out("stopping");
             session.remove_rules_if_routed().await
         }
-        Err(error) => {
-            let _ = session.remove_rules_if_routed().await;
-            Err(error)
-        }
+        Err(error) => match session.remove_rules_if_routed().await {
+            Ok(()) => Err(error),
+            Err(removal) => {
+                out(&format!("snisplit could not start: {error}"));
+                Err(removal)
+            }
+        },
     }
 }
 
@@ -326,7 +351,9 @@ impl<H: Host> Session<'_, H> {
         let out = Arc::clone(self.out);
         spawn_blocking(move || remove_rules_with(&host, &out))
             .await
-            .map_err(join_failure)?
+            .map_err(join_failure)
+            .and_then(|removed| removed)
+            .map_err(|error| tagged(Failure::RemovingRules, &error))
     }
 }
 
@@ -420,16 +447,68 @@ impl fmt::Display for RoutingFailure {
 
 impl std::error::Error for RoutingFailure {}
 
+#[derive(Debug)]
+struct Tagged {
+    failure: Failure,
+    message: String,
+}
+
+impl fmt::Display for Tagged {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Tagged {}
+
+fn tagged(failure: Failure, error: &io::Error) -> io::Error {
+    io::Error::new(
+        error.kind(),
+        Tagged {
+            failure,
+            message: error.to_string(),
+        },
+    )
+}
+
 fn load_selection(options: &RunOptions, out: &Output) -> io::Result<Vec<Selected>> {
     let mut files = options
         .profile_files
         .iter()
         .map(|path| profile::read_file(path))
         .collect::<io::Result<Vec<_>>>()?;
+    let mut built_ins = options.profiles.clone();
     if let Some(folder) = &options.site_folder {
-        files.extend(load_sites(&options.profiles, &files, folder, out)?);
+        let sites = load_sites(&options.profiles, &files, folder, out)?;
+        let off = read_switched_off(folder, out);
+        let is_on = |name: &str| !off.iter().any(|off| off == name);
+        let named_off: Vec<&str> = built_ins
+            .iter()
+            .copied()
+            .chain(sites.iter().map(|site| site.name.as_str()))
+            .filter(|name| !is_on(name))
+            .collect();
+        if !named_off.is_empty() {
+            out(&format!("switched off: {}", named_off.join(", ")));
+        }
+        built_ins.retain(|name| is_on(name));
+        files.extend(sites.into_iter().filter(|site| is_on(&site.name)));
     }
-    plan::select(&options.profiles, files).map_err(io::Error::other)
+    let selected = plan::select(&built_ins, files).map_err(io::Error::other)?;
+    if selected.is_empty() {
+        return Err(tagged(
+            Failure::NothingSwitchedOn,
+            &io::Error::new(io::ErrorKind::InvalidInput, NOTHING_SWITCHED_ON),
+        ));
+    }
+    Ok(selected)
+}
+
+fn read_switched_off(folder: &Path, out: &Output) -> Vec<String> {
+    sites::switched_off(folder).unwrap_or_else(|error| {
+        out(&format!("off.list not read, so every site is on: {error}"));
+        Vec::new()
+    })
 }
 
 fn load_sites(
@@ -489,7 +568,8 @@ async fn bind(
         Arc::clone(&resolver),
         event_printer(verbose, Arc::clone(out)),
     )
-    .await?;
+    .await
+    .map_err(|error| tagged(Failure::Binding, &error))?;
     let mut dns_servers = Vec::new();
     for selection in selected {
         let listen = SocketAddr::from((selection.address, plan::DNS_PORT));
@@ -501,7 +581,8 @@ async fn bind(
             upstreams.clone(),
             Arc::clone(&resolver),
         )
-        .await?;
+        .await
+        .map_err(|error| tagged(Failure::Binding, &error))?;
         dns_servers.push(server);
     }
     Ok(Bound {

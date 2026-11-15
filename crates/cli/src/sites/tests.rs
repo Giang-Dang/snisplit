@@ -7,34 +7,41 @@ use super::*;
 
 const NEWS_SITE: &str = "name news-example-com\ndomains news.example.com\ntls-ports 443\ntls-split 1\nhttp-ports 80\nhttp-method host-spell\n";
 
-struct TempFolder(PathBuf);
+struct TempFolder {
+    app: PathBuf,
+    sites: PathBuf,
+}
 
 impl TempFolder {
     fn new(tag: &str) -> Self {
-        let path =
-            std::env::temp_dir().join(format!("snisplit-sites-{tag}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&path);
-        Self(path)
+        let app = std::env::temp_dir().join(format!("snisplit-sites-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&app);
+        let sites = app.join("sites");
+        Self { app, sites }
     }
 
     fn created(tag: &str) -> Self {
         let folder = Self::new(tag);
-        fs::create_dir_all(&folder.0).unwrap();
+        fs::create_dir_all(&folder.sites).unwrap();
         folder
     }
 
     fn write(&self, file_name: &str, text: &str) {
-        fs::write(self.0.join(file_name), text).unwrap();
+        fs::write(self.sites.join(file_name), text).unwrap();
     }
 
     fn path(&self) -> &Path {
-        &self.0
+        &self.sites
+    }
+
+    fn off_list(&self) -> PathBuf {
+        self.app.join("off.list")
     }
 }
 
 impl Drop for TempFolder {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        let _ = fs::remove_dir_all(&self.app);
     }
 }
 
@@ -213,6 +220,11 @@ fn adding_a_domain_already_covered_is_refused_and_writes_nothing() {
         refused.to_string(),
         "store.steampowered.com is already covered by the built-in profile steam"
     );
+    let by_steam = covered(&refused).unwrap();
+    assert_eq!(
+        (by_steam.domain.as_str(), by_steam.owner.as_str()),
+        ("store.steampowered.com", "steam")
+    );
     assert!(!folder.path().exists());
     add(folder.path(), NEWS_SITE).unwrap();
     let again = add(folder.path(), "name news2\ndomains a.news.example.com\n").unwrap_err();
@@ -220,7 +232,59 @@ fn adding_a_domain_already_covered_is_refused_and_writes_nothing() {
         again.to_string(),
         "a.news.example.com is already covered by the site news-example-com"
     );
+    assert_eq!(covered(&again).unwrap().owner, "news-example-com");
     assert_eq!(list(folder.path()).unwrap().len(), 1);
+    assert!(covered(&io::Error::other("not a coverage refusal")).is_none());
+}
+
+#[test]
+fn the_off_list_sits_in_the_snisplit_folder_and_a_missing_one_switches_nothing_off() {
+    let folder = TempFolder::new("off-missing");
+    assert_eq!(off_list_path(folder.path()), folder.off_list());
+    assert_eq!(switched_off(folder.path()).unwrap(), Vec::<String>::new());
+}
+
+#[test]
+fn a_switch_writes_one_known_name_per_line_and_drops_names_that_match_no_site() {
+    let folder = TempFolder::created("off-write");
+    folder.write("news.profile", "name news\ndomains news.example.com\n");
+    fs::write(folder.off_list(), b"ghost\n  medium \nmedium\n\xff\xfe\n").unwrap();
+    assert_eq!(
+        switched_off(folder.path()).unwrap()[..2],
+        ["ghost", "medium"]
+    );
+    set_switch(folder.path(), "news", false).unwrap();
+    assert_eq!(
+        fs::read_to_string(folder.off_list()).unwrap(),
+        "medium\nnews\n"
+    );
+    set_switch(folder.path(), "medium", true).unwrap();
+    assert_eq!(fs::read_to_string(folder.off_list()).unwrap(), "news\n");
+    let unknown = set_switch(folder.path(), "nobody", false).unwrap_err();
+    assert_eq!(unknown.kind(), io::ErrorKind::NotFound);
+    assert_eq!(unknown.to_string(), "no site named nobody");
+    assert_eq!(fs::read_to_string(folder.off_list()).unwrap(), "news\n");
+    assert!(!folder.app.join("off.list.new").exists());
+}
+
+#[test]
+fn a_built_in_can_be_switched_off_before_any_site_folder_exists() {
+    let folder = TempFolder::new("off-built-in");
+    set_switch(folder.path(), "steam", false).unwrap();
+    assert_eq!(fs::read_to_string(folder.off_list()).unwrap(), "steam\n");
+    assert_eq!(switched_off(folder.path()).unwrap(), ["steam"]);
+}
+
+#[test]
+fn a_site_removed_while_switched_off_comes_back_on_when_added_again() {
+    let folder = TempFolder::new("off-readd");
+    add(folder.path(), NEWS_SITE).unwrap();
+    set_switch(folder.path(), "news-example-com", false).unwrap();
+    remove(folder.path(), "news-example-com").unwrap();
+    assert_eq!(switched_off(folder.path()).unwrap(), ["news-example-com"]);
+    add(folder.path(), NEWS_SITE).unwrap();
+    assert_eq!(switched_off(folder.path()).unwrap(), Vec::<String>::new());
+    assert_eq!(fs::read_to_string(folder.off_list()).unwrap(), "");
 }
 
 #[test]
@@ -289,8 +353,8 @@ fn removing_deletes_only_a_listed_site_file() {
         .collect();
     assert_eq!(names, ["keep"]);
     let escape = format!(
-        "../{}/x",
-        outside.path().file_name().unwrap().to_string_lossy()
+        "../../{}/sites/x",
+        outside.app.file_name().unwrap().to_string_lossy()
     );
     assert_eq!(
         remove(folder.path(), &escape).unwrap_err().kind(),

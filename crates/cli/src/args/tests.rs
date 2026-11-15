@@ -159,6 +159,7 @@ fn usage_text_names_every_command_and_option() {
         "--verbose",
         "--version",
         "snisplit help",
+        "%APPDATA%\\snisplit\\off.list",
     ] {
         assert!(USAGE.contains(word), "{word}");
     }

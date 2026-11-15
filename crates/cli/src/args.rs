@@ -26,7 +26,10 @@ run options:
                                 (with neither option, every built-in profile runs,
                                 plus every site file in the user site folder,
                                 %APPDATA%\\snisplit\\sites\\<name>.profile on Windows;
-                                a site file that does not parse is skipped)
+                                a site file that does not parse is skipped; a site
+                                named in %APPDATA%\\snisplit\\off.list, one name per
+                                line, is switched off and not relayed; with every
+                                site switched off, run stops before any DNS change)
     --no-routing                do not add DNS rules; only the relay and DNS server run
     --upstream <ipv4>           DNS server used to find real addresses; repeatable
                                 (default: the system's DNS servers)

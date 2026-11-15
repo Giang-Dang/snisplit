@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -12,6 +13,8 @@ const EXTENSION: &str = "profile";
 const APP_FOLDER: &str = "snisplit";
 const SITES_FOLDER: &str = "sites";
 const NEW_SITE_SOURCE: &str = "new site";
+const OFF_LIST: &str = "off.list";
+const OFF_LIST_DRAFT: &str = "off.list.new";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteFile {
@@ -25,7 +28,27 @@ pub(crate) struct Admitted {
     pub notes: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Covered {
+    pub domain: String,
+    pub owner: String,
+    label: String,
+}
+
+impl fmt::Display for Covered {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} is already covered by {}", self.domain, self.label)
+    }
+}
+
+impl std::error::Error for Covered {}
+
+pub fn covered(error: &io::Error) -> Option<&Covered> {
+    error.get_ref()?.downcast_ref::<Covered>()
+}
+
 struct Owner {
+    name: String,
     label: String,
     domains: DomainList,
 }
@@ -46,6 +69,7 @@ impl Owner {
 
     fn labelled(label: String, spec: &ProfileSpec) -> Self {
         Self {
+            name: spec.name.clone(),
             label,
             domains: DomainList::new(&spec.domains),
         }
@@ -183,15 +207,25 @@ pub fn add(folder: &Path, profile_text: &str) -> io::Result<ProfileSpec> {
             .filter_map(|site| site.loaded.as_ref().ok())
             .map(Owner::site),
     );
-    if let Some((domain, owner)) = spec
-        .domains
-        .iter()
-        .find_map(|domain| covering(&owners, domain).map(|owner| (domain, owner)))
-    {
+    if let Some((domain, owner)) = spec.domains.iter().find_map(|domain| {
+        owners
+            .iter()
+            .find(|owner| owner.covers(domain))
+            .map(|owner| (domain, owner))
+    }) {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
-            format!("{domain} is already covered by {owner}"),
+            Covered {
+                domain: domain.clone(),
+                owner: owner.name.clone(),
+                label: owner.label.clone(),
+            },
         ));
+    }
+    let off = switched_off(folder)?;
+    if off.contains(&spec.name) {
+        let kept: Vec<String> = off.into_iter().filter(|name| *name != spec.name).collect();
+        write_off_list(folder, &kept)?;
     }
     fs::create_dir_all(folder)?;
     let path = folder.join(format!("{}.{EXTENSION}", spec.name));
@@ -234,6 +268,68 @@ pub fn remove(folder: &Path, name: &str) -> io::Result<()> {
         ));
     }
     fs::remove_file(folder.join(format!("{name}.{EXTENSION}")))
+}
+
+pub fn off_list_path(folder: &Path) -> PathBuf {
+    folder.parent().unwrap_or(folder).join(OFF_LIST)
+}
+
+pub fn switched_off(folder: &Path) -> io::Result<Vec<String>> {
+    let bytes = match fs::read(off_list_path(folder)) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let mut names: Vec<String> = Vec::new();
+    for line in String::from_utf8_lossy(&bytes).lines() {
+        let name = line.trim();
+        if !name.is_empty() && !names.iter().any(|known| known == name) {
+            names.push(name.to_string());
+        }
+    }
+    Ok(names)
+}
+
+pub fn set_switch(folder: &Path, name: &str, on: bool) -> io::Result<()> {
+    let mut known: Vec<String> = BUILT_IN
+        .iter()
+        .map(|built_in| built_in.name.to_string())
+        .collect();
+    known.extend(list(folder)?.into_iter().map(|site| site.name));
+    if !known.iter().any(|known| known == name) {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("no site named {name}"),
+        ));
+    }
+    let off = switched_off(folder)?;
+    let kept: Vec<String> = known
+        .into_iter()
+        .filter(|known| {
+            if known == name {
+                !on
+            } else {
+                off.contains(known)
+            }
+        })
+        .collect();
+    write_off_list(folder, &kept)
+}
+
+fn write_off_list(folder: &Path, names: &[String]) -> io::Result<()> {
+    let path = off_list_path(folder);
+    let app_folder = folder.parent().unwrap_or(folder);
+    fs::create_dir_all(app_folder)?;
+    let draft = app_folder.join(OFF_LIST_DRAFT);
+    let text: String = names.iter().map(|name| format!("{name}\n")).collect();
+    let file = File::create(&draft)?;
+    write_or_remove(file, &draft, |file| {
+        file.write_all(text.as_bytes())?;
+        file.sync_all()
+    })?;
+    fs::rename(&draft, &path).inspect_err(|_| {
+        let _ = fs::remove_file(&draft);
+    })
 }
 
 pub fn built_in_specs() -> io::Result<Vec<ProfileSpec>> {

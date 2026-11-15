@@ -207,6 +207,7 @@ mod start_up {
         add_result: Mutex<Option<Result<(), StartFailure>>>,
         add_takes: Duration,
         add_begun: Notify,
+        removal_refused: bool,
     }
 
     #[derive(Clone, Default)]
@@ -272,7 +273,46 @@ mod start_up {
 
         fn remove_rules(&self) -> io::Result<usize> {
             self.record("remove".to_string());
+            if self.0.removal_refused {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "powershell: Access is denied.",
+                ));
+            }
             Ok(0)
+        }
+    }
+
+    struct SnisplitFolder {
+        app: std::path::PathBuf,
+        sites: std::path::PathBuf,
+    }
+
+    impl SnisplitFolder {
+        fn new(tag: &str) -> Self {
+            let app =
+                std::env::temp_dir().join(format!("snisplit-session-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&app);
+            let sites = app.join("sites");
+            Self { app, sites }
+        }
+
+        fn with_site(self, file_name: &str, text: &str) -> Self {
+            std::fs::create_dir_all(&self.sites).unwrap();
+            std::fs::write(self.sites.join(file_name), text).unwrap();
+            self
+        }
+
+        fn switched_off(self, text: &str) -> Self {
+            std::fs::create_dir_all(&self.app).unwrap();
+            std::fs::write(self.app.join("off.list"), text).unwrap();
+            self
+        }
+    }
+
+    impl Drop for SnisplitFolder {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.app);
         }
     }
 
@@ -362,8 +402,88 @@ mod start_up {
             "no usable upstream DNS server found; pass --upstream <ipv4>"
         );
         assert_eq!(routing_failure_cause(&error), None);
+        assert_eq!(failure(&error), Failure::Other);
         assert_eq!(recorder.lines(), [RULES_LEFT]);
         assert_eq!(host.calls(), [BEGIN_MEDIUM, "lookup", "abandon", "remove"]);
+    }
+
+    #[test]
+    fn a_refused_rule_removal_on_a_stop_is_a_removal_failure_with_the_windows_text() {
+        let host = FakeHost::with(Fake {
+            removal_refused: true,
+            ..Fake::default()
+        });
+        let recorder = Recorder::stopping_when(never_stops);
+        let error = serve_fake(
+            &host,
+            options(true, &[ip(192, 0, 2, 1)]),
+            std::future::ready(()),
+            recorder.output(),
+        )
+        .unwrap_err();
+        assert_eq!(failure(&error), Failure::RemovingRules);
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(error.to_string(), "powershell: Access is denied.");
+        assert_eq!(recorder.lines(), ["stopping"]);
+    }
+
+    #[test]
+    fn a_failed_start_whose_rule_removal_also_fails_reports_the_removal_and_logs_the_start() {
+        let host = FakeHost::with(Fake {
+            removal_refused: true,
+            ..Fake::default()
+        });
+        let recorder = Recorder::stopping_when(never_stops);
+        let error = serve_fake(
+            &host,
+            options(true, &[ip(127, 0, 0, 1)]),
+            recorder.stop_requested(),
+            recorder.output(),
+        )
+        .unwrap_err();
+        assert_eq!(failure(&error), Failure::RemovingRules);
+        assert_eq!(
+            recorder.lines(),
+            [
+                "snisplit could not start: no usable upstream DNS server found; pass --upstream <ipv4>"
+            ]
+        );
+        assert_eq!(host.calls(), [BEGIN_MEDIUM, "abandon", "remove"]);
+    }
+
+    #[test]
+    fn switched_off_sites_get_no_rule_and_are_named_in_the_output() {
+        let folder = SnisplitFolder::new("off")
+            .with_site("news.profile", "name news\ndomains news.example.com\n")
+            .with_site("shop.profile", "name shop\ndomains shop.example.org\n")
+            .switched_off("medium\nshop\nghost\n");
+        let host = FakeHost::default();
+        let recorder = Recorder::stopping_when(never_stops);
+        let mut options = options(true, &[ip(192, 0, 2, 1)]);
+        options.site_folder = Some(folder.sites.clone());
+        let served = serve_fake(&host, options, std::future::ready(()), recorder.output());
+        assert!(served.is_ok());
+        assert_eq!(host.calls()[0], "begin news.example.com@127.0.0.4");
+        assert_eq!(recorder.lines()[0], "switched off: medium, shop");
+    }
+
+    #[test]
+    fn every_site_switched_off_fails_before_any_rule_is_touched() {
+        let folder = SnisplitFolder::new("all-off")
+            .with_site("news.profile", "name news\ndomains news.example.com\n")
+            .switched_off("news\nmedium\n");
+        let host = FakeHost::default();
+        let recorder = Recorder::stopping_when(never_stops);
+        let mut options = options(true, &[ip(192, 0, 2, 1)]);
+        options.site_folder = Some(folder.sites.clone());
+        let error =
+            serve_fake(&host, options, std::future::ready(()), recorder.output()).unwrap_err();
+        assert_eq!(failure(&error), Failure::NothingSwitchedOn);
+        assert_eq!(
+            error.to_string(),
+            "every site is switched off: turn one on in snisplit-gui or take its name out of off.list in the snisplit folder, or choose sites with --profile or --profile-file"
+        );
+        assert!(host.calls().is_empty());
     }
 
     #[test]
@@ -467,26 +587,18 @@ mod start_up {
 
     #[test]
     fn user_sites_follow_the_built_ins_and_a_broken_or_covered_one_is_reported_not_fatal() {
-        let folder =
-            std::env::temp_dir().join(format!("snisplit-session-sites-{}", std::process::id()));
-        std::fs::create_dir_all(&folder).unwrap();
-        std::fs::write(folder.join("a-broken.profile"), "name a-broken\nports 1\n").unwrap();
-        std::fs::write(
-            folder.join("news.profile"),
-            "name news\ndomains news.example.com help.medium.com\n",
-        )
-        .unwrap();
-        std::fs::write(
-            folder.join("shop.profile"),
-            "name shop\ndomains shop.example.org\n",
-        )
-        .unwrap();
+        let folder = SnisplitFolder::new("sites")
+            .with_site("a-broken.profile", "name a-broken\nports 1\n")
+            .with_site(
+                "news.profile",
+                "name news\ndomains news.example.com help.medium.com\n",
+            )
+            .with_site("shop.profile", "name shop\ndomains shop.example.org\n");
         let host = FakeHost::default();
         let recorder = Recorder::stopping_when(never_stops);
         let mut options = options(true, &[ip(192, 0, 2, 1)]);
-        options.site_folder = Some(folder.clone());
+        options.site_folder = Some(folder.sites.clone());
         let served = serve_fake(&host, options, std::future::ready(()), recorder.output());
-        let _ = std::fs::remove_dir_all(&folder);
         assert!(served.is_ok());
         assert_eq!(
             host.calls()[0],
@@ -503,12 +615,11 @@ mod start_up {
 
     #[test]
     fn a_missing_site_folder_runs_the_built_ins_alone() {
-        let folder =
-            std::env::temp_dir().join(format!("snisplit-session-nosites-{}", std::process::id()));
+        let folder = SnisplitFolder::new("nosites");
         let host = FakeHost::default();
         let recorder = Recorder::stopping_when(never_stops);
         let mut options = options(true, &[ip(192, 0, 2, 1)]);
-        options.site_folder = Some(folder);
+        options.site_folder = Some(folder.sites.clone());
         let served = serve_fake(&host, options, std::future::ready(()), recorder.output());
         assert!(served.is_ok());
         assert_eq!(host.calls()[0], BEGIN_MEDIUM);
@@ -675,9 +786,9 @@ mod start_up {
                     "powershell: Access is denied.",
                 ),
             ];
-            for (failure, expected) in cases {
+            for (refused, expected) in cases {
                 let host = FakeHost::with(Fake {
-                    add_result: Mutex::new(Some(Err(failure))),
+                    add_result: Mutex::new(Some(Err(refused))),
                     ..Fake::default()
                 });
                 let recorder = Recorder::stopping_when(never_stops);
@@ -693,6 +804,7 @@ mod start_up {
                     routing_failure_cause(&error),
                     Some("powershell: Access is denied.")
                 );
+                assert_eq!(failure(&error), Failure::ChangingRules);
                 assert_eq!(recorder.lines(), [RULES_LEFT]);
                 assert_eq!(
                     host.calls(),
@@ -717,6 +829,7 @@ mod start_up {
             .unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
             assert_eq!(routing_failure_cause(&error), None);
+            assert_eq!(failure(&error), Failure::Binding);
             assert_eq!(recorder.lines(), [RULES_LEFT]);
             assert_eq!(host.calls(), [BEGIN_GAME, "abandon", "remove"]);
         }
