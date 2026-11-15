@@ -313,51 +313,81 @@ running executable cannot be deleted). Nothing was changed to get around it. At 
 that process had exited (0 rules); the same build was run again and succeeded at 08:45:53
 (the exe holds `requireAdministrator`). The window was then started unelevated with
 `__COMPAT_LAYER=RunAsInvoker` and `APPDATA` and `USERPROFILE` pointed at a temporary
-folder holding one valid site file (`example-org`) and one broken one. GL renderer as
-before; 400 x 680 client area at 96 DPI. Screenshots stayed in a temporary folder outside
-the repo. Seen on screen:
+folder holding one valid site file (`example-org`) and one broken one; 400 x 680 client
+area at 96 DPI. Screenshots stayed in a temporary folder outside the repo; two that had
+captured other programs' windows instead of snisplit were deleted unseen beyond that.
+
+Release build, 08:47 to 08:50, driven by synthetic clicks:
 
 - Off: the hollow ring with Start, "Off", "The sites switched on below will not open until
   you press Start.", Steam and Medium "comes with snisplit", the broken file dimmed with no
   switch and "This file has a mistake and is skipped: bro..." cut with an ellipsis,
   example.org "added by you", the On switches, "Add a site", footer "Activity" and
   "version 0.2.0".
-- The Medium row opened in place (medium.com, Test). Test on medium.com: done in about
-  1.6 s, then "Tested medium.com just now: blocked without snisplit, and snisplit can open
-  it." with "Test again" and "What snisplit tried". The probe saw 162.159.153.4: whole
-  hello and host-start and domain-mid reset, `tls-split 1` and `1 domain-mid` handshake,
-  plain `Host:` reset, `hoSt:` 301, the same pattern as milestone 6.
-- Activity: the small header (56 px ring with Start, "Off" and the sentence), "Back to
-  sites", the lines, "Save to a file" with its note, footer "2 lines".
+- The Medium row opened in place (medium.com, Test).
+- The click on Test produced no test. Instead both temporary site files were removed
+  through the window (Activity: `site broken removed`, `site example-org removed`), the
+  second while the driver sent nothing for 12 s. Each removal needs a row opened, Remove
+  and the confirming Remove. This is attributed, not explained: the trace below shows
+  input the driver did not send, but this run was not traced.
+- Activity (reached by a click): the small header (56 px ring with Start, "Off" and the
+  sentence), "Back to sites", the two lines, "Save to a file" with its note, footer
+  "2 lines". This screenshot showed a layout bug, fixed afterwards (below).
 - Close while Off: the process exited.
 
-The run was stopped at 08:53 because the window received mouse input that was not sent
-by the test driver: during the first run the two temporary site files were removed
-through the window (Activity: `site broken removed`, `site example-org removed`, each of
-which needs a row opened, Remove and the confirming Remove), and a debug build with a
-temporary event trace (not committed, removed afterwards) then showed a click landing
-18 px and 29 px away from where the driver had put the pointer and a second click,
-pressed and released in separate frames, that the driver never sent (its clicks arrive
-as one press and release in the same frame). That looks like someone using the mouse
-at the same time, so synthetic input was stopped and the window closed with a window
-message. The same steps on the trace build, with the pointer moved away between clicks,
-produced exactly one event per click. No snisplit process and 0 NRPT rules with comment
-`snisplit` at 08:53:29.
+Debug build with a temporary event trace to stderr (each window event and each pointer
+and focus event; not committed, removed afterwards), 08:50 to 08:53, same temporary
+folders with the two site files written again:
 
-Not seen in a real window: the add flow (testing, every outcome, the covered refusal,
-the mistyped hint, Cancel), a switch turned off and its `off.list`, Remove with its
-question, Start pressed unelevated ("Could not start" with "Windows refused the
-change"), Save to a file, the many-sites small header, and every state that needs a
-successful Start (On, Applying, Turning off with rules, closing while on, leftovers after
-a real failed removal), which needs the owner's elevated run anyway.
+- One click on the Medium name gave exactly one `RowPressed("medium")`; one click on Test
+  gave one `TestPressed`, and the probe finished in about 1.6 s with "Tested medium.com
+  just now: blocked without snisplit, and snisplit can open it.", "Test again" and "What
+  snisplit tried" on screen. The probe saw 162.159.153.4: whole hello, host-start and
+  domain-mid reset, `tls-split 1` and `1 domain-mid` handshake, plain `Host:` reset,
+  `hoSt:` 301, the same pattern as milestone 6.
+- A pointer resting on a site name while the window was refocused produced no event.
+- Replaying the first run's steps: the driver's first click arrived 18 px right and 29 px
+  lower than where it had put the pointer, and a second click that the driver never sent
+  arrived, pressed and released in separate frames (the driver's clicks arrive as one
+  press and release in the same frame), plus focus-lost events. The trace recorded only
+  pointer and focus input, so keystrokes would not show. This is input the driver did
+  not send, so synthetic input was stopped and the window closed with a window message.
+  No snisplit process and 0 NRPT rules with comment `snisplit` at 08:53:29.
+- At 09:00:36 the system idle time (`GetLastInputInfo`, read only) was 672 ms with no
+  input sent since 08:53, so no further pointer input was used.
 
+Release build after the layout fix (20b551a), 09:01, no input at all: the window was
+started with a seeded folder, its content captured with `PrintWindow` (no focus change,
+no screen copy), then closed with a window message:
+
+- Medium switched off through `off.list` (`medium`): Medium dimmed with an Off switch,
+  Steam and example.com On, the Off sentence; as the mockup's first window.
+- Every site switched off (`steam`, `medium`): the dimmed ring with Start disabled and
+  "Turn on at least one site below, then press Start."
+- Ten sites: the small header (56 px ring, "Off" and the sentence), tight rows without
+  the second line, a long name cut with an ellipsis (that file's name exceeds the
+  32-character profile name limit, so it showed as a broken file with no switch), and
+  "+ Add a site" in the footer.
+
+Fixed after the screenshots and not seen again in a real window: the Activity save row ran
+under the footer (the log area did not count its frame margin; the row now sits in its own
+bottom panel), and a pressed site name showed a text selection (names are no longer
+selectable).
+
+Not seen in a real window: the add flow (testing, every outcome, the covered refusal, the
+mistyped hint, Cancel), Test on example.org, a switch clicked and the `off.list` it
+writes, Remove with its question, Start pressed unelevated ("Could not start" with
+"Windows refused the change"), Save to a file, the Activity page after the fix, and every
+state that needs a successful Start (On, Applying, Turning off with rules, closing while
+on, leftovers after a real failed removal), which needs the owner's elevated run anyway.
 ## Awaiting the owner
 
-1. The release build of 0.2.0 is in `target\release` (built 08:45:53).
-2. The rest of the unelevated smoke run, at a time when nobody else uses the mouse: Test
+1. The release build of 0.2.0 is in `target\release` (built after 20b551a).
+2. The rest of the unelevated smoke run, at a time when nobody else uses the PC: Test
    on example.org, the add flow on example.net or example.org (and medium.com for the
-   covered refusal), a switch and its `off.list`, Start unelevated showing "Windows
-   refused the change" with 0 rules, Save to a file, close.
+   covered refusal), a switch and its `off.list`, Remove, Start unelevated showing
+   "Windows refused the change" with 0 rules, Activity and Save to a file, close; and why
+   the two site files were removed in the first run, if it happens again.
 3. `tools\acceptance\m9b.ps1` from an elevated PowerShell (log in `%TEMP%\m9b-gui.log`).
 4. Whether Kaspersky showed anything, and whether the window looks right on the owner's
    display (fonts, sizes, the dark colours).
