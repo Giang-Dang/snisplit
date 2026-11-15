@@ -295,3 +295,29 @@ through a helper named `Fetch`, so Windows PowerShell's `curl` alias does not in
 Also open: whether Kaspersky reacts to an elevated GUI that starts PowerShell (no alert
 was possible tonight since nothing ran elevated), and whether a font with Vietnamese
 letters is wanted (the default egui fonts show them as boxes; domains are ASCII anyway).
+
+## Elevated acceptance, `m9.ps1`, 2026-11-15 07:21-07:24 (owner)
+
+Run by the owner from an elevated PowerShell with the release build of 0.1.0. The
+owner's site is written here as "the added site"; its name stays out of the repo.
+
+| Step | Result |
+|---|---|
+| Before | No process, 0 rules; store.steampowered.com resolves to its real address and HTTPS fails (`000`) |
+| 0 Window | Start button, the steam and medium sites and the Add a site field are shown (owner) |
+| 1 Start | Status "Running: the listed sites go through snisplit"; 3 snisplit rules; store resolves to 127.0.0.2, HTTPS `200` |
+| 2 Fetch | Store HTTPS `200` and HTTP `302`, both through 127.0.0.2 |
+| 3 Add a site | The window offered Add; the site file exists; the added site resolves to 127.0.0.4 and HTTPS answers `403` through the relay, which is the site's own reply to curl, so the connection got through |
+| 4 Stop | 0 rules; store and the added site resolve to their real addresses again |
+| 5 Start again | 3 rules; store HTTPS `200` through 127.0.0.2 |
+| 6 Close with X while running | Exited by itself with code 0; no process, 0 rules |
+
+Throughout, example.org resolved to the same addresses as before. No antivirus alert
+was reported. One ordering note: the site file and the third rule were already
+present in the log line after step 1, so the site was added before that line was
+written; the restart on adding a site while running is therefore not shown
+separately by this log.
+
+Still unverified: the added site in a browser, logoff or shutdown with the window
+open, and the browser fallback from HTTP/3 (docs/milestone-8.md).
+

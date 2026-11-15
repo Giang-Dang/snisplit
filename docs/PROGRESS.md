@@ -15,7 +15,7 @@ this file says where the work stands and what to do next.
 | 5 Foreground use, crash-safe DNS rules, zapret removed (rescoped) | **Done** 2026-11-14 (docs/milestone-5.md): the Windows service was built, proven in CI and removed after Kaspersky terminated its install twice; zapret removed; the foreground build runs with no Kaspersky alert; Ctrl+C at any moment and closing the window leave 0 rules; Steam login and a game download through `snisplit run` (owner). Start-up 0.7-2.0 s, accepted (D14) |
 | 6 `probe` | **Done** 2026-11-15 (docs/milestone-6.md): `snisplit probe <domain>` reproduces section 1's no-bypass and split rows (store.steampowered.com, medium.com blocked, cut at byte 1 and `hoSt:` pass; example.org not blocked) and prints a profile file; library entry point `snisplit_relay::probe::probe` for the UI |
 | 8 QUIC | **Measured** 2026-11-14 (docs/milestone-8.md): not filtered by server name on this ISP; no QUIC work. Awaiting the owner: one routed browser run to time the fallback to TCP |
-| 9 UI | **Built** 2026-11-15 (docs/milestone-9.md): `snisplit-gui` (egui) starts and stops the relay, lists, checks, adds and removes sites in the per-user folder `%APPDATA%\snisplit\sites` that a plain `snisplit run` also loads; checked unelevated in a real window. Awaiting the owner: `tools/acceptance/m9.ps1` from an elevated PowerShell |
+| 9 UI | **Done** 2026-11-15 (docs/milestone-9.md): `snisplit-gui` (egui) starts and stops the relay and lists, checks, adds and removes sites; the owner's elevated run passed every step: Start, fetch through the relay, add a site, Stop, Start again, close while running, 0 rules left |
 | 7 Releases | **Built** 2026-11-15 (docs/milestone-7.md): README, release workflow, version 0.1.0, draft release `v0.1.0` with the Windows archive. Awaiting the owner: try the downloaded archive, publish the draft, a friend installs |
 | 10 Linux and macOS | Deferred (PLAN.md D13) |
 
@@ -29,9 +29,7 @@ and macOS (D4). The earlier WinDivert packet engine is parked, not deleted.
 Milestones 6 to 9 are built (PLAN.md D13 to D15). Everything that needs
 administrator rights or a second person waits for the owner, in this order:
 
-1. `tools/acceptance/m9.ps1` from an elevated PowerShell: the window's Start, Stop,
-   add a site, and close while running (docs/milestone-9.md). Also the first elevated
-   run of the window under the antivirus.
+1. Done 2026-11-15: `tools/acceptance/m9.ps1` passed (docs/milestone-9.md).
 2. While the window is running: open a listed site in a browser that used it over
    HTTP/3 before, and see that it falls back to TCP quickly (docs/milestone-8.md).
 3. The draft release: download, check, publish, a friend installs (docs/milestone-7.md).
