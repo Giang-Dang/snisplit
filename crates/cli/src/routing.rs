@@ -46,6 +46,10 @@ pub fn remove_all() -> io::Result<usize> {
     parse_count(&run_powershell(&stop_script())?)
 }
 
+pub fn count_all() -> io::Result<usize> {
+    parse_count(&run_powershell(&count_script())?)
+}
+
 fn start_outcome(success: bool, stdout: &[u8], stderr: &[u8]) -> Result<(), StartFailure> {
     let removed_stale = String::from_utf8_lossy(stdout)
         .lines()
@@ -138,11 +142,20 @@ fn start_script(rules: &[ProfileRule]) -> io::Result<String> {
     ))
 }
 
+fn count_command() -> String {
+    format!("@(Get-DnsClientNrptRule | Where-Object {{ $_.Comment -eq '{RULE_COMMENT}' }}).Count")
+}
+
 fn stop_script() -> String {
     format!(
-        "{STOP_ON_ERROR}; {}; Clear-DnsClientCache; @(Get-DnsClientNrptRule | Where-Object {{ $_.Comment -eq '{RULE_COMMENT}' }}).Count",
-        remove_command()
+        "{STOP_ON_ERROR}; {}; Clear-DnsClientCache; {}",
+        remove_command(),
+        count_command()
     )
+}
+
+fn count_script() -> String {
+    format!("{STOP_ON_ERROR}; {}", count_command())
 }
 
 fn parse_count(stdout: &str) -> io::Result<usize> {

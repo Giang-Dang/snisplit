@@ -209,6 +209,7 @@ mod start_up {
         add_begun: Notify,
         removal_refused: bool,
         rules_left: usize,
+        rules_in_place: usize,
     }
 
     #[derive(Clone, Default)]
@@ -281,6 +282,17 @@ mod start_up {
                 ));
             }
             Ok(self.0.rules_left)
+        }
+
+        fn count_rules(&self) -> io::Result<usize> {
+            self.record("count".to_string());
+            if self.0.removal_refused {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "powershell: Access is denied.",
+                ));
+            }
+            Ok(self.0.rules_in_place)
         }
     }
 
@@ -450,6 +462,25 @@ mod start_up {
         assert_eq!(recorder.lines(), ["stopping", "snisplit DNS rules left: 2"]);
         let cleanup = remove_rules_with(&host, &recorder.output()).unwrap_err();
         assert_eq!(failure(&cleanup), Failure::RemovingRules);
+    }
+
+    #[test]
+    fn counting_the_rules_reports_how_many_are_in_place_and_removes_none() {
+        let host = FakeHost::with(Fake {
+            rules_in_place: 3,
+            ..Fake::default()
+        });
+        let recorder = Recorder::stopping_when(never_stops);
+        assert_eq!(count_rules_with(&host, &recorder.output()).unwrap(), 3);
+        assert_eq!(recorder.lines(), ["snisplit DNS rules in place: 3"]);
+        assert_eq!(host.calls(), ["count"]);
+        let refused = FakeHost::with(Fake {
+            removal_refused: true,
+            ..Fake::default()
+        });
+        let error = count_rules_with(&refused, &recorder.output()).unwrap_err();
+        assert_eq!(error.to_string(), "powershell: Access is denied.");
+        assert_eq!(refused.calls(), ["count"]);
     }
 
     #[test]

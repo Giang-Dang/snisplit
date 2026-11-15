@@ -112,6 +112,7 @@ trait Host: Clone + Send + Sync + 'static {
     fn dns_servers(&self) -> io::Result<Vec<Ipv4Addr>>;
     fn begin_rules(&self, rules: &[ProfileRule]) -> io::Result<Self::Start>;
     fn remove_rules(&self) -> io::Result<usize>;
+    fn count_rules(&self) -> io::Result<usize>;
 }
 
 trait StartRules: Send + 'static {
@@ -135,6 +136,10 @@ impl Host for System {
 
     fn remove_rules(&self) -> io::Result<usize> {
         routing::remove_all()
+    }
+
+    fn count_rules(&self) -> io::Result<usize> {
+        routing::count_all()
     }
 }
 
@@ -212,6 +217,10 @@ pub fn failure(error: &io::Error) -> Failure {
 
 pub fn remove_rules(out: &Output) -> io::Result<()> {
     remove_rules_with(&System, out)
+}
+
+pub fn count_rules(out: &Output) -> io::Result<usize> {
+    count_rules_with(&System, out)
 }
 
 async fn serve_on<H: Host>(
@@ -373,6 +382,12 @@ fn remove_rules_with<H: Host>(host: &H, out: &Output) -> io::Result<()> {
         return Err(tagged(Failure::RemovingRules, &remaining));
     }
     Ok(())
+}
+
+fn count_rules_with<H: Host>(host: &H, out: &Output) -> io::Result<usize> {
+    let in_place = host.count_rules()?;
+    out(&format!("snisplit DNS rules in place: {in_place}"));
+    Ok(in_place)
 }
 
 async fn read_system_dns<H: Host>(host: &H) -> io::Result<Vec<Ipv4Addr>> {

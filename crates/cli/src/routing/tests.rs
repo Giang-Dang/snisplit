@@ -115,6 +115,15 @@ fn the_stop_script_removes_flushes_and_counts_only_snisplit_rules() {
 }
 
 #[test]
+fn the_count_script_only_counts_snisplit_rules_and_changes_nothing() {
+    assert_eq!(
+        count_script(),
+        "$ErrorActionPreference = 'Stop'; \
+         @(Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'snisplit' }).Count"
+    );
+}
+
+#[test]
 fn parse_count_reads_windows_line_ending() {
     assert_eq!(parse_count("28\r\n").unwrap(), 28);
     assert_eq!(parse_count("0\r\n").unwrap(), 0);
@@ -193,7 +202,9 @@ mod gate {
     use std::net::Ipv4Addr;
     use std::process::{Command, Stdio};
 
-    use super::super::{Gated, PendingStart, ProfileRule, StartFailure, start_script, stop_script};
+    use super::super::{
+        Gated, PendingStart, ProfileRule, StartFailure, count_script, start_script, stop_script,
+    };
 
     const HARMLESS_GATED: &str = "Write-Output 'first'; if ($null -eq [Console]::In.ReadLine()) { exit }; Write-Output 'second'";
     const CHILD_REACHES_THE_GATE: Duration = Duration::from_millis(1500);
@@ -297,7 +308,7 @@ mod gate {
     }
 
     #[test]
-    fn the_powershell_parser_accepts_the_start_and_stop_scripts() {
+    fn the_powershell_parser_accepts_the_start_stop_and_count_scripts() {
         assert_ne!(parse_errors("if ($true) { 'unclosed'"), 0);
         let rules = [
             ProfileRule {
@@ -311,6 +322,7 @@ mod gate {
         ];
         assert_eq!(parse_errors(&start_script(&rules).unwrap()), 0);
         assert_eq!(parse_errors(&stop_script()), 0);
+        assert_eq!(parse_errors(&count_script()), 0);
     }
 }
 
@@ -318,6 +330,7 @@ mod gate {
 #[test]
 fn rule_changes_are_unsupported_off_windows() {
     assert_eq!(remove_all().unwrap_err().kind(), ErrorKind::Unsupported);
+    assert_eq!(count_all().unwrap_err().kind(), ErrorKind::Unsupported);
     let begun = begin_start(&[rule(&["a.com"], SERVER)]);
     assert_eq!(
         begun.err().map(|error| error.kind()),
