@@ -51,8 +51,11 @@ if ((RulesToRelay).Count -gt 0) { Log 'stale rules pointing at the relay found; 
 Log-State 'before'
 
 $script:completed = $false
+$script:started = @()
+function Start-Window { $window = Start-Process $built -PassThru; $script:started += $window; $window }
+function Close-Started { foreach ($window in $script:started) { if (-not $window.HasExited) { $window.Kill(); $null = $window.WaitForExit(20000) } } }
 try {
-  $gui = Start-Process $built -PassThru
+  $gui = Start-Window
   Start-Sleep 3
   Log "window: process $($gui.Id), title '$((Get-Process -Id $gui.Id -ErrorAction SilentlyContinue).MainWindowTitle)'"
   $null = Ask '0. Does the window show a round Start button, Steam and Medium rows with switches, and Add a site? (y/n)'
@@ -97,7 +100,7 @@ try {
   $killed = $gui.WaitForExit(20000)
   Start-Sleep 2
   Log "step 9: killed while on: exited=$killed; snisplit rules: $((Rules).Count) (expected above 0)"
-  $gui = Start-Process $built -PassThru
+  $gui = Start-Window
   Start-Sleep 5
   Log "window again: process $($gui.Id), title '$((Get-Process -Id $gui.Id -ErrorAction SilentlyContinue).MainWindowTitle)'"
   $null = Ask '   Does the window say Off, with leftovers, that snisplit did not get to turn off properly last time, and offer Remove leftover settings? (y/n)'
@@ -107,7 +110,7 @@ try {
   Log "  snisplit rules: $((Rules).Count) (expected 0)"
 
   Say '11. With this window open, the script starts a second snisplit-gui.'
-  $second = Start-Process $built -PassThru
+  $second = Start-Window
   Start-Sleep 4
   $null = Ask '   Does the second window say Already open, with a Try again button? (y/n)'
   Wait-Owner '   Close the second window (the one that says Already open) with its X button.'
@@ -131,7 +134,7 @@ try {
   if ($closedInTime -and (RulesToRelay).Count -gt 0) { Log 'RULES LEFT after closing the window; removing them'; Remove-RelayRules; Log "rules now: $((RulesToRelay).Count)" }
 
   Say '14. The script starts the window once more, to close it twice in a row.'
-  $gui = Start-Process $built -PassThru
+  $gui = Start-Window
   Start-Sleep 3
   Wait-Owner '    Press Start and wait until it says On.'
   Log-State 'step 14, on again before the double close'
@@ -154,8 +157,9 @@ try {
 }
 finally {
   if (-not $script:completed) {
-    Log "the run was aborted $(Get-Date -Format s); removing any rules pointing at the relay: $((RulesToRelay).Count)"
+    Log "the run was aborted $(Get-Date -Format s); ending the windows this script started, then removing any rules pointing at the relay: $((RulesToRelay).Count)"
+    Close-Started
     Remove-RelayRules
-    Log "rules pointing at the relay now: $((RulesToRelay).Count); snisplit rules now: $((Rules).Count)"
+    Log "rules pointing at the relay now: $((RulesToRelay).Count); snisplit rules now: $((Rules).Count); snisplit processes still running: $((Snisplit-Processes).Count)"
   }
 }
