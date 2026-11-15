@@ -79,7 +79,7 @@ type Stopped = oneshot::Receiver<()>;
 type Ready = Box<dyn FnOnce() + Send>;
 
 pub struct Keeper {
-    runtime: Runtime,
+    runtime: Option<Runtime>,
     tracked: Mutex<Tracked>,
 }
 
@@ -89,7 +89,7 @@ impl Keeper {
             .enable_all()
             .build()?;
         Ok(Self {
-            runtime,
+            runtime: Some(runtime),
             tracked: Mutex::new(Tracked::default()),
         })
     }
@@ -105,11 +105,14 @@ impl Keeper {
         (driver, received)
     }
 
-    pub fn finish(self) -> Ending {
-        self.finish_within(SHUTDOWN_LIMIT)
+    pub fn finish(mut self) -> Ending {
+        self.wind_down(SHUTDOWN_LIMIT)
     }
 
-    fn finish_within(self, limit: Duration) -> Ending {
+    fn wind_down(&mut self, limit: Duration) -> Ending {
+        let Some(runtime) = self.runtime.take() else {
+            return Ending::Clean;
+        };
         let (stop, tidying) = {
             let mut tracked = self.tracked();
             (tracked.stop.take(), tracked.tidying.take())
@@ -119,14 +122,27 @@ impl Keeper {
         }
         let ending = match tidying {
             None => Ending::Clean,
-            Some(task) => self.runtime.block_on(wait_for_tidying(task, limit)),
+            Some(task) => runtime.block_on(wait_for_tidying(task, limit)),
         };
-        self.runtime.shutdown_timeout(RUNTIME_LIMIT);
+        runtime.shutdown_timeout(RUNTIME_LIMIT);
         ending
+    }
+
+    fn runtime(&self) -> &Runtime {
+        match &self.runtime {
+            Some(runtime) => runtime,
+            None => unreachable!("the keeper's runtime is only taken while it winds down"),
+        }
     }
 
     fn tracked(&self) -> MutexGuard<'_, Tracked> {
         self.tracked.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl Drop for Keeper {
+    fn drop(&mut self) {
+        self.wind_down(SHUTDOWN_LIMIT);
     }
 }
 
@@ -139,7 +155,7 @@ pub struct Driver<'keeper> {
 
 impl Driver<'_> {
     fn runtime(&self) -> &Runtime {
-        &self.keeper.runtime
+        self.keeper.runtime()
     }
 
     pub fn run(&mut self, effect: Effect) {

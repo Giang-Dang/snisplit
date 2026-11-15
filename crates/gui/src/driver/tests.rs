@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use snisplit::session::Failure;
@@ -60,6 +61,60 @@ fn dropping_the_driver_while_a_slow_session_stops_is_prompt_and_the_wait_after_s
     );
 }
 
+#[derive(Default)]
+struct Watched {
+    stop_sent: AtomicBool,
+    ended: AtomicBool,
+}
+
+fn start_watched_slow_session(driver: &mut Driver<'_>, events: &Receiver<Event>) -> Arc<Watched> {
+    let watched = Arc::new(Watched::default());
+    let seen = Arc::clone(&watched);
+    driver.start_session_with(move |stopped, _, ready| async move {
+        ready();
+        let sent = stopped.await.is_ok();
+        seen.stop_sent.store(sent, Ordering::SeqCst);
+        tokio::time::sleep(SLOW_STOP).await;
+        seen.ended.store(true, Ordering::SeqCst);
+        Ok(())
+    });
+    wait_until_ready(events);
+    watched
+}
+
+#[test]
+fn a_keeper_dropped_without_finish_still_stops_the_session_and_waits_for_its_end() {
+    let keeper = Keeper::new().unwrap();
+    let (mut driver, events) = keeper.driver(Folders::default(), quiet());
+    let watched = start_watched_slow_session(&mut driver, &events);
+    drop(driver);
+    let dropping = Instant::now();
+    drop(keeper);
+    assert!(watched.stop_sent.load(Ordering::SeqCst));
+    assert!(watched.ended.load(Ordering::SeqCst));
+    assert!(
+        dropping.elapsed() >= SLOW_STOP - PROMPT,
+        "{:?}",
+        dropping.elapsed()
+    );
+}
+
+#[test]
+fn a_panic_unwinding_past_the_keeper_still_stops_the_session_and_waits_for_its_end() {
+    let watched = Arc::new(Mutex::new(None));
+    let handed_out = Arc::clone(&watched);
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        let keeper = Keeper::new().unwrap();
+        let (mut driver, events) = keeper.driver(Folders::default(), quiet());
+        *handed_out.lock().unwrap() = Some(start_watched_slow_session(&mut driver, &events));
+        panic!("the window panicked on purpose");
+    }));
+    assert!(unwound.is_err());
+    let watched = watched.lock().unwrap().take().unwrap();
+    assert!(watched.stop_sent.load(Ordering::SeqCst));
+    assert!(watched.ended.load(Ordering::SeqCst));
+}
+
 #[test]
 fn the_wait_after_the_window_stops_a_running_session_and_reports_a_crash_as_rules_that_may_remain()
 {
@@ -94,13 +149,13 @@ fn a_session_that_failed_for_a_reason_other_than_removal_has_removed_its_rules()
 
 #[test]
 fn a_session_that_ignores_the_stop_is_given_up_after_the_limit() {
-    let keeper = Keeper::new().unwrap();
+    let mut keeper = Keeper::new().unwrap();
     let (mut driver, _events) = keeper.driver(Folders::default(), quiet());
     driver.start_session_with(|_, _, _| std::future::pending::<io::Result<()>>());
     drop(driver);
     let waiting = Instant::now();
     assert_eq!(
-        keeper.finish_within(Duration::from_millis(50)),
+        keeper.wind_down(Duration::from_millis(50)),
         Ending::TimedOut
     );
     assert!(waiting.elapsed() < Duration::from_secs(5));
@@ -145,7 +200,7 @@ fn nothing_started_exits_clean_without_waiting_for_a_blocking_task_that_never_re
     let blocked = Duration::from_secs(4);
     drop(
         keeper
-            .runtime
+            .runtime()
             .spawn_blocking(move || std::thread::sleep(blocked)),
     );
     std::thread::sleep(Duration::from_millis(100));
