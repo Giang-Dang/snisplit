@@ -313,12 +313,15 @@ owner's site is written here as "the added site"; its name stays out of the repo
 
 Throughout, example.org resolved to the same addresses as before. The window ran
 elevated for about three minutes and exited with code 0, and the binary is still on
-disk; whether the antivirus showed anything was not asked yet. One ordering note: the
-site file and the third rule were already present in the log line after step 1, so the
-site was added before that line was written; the restart on adding a site while
-running is therefore not shown by this log.
+disk.
 
-Still unverified in a real window: the added site in a browser; adding or removing a
-site while Running; the fixes for Stop followed by a site change, a failed rule
+The owner's answers after the run (2026-11-15):
+
+- The site was added before Start was pressed, so the restart on adding a site while
+  running was not exercised by this run.
+- The added site opens in a browser while snisplit is Running.
+- Kaspersky showed nothing during the elevated run.
+
+Still unverified in a real window: adding or removing a site while Running; the fixes for Stop followed by a site change, a failed rule
 removal at close, and a second close while stopping (tests only); logoff or shutdown
 with the window open; the browser fallback from HTTP/3 (docs/milestone-8.md).
