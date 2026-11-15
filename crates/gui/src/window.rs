@@ -106,7 +106,9 @@ impl<'keeper> App<'keeper> {
         for effect in self.state.update(event) {
             if effect == Effect::Exit {
                 self.exit_allowed = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                ctx.request_repaint();
             } else {
                 self.driver.run(effect);
             }
