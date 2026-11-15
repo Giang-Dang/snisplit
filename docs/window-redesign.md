@@ -253,7 +253,7 @@ the path holds the user name. No clipboard.
 10. Names fit when at most three are named and the names together have at most 32
     characters.
 11. The small header form is chosen from the window height and the number of sites only
-    (300 px full header, 58 px per row, 46 px add row, 44 px heading), not from what is
+    (275 px for the full header when on, 68 px per row, 51 px for the add row, 38 px for the heading, measured on the Off screenshot: at 680 px four sites keep the full header and a fifth switches to the small one), not from what is
     open, so opening a row does not flip it. The Activity page always uses it.
 12. In the small form the add row moves to the footer ("+ Add a site"); the panel opens
     at the end of the list and is scrolled into view.
@@ -329,7 +329,11 @@ Release build, 08:47 to 08:50, driven by synthetic clicks:
   through the window (Activity: `site broken removed`, `site example-org removed`), the
   second while the driver sent nothing for 12 s. Each removal needs a row opened, Remove
   and the confirming Remove. This is attributed, not explained: the trace below shows
-  input the driver did not send, but this run was not traced.
+  input the driver did not send, but this run was not traced. One possible path: egui
+  treats Space or Enter on a focused clickable widget as a click (egui 0.37,
+  `context.rs`) and Tab moves the focus, so keystrokes reaching the window after the
+  driver brought it to the front could open a row and press Remove twice; the trace did
+  not record keys. Remove on the release build is therefore unverified.
 - Activity (reached by a click): the small header (56 px ring with Start, "Off" and the
   sentence), "Back to sites", the two lines, "Save to a file" with its note, footer
   "2 lines". This screenshot showed a layout bug, fixed afterwards (below).
