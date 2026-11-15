@@ -62,10 +62,10 @@ pub fn failure(error: &io::Error) -> Failure;
 `snisplit_gui`: new modules `address`, `log_file`, `view`; `driver::Folders { sites, home }`
 and `Driver::new(folders, wake)`; `state` reworked (events and effects below).
 
-Changes 1-4 (below) add `snisplit::instance` (`Instance` holds the open lock file):
+Changes 1-4 (below) add `snisplit::instance` (`Instance` holds the open lock file and the open lock folder):
 
 ```rust
-pub struct Instance { _open: File }
+pub struct Instance { _open: File, _folder: File }
 pub enum Claim { Ours(Instance), Elsewhere, Unlocked(io::Error) }
 pub fn folder() -> Option<PathBuf>;
 pub fn lock_path(folder: &Path) -> PathBuf;
@@ -713,3 +713,27 @@ The owner ran two on-demand antivirus scans on 2026-11-15, of the release folder
 5. Still open from before: logoff or shutdown with the window open (now expected to be
    shown as leftovers at the next launch); the browser fallback
    from HTTP/3 (docs/milestone-8.md); the draft release (docs/milestone-7.md).
+
+## Owner's elevated run of tools/acceptance/m9b.ps1, 2026-11-15 11:28-11:32, binary built at cb1cdc3
+
+This run used the release build of 11:06, which has changes 1-4 and their review fixes
+but not the lock folder handle (921a2c7) or the cleanup warning (80beab3).
+
+- Start, Medium switched off and on while on, a site added and removed while on, and
+  Stop gave the same rule counts as the earlier run; the added site resolved to the
+  relay (HTTPS status 403).
+- Killed while on: 3 rules were left. The window started again showed the leftovers
+  sentence and "Remove leftover settings" (the owner answered yes); pressing it gave 0
+  rules.
+- A second window while the first was open said "Already open" with Try again (the owner
+  answered yes) and exited with code 0 when closed.
+- Closing with X once while on: exit code 0 and 0 rules.
+- Closing with X twice in a row while on: exit code 0 and 0 rules, 8 seconds from the
+  script's prompt to the process ending, which includes the time the owner took to
+  click. The owner left the question "did the window vanish at once" unanswered, so this
+  run does not confirm that the window no longer hangs.
+- The owner reported nothing from the antivirus. The run included the count at launch,
+  the process outliving its window, and the lock file under `%ProgramData%\snisplit`.
+
+Not seen in a real window after this run: the lock folder handle, a real UI panic, the
+lock with two accounts, Escape, and the Keep / Remove order.
