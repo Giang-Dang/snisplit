@@ -754,3 +754,19 @@ number, so the dependency set is the same. Which change the detection reacts to 
 known. No build, release or acceptance run is made until the owner decides how to
 proceed; the earlier sentence that two scans reported nothing describes the older builds
 only.
+
+## Looking for the commit behind the detection, 2026-11-15
+
+With the owner's agreement, five commits were built in a separate worktree for
+diagnosis only: 0c8d793, 39879e8, 54120ff, 714c683 and 80beab3, and 80beab3 was rebuilt
+at the original path. Result: the detection did not reproduce.
+
+- The antivirus command-line scan (report only) said "ok" for all six files.
+- The owner's scan of the release folder (1326 objects) and of the five samples, run
+  the same way as the scan that had flagged the 11:40 file, reported no threats.
+- Linking the same commit twice gives files with different SHA-256 values, so none of
+  the rebuilt files is byte-identical to the file that was flagged and removed.
+
+So no commit can be named as the cause. What is established is that one particular
+build of `snisplit-gui.exe` was flagged once by the cloud verdict, and that later builds
+of the same source, and of earlier source, are not flagged on the same PC.
