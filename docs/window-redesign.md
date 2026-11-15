@@ -306,27 +306,58 @@ and the library compiles for Linux.
 unelevated it refused with "Run this script from an elevated PowerShell (Run as
 administrator). Nothing was changed." and exit code 1.
 
-**Not verified in a real window.** The release build of the window failed at 08:41:21 and
+Real window, partly. The release build of the window first failed at 08:41:21 and
 08:41:27 with `failed to remove file target\release\snisplit-gui.exe: Access is denied.
-(os error 5)`; the old 0.1.0 binary from 01:41 stayed on disk and `snisplit.exe` 0.2.0
-built. The likely cause is that the running PID 51876 was started from that file (a
-running executable cannot be deleted); that could not be confirmed unelevated, and an
-antivirus block was not ruled out. Following the rules, nothing was changed to get around
-it, and no window was launched beside the running one. So no state of the new window has
-been seen on screen: not Off, not a row opened, not a Test, not the add flow, not a switch
-and its `off.list`, not the unelevated Start ("Windows refused the change"), not Activity
-or Save to a file, not closing. Every state that needs a successful Start (On, Applying,
-Turning off with rules, closing while on, leftovers after a real failed removal) needs the
-owner's elevated run anyway.
+(os error 5)` while PID 51876 was still running (most likely started from that file; a
+running executable cannot be deleted). Nothing was changed to get around it. At 08:45:37
+that process had exited (0 rules); the same build was run again and succeeded at 08:45:53
+(the exe holds `requireAdministrator`). The window was then started unelevated with
+`__COMPAT_LAYER=RunAsInvoker` and `APPDATA` and `USERPROFILE` pointed at a temporary
+folder holding one valid site file (`example-org`) and one broken one. GL renderer as
+before; 400 x 680 client area at 96 DPI. Screenshots stayed in a temporary folder outside
+the repo. Seen on screen:
+
+- Off: the hollow ring with Start, "Off", "The sites switched on below will not open until
+  you press Start.", Steam and Medium "comes with snisplit", the broken file dimmed with no
+  switch and "This file has a mistake and is skipped: bro..." cut with an ellipsis,
+  example.org "added by you", the On switches, "Add a site", footer "Activity" and
+  "version 0.2.0".
+- The Medium row opened in place (medium.com, Test). Test on medium.com: done in about
+  1.6 s, then "Tested medium.com just now: blocked without snisplit, and snisplit can open
+  it." with "Test again" and "What snisplit tried". The probe saw 162.159.153.4: whole
+  hello and host-start and domain-mid reset, `tls-split 1` and `1 domain-mid` handshake,
+  plain `Host:` reset, `hoSt:` 301, the same pattern as milestone 6.
+- Activity: the small header (56 px ring with Start, "Off" and the sentence), "Back to
+  sites", the lines, "Save to a file" with its note, footer "2 lines".
+- Close while Off: the process exited.
+
+The run was stopped at 08:53 because the window received mouse input that was not sent
+by the test driver: during the first run the two temporary site files were removed
+through the window (Activity: `site broken removed`, `site example-org removed`, each of
+which needs a row opened, Remove and the confirming Remove), and a debug build with a
+temporary event trace (not committed, removed afterwards) then showed a click landing
+18 px and 29 px away from where the driver had put the pointer and a second click,
+pressed and released in separate frames, that the driver never sent (its clicks arrive
+as one press and release in the same frame). That looks like someone using the mouse
+at the same time, so synthetic input was stopped and the window closed with a window
+message. The same steps on the trace build, with the pointer moved away between clicks,
+produced exactly one event per click. No snisplit process and 0 NRPT rules with comment
+`snisplit` at 08:53:29.
+
+Not seen in a real window: the add flow (testing, every outcome, the covered refusal,
+the mistyped hint, Cancel), a switch turned off and its `off.list`, Remove with its
+question, Start pressed unelevated ("Could not start" with "Windows refused the
+change"), Save to a file, the many-sites small header, and every state that needs a
+successful Start (On, Applying, Turning off with rules, closing while on, leftovers after
+a real failed removal), which needs the owner's elevated run anyway.
 
 ## Awaiting the owner
 
-1. Close the open snisplit-gui window (started 07:32), then `cargo build --release -p
-   snisplit-gui`.
-2. The unelevated smoke run described in the brief (Off, a row, Test on medium.com and
-   example.org, the add flow on example.net or example.org, a switch and its `off.list`,
-   Start unelevated showing "Windows refused the change" with 0 rules, Activity and Save
-   to a file, close), or let the lead's developer do it once no snisplit runs.
+1. The release build of 0.2.0 is in `target\release` (built 08:45:53).
+2. The rest of the unelevated smoke run, at a time when nobody else uses the mouse: Test
+   on example.org, the add flow on example.net or example.org (and medium.com for the
+   covered refusal), a switch and its `off.list`, Start unelevated showing "Windows
+   refused the change" with 0 rules, Save to a file, close.
 3. `tools\acceptance\m9b.ps1` from an elevated PowerShell (log in `%TEMP%\m9b-gui.log`).
 4. Whether Kaspersky showed anything, and whether the window looks right on the owner's
    display (fonts, sizes, the dark colours).
