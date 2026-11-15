@@ -119,10 +119,7 @@ fn a_lock_folder_that_is_a_junction_is_refused_and_nothing_is_created_in_its_tar
         .arg(&target)
         .output()
         .unwrap();
-    if !made.status.success() {
-        eprintln!("skipped: mklink /J failed: {made:?}");
-        return;
-    }
+    assert!(made.status.success(), "{made:?}");
     assert_eq!(
         refusal(claim(Some(&folder.app()))),
         "the snisplit lock folder is a link or not a real folder, so it is not used"
