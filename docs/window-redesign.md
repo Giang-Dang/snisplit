@@ -730,8 +730,8 @@ but not the lock folder handle (921a2c7) or the cleanup warning (80beab3).
 - Closing with X once while on: exit code 0 and 0 rules.
 - Closing with X twice in a row while on: exit code 0 and 0 rules, 8 seconds from the
   script's prompt to the process ending, which includes the time the owner took to
-  click. The owner left the question "did the window vanish at once" unanswered, so this
-  run does not confirm that the window no longer hangs.
+  click. The owner left the script's question unanswered during the run and answered
+  afterwards that the window vanished at once after the second X.
 - The owner reported nothing from the antivirus. The run included the count at launch,
   the process outliving its window, and the lock file under `%ProgramData%\snisplit`.
 
