@@ -64,3 +64,62 @@ fn only_the_probe_with_the_cancelled_id_is_aborted() {
     driver.run(Effect::CancelProbe(7));
     assert!(driver.probe.is_none());
 }
+
+fn inbox() -> (Inbox, Receiver<Event>) {
+    let (events, received) = channel();
+    let inbox = Inbox {
+        events,
+        wake: Arc::new(|| {}),
+    };
+    (inbox, received)
+}
+
+#[test]
+fn a_session_task_that_panics_or_is_cancelled_still_ends_with_possible_leftovers() {
+    let runtime = runtime();
+    let (inbox, events) = inbox();
+    let panicking = runtime.spawn(async { panic!("session task panicked on purpose") });
+    runtime.block_on(report_session_end(inbox.clone(), panicking));
+    assert_eq!(
+        events.try_recv().unwrap(),
+        Event::SessionEnded(SessionEnd::Failed {
+            failure: Failure::RemovingRules,
+            detail: "the session crashed, so DNS rules may remain".to_string()
+        })
+    );
+    let stuck = runtime.spawn(std::future::pending::<io::Result<()>>());
+    stuck.abort();
+    runtime.block_on(report_session_end(inbox.clone(), stuck));
+    assert_eq!(
+        events.try_recv().unwrap(),
+        Event::SessionEnded(SessionEnd::Failed {
+            failure: Failure::RemovingRules,
+            detail: "the session was cancelled, so DNS rules may remain".to_string()
+        })
+    );
+    let clean = runtime.spawn(async { Ok(()) });
+    runtime.block_on(report_session_end(inbox, clean));
+    assert_eq!(
+        events.try_recv().unwrap(),
+        Event::SessionEnded(SessionEnd::Clean)
+    );
+}
+
+#[test]
+fn a_leftover_removal_that_panics_reports_a_failed_removal() {
+    let runtime = runtime();
+    let (inbox, events) = inbox();
+    let panicking =
+        runtime.spawn_blocking(|| -> Result<(), String> { panic!("removal panicked on purpose") });
+    runtime.block_on(report_leftovers_removed(inbox.clone(), panicking));
+    assert_eq!(
+        events.try_recv().unwrap(),
+        Event::LeftoversRemoved(Err("the removal crashed before it reported".to_string()))
+    );
+    let refused = runtime.spawn_blocking(|| Err("Access is denied.".to_string()));
+    runtime.block_on(report_leftovers_removed(inbox, refused));
+    assert_eq!(
+        events.try_recv().unwrap(),
+        Event::LeftoversRemoved(Err("Access is denied.".to_string()))
+    );
+}

@@ -5,7 +5,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use snisplit::profile::BUILT_IN;
-use snisplit::session::{self, Output, RunOptions};
+use snisplit::session::{self, Failure, Output, RunOptions};
 use snisplit::{
     DEFAULT_PROBE_RUNS, DEFAULT_PROBE_TIMEOUT, PIECE_GAP, UPSTREAM_TIMEOUT, sites, system_dns,
     upstream_servers,
@@ -14,7 +14,7 @@ use snisplit_relay::probe::{ProbeSettings, probe};
 use snisplit_relay::{UdpResolver, Upstreams};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
-use tokio::task::JoinHandle;
+use tokio::task::{JoinError, JoinHandle};
 
 use crate::log_file;
 use crate::report;
@@ -122,17 +122,18 @@ impl Driver {
         };
         let out = self.inbox.output();
         let ready = self.inbox.clone();
-        let ended = self.inbox.clone();
-        let task = self.runtime().spawn(async move {
+        let work = self.runtime().spawn(async move {
             let stop_requested = async move {
                 let _ = stopped.await;
             };
-            let result = session::serve_with_ready(options, stop_requested, out, move || {
+            session::serve_with_ready(options, stop_requested, out, move || {
                 ready.send(Event::SessionReady { at: Instant::now() });
             })
-            .await;
-            ended.send(Event::SessionEnded(session_end(result)));
+            .await
         });
+        let task = self
+            .runtime()
+            .spawn(report_session_end(self.inbox.clone(), work));
         self.session = Some(Session {
             stop: Some(stop),
             ended: task,
@@ -150,11 +151,12 @@ impl Driver {
     }
 
     fn remove_leftovers(&self) {
-        let inbox = self.inbox.clone();
-        self.runtime().spawn_blocking(move || {
-            let removed = session::remove_rules(&inbox.output()).map_err(|error| error.to_string());
-            inbox.send(Event::LeftoversRemoved(removed));
-        });
+        let out = self.inbox.output();
+        let work = self
+            .runtime()
+            .spawn_blocking(move || session::remove_rules(&out).map_err(|error| error.to_string()));
+        self.runtime()
+            .spawn(report_leftovers_removed(self.inbox.clone(), work));
     }
 
     fn probe(&mut self, id: u64, domain: String) {
@@ -275,6 +277,38 @@ fn refusal(error: &io::Error) -> SaveRefusal {
 
 fn wait_until_ended(runtime: &Runtime, task: JoinHandle<()>, limit: Duration) -> bool {
     runtime.block_on(async move { tokio::time::timeout(limit, task).await.is_ok() })
+}
+
+async fn report_session_end(inbox: Inbox, work: JoinHandle<io::Result<()>>) {
+    let end = match work.await {
+        Ok(result) => session_end(result),
+        Err(error) => SessionEnd::Failed {
+            failure: Failure::RemovingRules,
+            detail: format!(
+                "the session {}, so DNS rules may remain",
+                how_it_ended(&error)
+            ),
+        },
+    };
+    inbox.send(Event::SessionEnded(end));
+}
+
+async fn report_leftovers_removed(inbox: Inbox, work: JoinHandle<Result<(), String>>) {
+    let removed = work.await.unwrap_or_else(|error| {
+        Err(format!(
+            "the removal {} before it reported",
+            how_it_ended(&error)
+        ))
+    });
+    inbox.send(Event::LeftoversRemoved(removed));
+}
+
+fn how_it_ended(error: &JoinError) -> &'static str {
+    if error.is_panic() {
+        "crashed"
+    } else {
+        "was cancelled"
+    }
 }
 
 fn session_end(result: io::Result<()>) -> SessionEnd {
