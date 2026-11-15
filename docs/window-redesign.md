@@ -856,3 +856,48 @@ seen only in the elevated run.
 Still needs the owner: the elevated PowerShell (UAC), the clicks in m9b, the antivirus
 question, and a look at the screenshots by the lead. No script covers a real UI panic,
 two accounts, or logoff and shutdown with the window open.
+
+## Owner's elevated runs of m9c.ps1 and m9b.ps1, 2026-11-15 15:52-15:56
+
+Binaries: the release build in `target\release` whose product code is 80beab3 (the
+window binary relinked at 11:58 from unchanged source), so these runs include the lock
+folder handle (921a2c7) and the cleanup warning (80beab3). Scripts at 67e193a. Before
+the runs the owner repeated the antivirus scan of the release folder and of the five
+diagnostic samples, hours after they were built; it was clean again. So the 11:40
+detection was not reproduced on any rebuilt file, at once or later.
+
+- **`m9c.ps1` (unattended), 15:52:15-15:53:05: RESULT PASS, 39 checks.** `snisplit run`
+  came on with 3 rules; the store answered HTTPS 200 and HTTP 302 through 127.0.0.2; a
+  second `snisplit run` exited with code 1 and the "already running" line; a window
+  started meanwhile showed "Already open" (screenshot) and exited with code 0 on one
+  close, rule count unchanged; Ctrl+C stopped `run` with exit code 0 in 3.9 s and 0
+  rules; with `medium` in `off.list`, `run` added 2 rules and medium.com resolved
+  directly, and `off.list` was restored byte for byte; after a kill the 3 rules stayed,
+  the window showed the leftovers state (screenshot), and `snisplit cleanup` exited 0
+  leaving 0 rules.
+- **`m9b.ps1` (clicks only), 15:53:27-15:55:50: RESULT PASS, 39 checks.** Start: 3
+  rules, store HTTPS 200 and HTTP 302 through the relay. Medium off: `off.list` named
+  medium, 2 rules held, medium.com direct, store still through the relay; the screenshot
+  taken during the change shows "Applying your change..." with "Turning off" beside the
+  switch and the button reading Wait. Medium on: 3 rules held. A site added while on: a
+  new site file, 4 rules, the added site resolved to the relay (HTTPS status 403).
+  Removed while on: file gone, 3 rules held, no longer resolving to the relay. Stop: 0
+  rules held for at least 6 s. Start again: 3 rules. Killed while on: 3 rules left; the
+  relaunched window showed "Off, with leftovers", the sentence that snisplit did not get
+  to turn off properly last time, and "Remove leftover settings" (screenshot); the button
+  gave 0 rules. A second window showed "Already open" with Try again (screenshot) and
+  exited with code 0 on one close while the first stayed open. Closed once while on:
+  exit after 1.5 s, code 0, 0 rules, no poll saw the window not responding. Closed twice
+  in quick succession while on: both close requests accepted, exit after 1.5 s, code 0,
+  0 rules, no poll saw the window not responding. The owner answered "no" to whether the
+  antivirus or Windows showed anything.
+- The lead looked at the screenshots: they match the approved design (round button
+  naming the action, state line under it, per-site switches). The screenshots stay on
+  the owner's PC.
+- With these runs the items previously listed as not seen in a real window are now seen:
+  the lock folder handle (second instance refused by both the window and `run`), the
+  clean stop of `run`, the leftovers state at launch, the hide-then-close on a double
+  close. Still not covered by any run: a real UI panic, the lock with two accounts,
+  logoff or shutdown with the window open, Escape and the Keep / Remove order on screen.
+- Both scripts had never been run elevated before; this was also their first real run,
+  and every wait behaved as intended (no timeout, no early return).

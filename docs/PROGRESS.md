@@ -16,7 +16,7 @@ this file says where the work stands and what to do next.
 | 6 `probe` | **Done** 2026-11-15 (docs/milestone-6.md): `snisplit probe <domain>` reproduces section 1's no-bypass and split rows (store.steampowered.com, medium.com blocked, cut at byte 1 and `hoSt:` pass; example.org not blocked) and prints a profile file; library entry point `snisplit_relay::probe::probe` for the UI |
 | 8 QUIC | **Measured** 2026-11-14 (docs/milestone-8.md): not filtered by server name on this ISP; no QUIC work. Awaiting the owner: one routed browser run to time the fallback to TCP |
 | 9 UI | **Done** 2026-11-15 (docs/milestone-9.md): `snisplit-gui` (egui) starts and stops the relay and lists, checks, adds and removes sites; the owner's elevated run passed every step: Start, fetch through the relay, add a site, Stop, Start again, close while running, 0 rules left |
-| 9b Window redesign | **Built** 2026-11-15 (docs/window-redesign.md): version 0.2.0; a 400 px window with one round button, a switch per site (`off.list`, which `run` honours too), rows that open in place, plain failure causes, leftovers removal, Activity with Save to a file. Seen in a real window: Off, a row opened, Test on medium.com (debug build with a temporary trace), Activity, close, and without input Medium switched off, every site off and the small header; the rest of the smoke run was stopped because the window received input the test driver did not send. The owner's elevated `tools/acceptance/m9b.ps1` run on a build from 0c8d793 passed (Start, switch, add and remove while on, Stop, close while on: 0 rules, exit code 0). Since then, not yet seen in a real window: the review fixes, and changes 1-4 (the post-window wait for rule removal, leftovers shown at launch, one instance at a time with "Already open", a broken file named like a built-in as its own row); awaiting the owner: `m9b.ps1` again, with its new kill and second-window steps |
+| 9b Window redesign | **Built** 2026-11-15 (docs/window-redesign.md): version 0.2.0; a 400 px window with one round button, a switch per site (`off.list`, which `run` honours too), rows that open in place, plain failure causes, leftovers removal, Activity with Save to a file. Seen in a real window: Off, a row opened, Test on medium.com (debug build with a temporary trace), Activity, close, and without input Medium switched off, every site off and the small header; the rest of the smoke run was stopped because the window received input the test driver did not send. The owner's elevated `tools/acceptance/m9b.ps1` run on a build from 0c8d793 passed (Start, switch, add and remove while on, Stop, close while on: 0 rules, exit code 0). On 2026-11-15 the redesign and changes 1-4 (the post-window wait for rule removal, leftovers shown at launch, one instance at a time with "Already open", a broken file named like a built-in as its own row) passed the owner's elevated acceptance: `m9c.ps1` and `m9b.ps1`, 39 checks each, all PASS (docs/window-redesign.md, last section). Still not covered by any run: a real UI panic, the lock with two accounts, logoff or shutdown with the window open, Escape and the Keep / Remove order on screen |
 | 7 Releases | **Built** 2026-11-15 (docs/milestone-7.md): README, release workflow, version 0.1.0, draft release `v0.1.0` with the Windows archive. Awaiting the owner: try the downloaded archive, publish the draft, a friend installs |
 | 10 Linux and macOS | Deferred (PLAN.md D13) |
 
@@ -31,9 +31,9 @@ Milestones 6 to 9 are built (PLAN.md D13 to D15). Everything that needs
 administrator rights or a second person waits for the owner, in this order:
 
 1. Done 2026-11-15: `tools/acceptance/m9.ps1` passed (docs/milestone-9.md).
-1b. The redesigned window (0.2.0, release build in `target\release`): the rest of the
-   unelevated smoke run, then `tools/acceptance/m9b.ps1` elevated (docs/window-redesign.md,
-   last section).
+1b. Done 2026-11-15: the redesigned window (0.2.0, release build in `target\release`)
+   passed the owner's elevated `m9c.ps1` and `m9b.ps1`, 39 checks each
+   (docs/window-redesign.md, last section).
 2. While the window is running: open a listed site in a browser that used it over
    HTTP/3 before, and see that it falls back to TCP quickly (docs/milestone-8.md).
 3. The draft release: download, check, publish, a friend installs (docs/milestone-7.md).
