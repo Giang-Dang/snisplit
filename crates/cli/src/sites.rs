@@ -15,6 +15,7 @@ const SITES_FOLDER: &str = "sites";
 const NEW_SITE_SOURCE: &str = "new site";
 const OFF_LIST: &str = "off.list";
 const OFF_LIST_DRAFT: &str = "off.list.new";
+const BYTE_ORDER_MARK: char = '\u{feff}';
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteFile {
@@ -282,8 +283,9 @@ pub fn switched_off(folder: &Path) -> io::Result<Vec<String>> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error),
     };
+    let text = String::from_utf8_lossy(&bytes);
     let mut names: Vec<String> = Vec::new();
-    for line in String::from_utf8_lossy(&bytes).lines() {
+    for line in text.strip_prefix(BYTE_ORDER_MARK).unwrap_or(&text).lines() {
         let name = line.trim();
         if !name.is_empty() && !names.iter().any(|known| known == name) {
             names.push(name.to_string());

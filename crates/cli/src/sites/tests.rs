@@ -268,6 +268,13 @@ fn a_switch_writes_one_known_name_per_line_and_drops_names_that_match_no_site() 
 }
 
 #[test]
+fn a_byte_order_mark_before_the_first_name_is_not_part_of_it() {
+    let folder = TempFolder::created("off-bom");
+    fs::write(folder.off_list(), b"\xef\xbb\xbfmedium\nsteam\n").unwrap();
+    assert_eq!(switched_off(folder.path()).unwrap(), ["medium", "steam"]);
+}
+
+#[test]
 fn a_built_in_can_be_switched_off_before_any_site_folder_exists() {
     let folder = TempFolder::new("off-built-in");
     set_switch(folder.path(), "steam", false).unwrap();
