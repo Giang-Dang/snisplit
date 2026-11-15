@@ -445,7 +445,7 @@ mod start_up {
         assert_eq!(failure(&error), Failure::RemovingRules);
         assert_eq!(
             error.to_string(),
-            "2 snisplit DNS rules are still in place after removing them"
+            "snisplit DNS rules still in place after removing them: 2"
         );
         assert_eq!(recorder.lines(), ["stopping", "snisplit DNS rules left: 2"]);
         let cleanup = remove_rules_with(&host, &recorder.output()).unwrap_err();

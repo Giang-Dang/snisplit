@@ -368,7 +368,7 @@ fn remove_rules_with<H: Host>(host: &H, out: &Output) -> io::Result<()> {
     out(&format!("snisplit DNS rules left: {left}"));
     if left > 0 {
         let remaining = io::Error::other(format!(
-            "{left} snisplit DNS rules are still in place after removing them"
+            "snisplit DNS rules still in place after removing them: {left}"
         ));
         return Err(tagged(Failure::RemovingRules, &remaining));
     }
