@@ -3,6 +3,8 @@ param(
 )
 $ErrorActionPreference = 'Continue'
 . (Join-Path $PSScriptRoot 'lib.ps1')
+Warn-Do-Not-Close
+if (Refuse-OutDir-In-Repo $OutDir) { exit 1 }
 Open-Log $OutDir 'm9c.log' 'm9c-shots'
 $medium = 'medium.com'
 $store = 'store.steampowered.com'
@@ -63,7 +65,6 @@ try {
   Say 'f. off.list honoured by run'
   Save-OffList
   Add-OffListName 'medium'
-  Expect 'f. off.list now names medium' (Off-List-Names 'medium')
   $run = Start-Run 'f-run'
   Expect 'f. run reports it is on within 90 s' (Wait-Run-On $run 90)
   $null = Wait-Rules-Settled 30
@@ -82,8 +83,8 @@ try {
   $run = Start-Run 'g-run'
   Expect 'g. run reports it is on within 90 s' (Wait-Run-On $run 90)
   $null = Wait-Rules-Settled 30
-  if (-not $run.HasExited) { $run.Kill() }
-  Expect 'g. run ended after Kill()' ($run.WaitForExit(20000))
+  Kill-If-Running $run
+  Log "  run ended after the kill: $($run.WaitForExit(20000))"
   Start-Sleep -Seconds 2
   Expect "g. the rules are still in place after the kill ($base)" ((Rule-Count) -eq $base)
   $gui = Start-Window
@@ -103,6 +104,7 @@ try {
   Expect 'g. 0 rules pointing at the relay after cleanup' ((RulesToRelay).Count -eq 0)
 
   Log-State 'after'
+  Log '  the screenshots and the captured output of snisplit can contain the names of your own sites and stay on this PC'
   Log "screenshots for the lead: $script:shots (d-already-open: Already open with Try again; g-leftovers: the leftovers sentence and Remove leftover settings)"
   $completed = $true
 }

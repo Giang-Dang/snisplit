@@ -782,15 +782,27 @@ CI-built zip, because every link produces a different file.
 Both run from an elevated PowerShell (the UAC prompt for that PowerShell is the one
 thing the owner does before either), share `tools/acceptance/lib.ps1`, refuse with
 nothing changed when unelevated, when a snisplit process runs, when a binary is missing,
-or when `off.list` names medium, and remove stale rules pointing at 127.0.0.2-127.0.0.20
-or carrying Comment 'snisplit' first. Every step ends in a `PASS` or `FAIL` line; the
+when `off.list` names medium or steam (switch it on in the window first), or when
+`-OutDir` is inside the repository. They remove stale rules pointing at
+127.0.0.2-127.0.0.20 or carrying Comment 'snisplit' first, including rules that point at
+those addresses without the comment: such rules may belong to another tool, so the
+script logs their count and namespaces before it removes them. Every step ends in a `PASS` or `FAIL` line; the
 last line is `RESULT: PASS` or `RESULT: FAIL`, and the exit code is 0 only when every
 check passed. A `finally` block ends every process the script started (by its Process
 object, never one it did not start), restores `off.list` byte for byte (or deletes it
-if it did not exist), removes any rule left, and logs what is left. Screenshots are
+if it did not exist), removes any rule left, waits 5 s, counts again and removes again if any came back (a killed
+start can still be adding rules through its child PowerShell), and logs both counts. Screenshots are
 taken with `PrintWindow` (flag 2, render full content) of the window only, without
 input, into `<OutDir>\m9c-shots` or `<OutDir>\m9b-shots` (default `%TEMP%`); the output
-of the `snisplit` commands goes to the `output` folder beside them.
+of the `snisplit` commands goes to the `output` folder beside them. The screenshots
+and that output can contain the names of the owner's own sites and stay on this PC.
+
+Both scripts print this line before they start anything: "Do not close this window while
+the script runs. If it closes anyway, run `snisplit cleanup` from an elevated prompt and
+check that Medium is switched on in the snisplit window." Closing the console with its X
+never runs the `finally` block. What can then be left behind: a running `snisplit run`
+or window, NRPT rules pointing at 127.0.0.x, Medium switched off in `off.list` (m9b and
+m9c both change it), and, for m9b, the site file added in step 4.
 
 - **`m9c.ps1`: unattended, no clicks and no questions** (log `%TEMP%\m9c.log`). It
   drives `snisplit run` and only looks at the window: run on, the base rule count, the
@@ -804,7 +816,14 @@ of the `snisplit` commands goes to the `output` folder beside them.
 - **`m9b.ps1`: the window, with the owner clicking only in the window** (log
   `%TEMP%\m9b-gui.log`). No Enter, no y/n, no address typed in the terminal: each step
   waits up to 180 s for its result (rule count, `off.list`, a new site file, the file
-  gone) and logs `TIMEOUT` if it does not come. About 14 clicks and one typed address,
+  gone) and logs `TIMEOUT` if it does not come. After every click made while the window
+  is on, the window writes its file and then stops and starts: the rule count falls to 0
+  one rule at a time and climbs back (Steam, Medium, other sites). So each such wait
+  needs its condition to hold on 4 consecutive polls, 0.7 s apart (Medium off: base - 1;
+  Medium on: base; add: new file and base + 1; remove: file gone and base; Start: base).
+  Stop needs 0 rules for 10 polls (about 6 s). A timeout at the first Start, Medium on,
+  Stop or the second Start fails the check and ends the run through the `finally`
+  cleanup. The screenshot guard also covers an owner with no site files of their own. About 14 clicks and one typed address,
   all in the window: Start; Medium off; Medium on; Add a site, type it, Test, Add and turn
   on; the site's name, Remove, Remove; Stop; Start; [the script kills the window, starts
   it again, screenshots the leftovers]; Remove leftover settings; [the script starts a

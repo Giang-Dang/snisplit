@@ -60,6 +60,11 @@ function Rules { @(Get-DnsClientNrptRule | Where-Object Comment -eq 'snisplit') 
 function RulesToRelay { @(Get-DnsClientNrptRule | Where-Object { $servers = $_.NameServers; @($script:relayAddresses | Where-Object { $servers -contains $_ }).Count -gt 0 }) }
 function Rule-Count { (Rules).Count }
 function Remove-RelayRules {
+  $foreign = @(RulesToRelay | Where-Object { $_.Comment -ne 'snisplit' })
+  if ($foreign.Count -gt 0) {
+    $namespaces = @($foreign | ForEach-Object { $_.Namespace }) -join ', '
+    Log "  $($foreign.Count) rule(s) point at 127.0.0.2-20 but do not carry Comment 'snisplit' (they may belong to another tool); removing them too. Namespaces: $namespaces"
+  }
   @(Rules) + @(RulesToRelay) | Sort-Object Name -Unique | ForEach-Object { Remove-DnsClientNrptRule -Name $_.Name -Force }
   Clear-DnsClientCache
 }
@@ -85,6 +90,40 @@ function Wait-Until([scriptblock] $untilTrue, [int] $limitSeconds) {
     Start-Sleep -Milliseconds 700
   }
   [bool](& $untilTrue)
+}
+function Wait-Stable([scriptblock] $condition, [ValidateRange(4, 10000)] [int] $polls, [int] $limitSeconds, [int] $pollMilliseconds = 700) {
+  $deadline = (Get-Date).AddSeconds($limitSeconds)
+  $streak = 0
+  while ($true) {
+    if (& $condition) { $streak++ } else { $streak = 0 }
+    if ($streak -ge $polls) { return $true }
+    if ((Get-Date) -ge $deadline) { return $false }
+    Start-Sleep -Milliseconds $pollMilliseconds
+  }
+}
+function Added-Paths($currentPaths, $pathsBefore) {
+  if ($null -eq $pathsBefore) { return @() }
+  @($currentPaths | Where-Object { $pathsBefore -notcontains $_ })
+}
+function Resolve-Full($path) { [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path)).TrimEnd('\', '/') }
+function Is-Inside($path, $folder) {
+  $full = Resolve-Full $path
+  $root = Resolve-Full $folder
+  ($full -eq $root) -or $full.StartsWith("$root\", [StringComparison]::OrdinalIgnoreCase)
+}
+function Refuse-OutDir-In-Repo($outDir) {
+  $repository = Join-Path $PSScriptRoot '..\..'
+  if (Is-Inside $outDir $repository) {
+    Say "-OutDir is inside the repository ($(Resolve-Full $repository)). Screenshots and logs can name your own sites; pick a folder outside it. Nothing was changed."
+    return $true
+  }
+  $false
+}
+function Warn-Do-Not-Close {
+  Write-Host 'Do not close this window while the script runs. If it closes anyway, run `snisplit cleanup` from an elevated prompt and check that Medium is switched on in the snisplit window.' -ForegroundColor Red
+}
+function Kill-If-Running($process) {
+  try { if (-not $process.HasExited) { $process.Kill() } } catch { $null = $_ }
 }
 function Wait-Rules([int] $count, [int] $limitSeconds) { Wait-Until { (Rule-Count) -eq $count } $limitSeconds }
 function Wait-Rules-Settled([int] $limitSeconds) {
@@ -130,7 +169,7 @@ function Wait-Run-On($process, [int] $limitSeconds) {
 function Invoke-Cli([string[]] $arguments, $outputName, [int] $limitSeconds) {
   $process = Start-Tracked $script:cliBinary $arguments 'Minimized' $outputName
   $exited = $process.WaitForExit($limitSeconds * 1000)
-  if (-not $exited) { $process.Kill(); $null = $process.WaitForExit(10000) }
+  if (-not $exited) { Kill-If-Running $process; $null = $process.WaitForExit(10000) }
   [pscustomobject]@{
     Exited = $exited
     ExitCode = $(if ($exited) { $process.ExitCode })
@@ -142,7 +181,7 @@ function Close-Started {
   foreach ($process in $script:started) {
     if (-not $process.HasExited) {
       Log "  ending $($process.ProcessName) (process $($process.Id)), which this script started"
-      $process.Kill()
+      Kill-If-Running $process
       $null = $process.WaitForExit(20000)
     }
   }
@@ -150,11 +189,11 @@ function Close-Started {
 
 function Send-ControlEvent($process, [int] $controlEvent) {
   $hostBinary = (Get-Process -Id $PID).Path
-  $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script:ctrlSender, '-ProcessId', $process.Id, '-ControlEvent', $controlEvent)
+  $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$script:ctrlSender`"", '-ProcessId', $process.Id, '-ControlEvent', $controlEvent)
   $sender = Start-Process -FilePath $hostBinary -ArgumentList $arguments -WindowStyle Hidden -PassThru
   $null = $sender.Handle
   $script:started += $sender
-  if (-not $sender.WaitForExit(20000)) { $sender.Kill(); return 'timed out' }
+  if (-not $sender.WaitForExit(20000)) { Kill-If-Running $sender; return 'timed out' }
   $sender.ExitCode
 }
 function Stop-Run($process) {
@@ -172,7 +211,7 @@ function Stop-Run($process) {
   if (-not $exited) {
     $method = 'kill'
     Log '  run did not stop after the console signals; killing it and running snisplit cleanup. The clean stop of run was NOT exercised.'
-    $process.Kill()
+    Kill-If-Running $process
     $null = $process.WaitForExit(20000)
     $cleanup = Invoke-Cli @('cleanup') 'cleanup-after-kill' 120
     Log "  snisplit cleanup after the kill: exit code $($cleanup.ExitCode)"
@@ -292,17 +331,21 @@ function Refuse-Unless-Ready($binaries) {
     if (-not (Test-Path -LiteralPath $binary)) { Say "$binary is missing (not built, or removed by the antivirus?). Nothing was changed."; return $false }
   }
   if (Off-List-Names 'medium') { Say 'Medium is switched off from an earlier run. Start snisplit-gui, switch Medium on, close it, then run this script again. Nothing was changed.'; return $false }
+  if (Off-List-Names 'steam') { Say 'Steam is switched off from an earlier run. Start snisplit-gui, switch Steam on, close it, then run this script again. Nothing was changed.'; return $false }
   $true
 }
+function Rules-In-Place { @(@(Rules) + @(RulesToRelay) | Sort-Object Name -Unique).Count }
 function Finish-Run($completed) {
   if (-not $completed) { Log "the run was aborted $(Get-Date -Format s)"; $script:failures += 'the run did not complete' }
   Close-Started
   Restore-OffList
-  $left = @(@(Rules) + @(RulesToRelay) | Sort-Object Name -Unique).Count
-  if ($left -gt 0) {
-    Log "rules still in place at the end: $left; removing them"
-    Remove-RelayRules
-  }
+  $left = Rules-In-Place
+  Log "rules still in place right after ending the processes: $left"
+  if ($left -gt 0) { Remove-RelayRules }
+  Start-Sleep -Seconds 5
+  $later = Rules-In-Place
+  Log "rules in place 5 s later: $later"
+  if ($later -gt 0) { Remove-RelayRules }
   Log "at the end: snisplit rules: $(Rule-Count); rules pointing at the relay: $((RulesToRelay).Count); snisplit processes: $((Snisplit-Processes).Count)"
   if ($script:failures.Count -eq 0) {
     Say "RESULT: PASS ($($script:checks) checks)"

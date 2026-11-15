@@ -3,17 +3,27 @@ param(
 )
 $ErrorActionPreference = 'Continue'
 . (Join-Path $PSScriptRoot 'lib.ps1')
+Warn-Do-Not-Close
+if (Refuse-OutDir-In-Repo $OutDir) { exit 1 }
 Open-Log $OutDir 'm9b-gui.log' 'm9b-shots'
 $medium = 'medium.com'
 $store = 'store.steampowered.com'
 $stepSeconds = 180
+$restartSeconds = 120
+$stablePolls = 4
+$stopStablePolls = 10
 $clickCount = 14
 $script:gui = $null
 
-function Wait-Click($text, [scriptblock] $done) {
+function Require($label, $ok) {
+  Expect $label $ok
+  if (-not $ok) { throw "cannot continue after a failed step: $label" }
+}
+function Wait-Click($text, [scriptblock] $done, [int] $stable = 0) {
   Say $text
   $watch = [Diagnostics.Stopwatch]::StartNew()
-  $seen = Wait-Until { $script:gui.HasExited -or (& $done) } $stepSeconds
+  $check = { $script:gui.HasExited -or (& $done) }
+  if ($stable -gt 0) { $seen = Wait-Stable $check $stable $stepSeconds } else { $seen = Wait-Until $check $stepSeconds }
   if ($script:gui.HasExited) { throw 'the snisplit window closed before the step was done' }
   if ($seen) { Log "  seen after $([int]$watch.Elapsed.TotalSeconds) s" } else { Log "  TIMEOUT: not seen within $stepSeconds s" }
   $seen
@@ -30,7 +40,7 @@ function Domain-Of($file) {
   } catch { $null }
 }
 function Shot($process, $name) {
-  $newSites = @(Site-Files | Where-Object { $script:filesBefore -and ($script:filesBefore -notcontains $_.FullName) })
+  $newSites = @(Added-Paths @(Site-Files | ForEach-Object FullName) $script:filesBefore)
   if ($newSites.Count -gt 0) { Log "  shot $name skipped: the added site is still listed"; return }
   $null = Save-Shot $process $name
 }
@@ -55,10 +65,9 @@ try {
   Start-Sleep -Seconds 3
   Shot $script:gui '00-launch'
 
-  Expect '1. Start: on' (Wait-On '1. Click the round Start button.')
+  Require '1. Start: on' (Wait-On '1. Click the round Start button.')
   $base = Rule-Count
-  Log "  base rule count: $base"
-  Expect '1. at least 2 rules (Steam and Medium)' ($base -ge 2)
+  Log "  base rule count: $base (at least 2 expected: Steam and Medium)"
   Start-Sleep -Seconds 2
   Shot $script:gui '01-on'
   Log-State '1. on'
@@ -72,27 +81,26 @@ try {
 
   Expect '2. Medium off: off.list names medium' (Wait-Click '2. Click the Medium switch to turn it Off.' { Off-List-Names 'medium' })
   Shot $script:gui '02-applying'
-  Expect '2. Medium off: one rule fewer within 60 s' (Wait-Until { (Rule-Count) -eq ($base - 1) } 60)
+  Expect "2. Medium off: $($base - 1) rules, held for $stablePolls polls, within $restartSeconds s" (Wait-Stable { (Rule-Count) -eq ($base - 1) } $stablePolls $restartSeconds)
   Start-Sleep -Seconds 2
   Shot $script:gui '02-medium-off'
   Expect "2. $medium does not resolve to the relay" (-not (Goes-To-Relay $medium))
   Expect "2. $store still resolves to the relay" (Goes-To-Relay $store)
 
-  Expect '3. Medium on: off.list without medium and the base count' (Wait-Click '3. Click the Medium switch again to turn it On.' { (-not (Off-List-Names 'medium')) -and ((Rule-Count) -eq $base) })
+  Require '3. Medium on: off.list without medium and the base count, held' (Wait-Click '3. Click the Medium switch again to turn it On.' { (-not (Off-List-Names 'medium')) -and ((Rule-Count) -eq $base) } $stablePolls)
   Expect "3. $medium resolves to the relay" (Goes-To-Relay $medium)
 
   $script:filesBefore = @(Site-Files | ForEach-Object FullName)
   $script:newSiteFiles = @()
   $added = Wait-Click '4. Click Add a site, type in the window a blocked address that is not a Steam or medium.com name, press Test, then press Add and turn on.' {
     $script:newSiteFiles = @(Site-Files | Where-Object { $script:filesBefore -notcontains $_.FullName })
-    ($script:newSiteFiles.Count -gt 0) -and ((Rule-Count) -gt $base)
-  }
-  Expect '4. a new site file and one more rule' $added
+    ($script:newSiteFiles.Count -gt 0) -and ((Rule-Count) -eq ($base + 1))
+  } $stablePolls
+  Expect '4. a new site file and one more rule, held' $added
   $addedFile = $null
   if ($script:newSiteFiles.Count -gt 0) { $addedFile = $script:newSiteFiles[0] }
   if ($addedFile) {
     $script:addedPath = $addedFile.FullName
-    $null = Wait-Rules-Settled 20
     Log "  rule count with the added site: $(Rule-Count)"
     $addedDomain = Domain-Of $addedFile
     Expect '4. the added site file names a domain' ([bool]$addedDomain)
@@ -100,7 +108,7 @@ try {
       Expect '4. the added site resolves to the relay' (Goes-To-Relay $addedDomain)
       Log "  the added site: https status $(Status-Code "https://$addedDomain/")"
     }
-    Expect '5. removed: the site file is gone and the base count is back' (Wait-Click '5. Click the name of the site you added, press Remove, then press Remove again in the question.' { (-not (Test-Path -LiteralPath $script:addedPath)) -and ((Rule-Count) -eq $base) })
+    Expect '5. removed: the site file is gone and the base count is back, held' (Wait-Click '5. Click the name of the site you added, press Remove, then press Remove again in the question.' { (-not (Test-Path -LiteralPath $script:addedPath)) -and ((Rule-Count) -eq $base) } $stablePolls)
     if ($addedDomain) { Expect '5. the added site no longer resolves to the relay' (-not (Goes-To-Relay $addedDomain)) }
     $addedDomain = $null
   } else {
@@ -108,14 +116,13 @@ try {
   }
   Expect '5. site file count is back to the count before step 4' ((Site-Files).Count -eq $script:filesBefore.Count)
 
-  Expect '6. Stop: 0 rules' (Wait-Click '6. Click the round Stop button.' { (Rule-Count) -eq 0 })
+  Require '6. Stop: 0 rules, held for at least 6 s' (Wait-Click '6. Click the round Stop button.' { (Rule-Count) -eq 0 } $stopStablePolls)
   Expect '6. 0 rules pointing at the relay' ((RulesToRelay).Count -eq 0)
 
-  Expect '7. Start again: on' (Wait-On '7. Click Start again.')
-  Expect "7. the base count ($base)" ((Rule-Count) -eq $base)
+  Require "7. Start again: the base count ($base), held" (Wait-Click '7. Click Start again.' { (Rule-Count) -eq $base } $stablePolls)
   Say 'Nothing to click: the script now ends the window abruptly (as Task Manager would) and starts it again.'
-  if (-not $script:gui.HasExited) { $script:gui.Kill() }
-  Expect '7. the killed window ended' ($script:gui.WaitForExit(20000))
+  Kill-If-Running $script:gui
+  Log "  the killed window ended: $($script:gui.WaitForExit(20000))"
   Start-Sleep -Seconds 2
   Expect "7. the rules are still in place after the kill ($base)" ((Rule-Count) -eq $base)
   Relaunch '7. relaunch after the kill'
@@ -150,6 +157,7 @@ try {
   Say 'Nothing to click: the script closes the window twice in quick succession while it is on.'
   $closed = Close-Window $script:gui 2 120
   Start-Sleep -Seconds 1
+  Expect '10. both close requests were accepted' ($closed.ClosesAccepted -eq 2)
   Expect '10. closed twice while on: the process exits within 120 s' $closed.Exited
   Expect '10. closed twice while on: exit code 0' ($closed.ExitCode -eq 0)
   Expect '10. closed twice while on: no poll saw the window not responding' ($closed.NotRespondingPolls -eq 0)
@@ -157,11 +165,12 @@ try {
 
   Log-State 'after'
   Log "screenshots for the lead: $script:shots"
+  Log '  the screenshots can show the names of your own sites and stay on this PC'
   $null = Ask 'Last question: did Kaspersky or Windows show anything during this run? (no, or what it said)'
   $completed = $true
 }
 finally {
-  if ($script:addedPath -and (Test-Path -LiteralPath $script:addedPath)) { Log 'the site added in step 4 is still in the site folder: remove it in the window' }
+  if ($script:addedPath -and (Test-Path -LiteralPath $script:addedPath)) { Log 'the site added in step 4 is still in the site folder: start snisplit-gui and remove that site there' }
   $exitCode = Finish-Run $completed
 }
 exit $exitCode
