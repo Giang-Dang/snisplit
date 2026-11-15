@@ -34,7 +34,7 @@ and plain words. Built 2026-11-15. Version 0.2.0.
 - `crates/gui/src/address.rs`: a typed address or pasted link to a domain.
 - `crates/gui/src/report.rs`: a probe report in plain words, plus the technical lines.
 - `crates/gui/src/log_file.rs`: "Save to a file".
-- `crates/cli/src/instance.rs`: the one-instance lock file.
+- `crates/cli/src/instance.rs`: the one-instance lock file, `%ProgramData%\snisplit\instance.lock`.
 - `crates/gui/src/driver.rs`: runs the effects off the UI thread; `Keeper` outlives the
   window.
 - `crates/gui/src/window.rs` (Windows only): draws the view and emits events.
@@ -45,7 +45,7 @@ and plain words. Built 2026-11-15. Version 0.2.0.
 `snisplit::sites`:
 
 ```rust
-pub struct Covered { pub domain: String, pub owner: String, /* label */ }
+pub struct Covered { pub domain: String, pub owner: String, label: String }
 pub fn covered(error: &io::Error) -> Option<&Covered>;
 pub fn off_list_path(folder: &Path) -> PathBuf;
 pub fn switched_off(folder: &Path) -> io::Result<Vec<String>>;
@@ -65,22 +65,26 @@ and `Driver::new(folders, wake)`; `state` reworked (events and effects below).
 Changes 1-4 (below) add `snisplit::instance` (`Instance` holds the open lock file):
 
 ```rust
-pub struct Instance { /* private */ }
+pub struct Instance { _open: File }
 pub enum Claim { Ours(Instance), Elsewhere, Unlocked(io::Error) }
-pub fn claim(app_folder: Option<&Path>) -> Claim;
+pub fn folder() -> Option<PathBuf>;
+pub fn lock_path(folder: &Path) -> PathBuf;
+pub fn claim(folder: Option<&Path>) -> Claim;
 ```
 
 `snisplit::session`:
 
 ```rust
 pub fn count_rules(out: &Output) -> io::Result<usize>;
+pub fn cleanup(lock_folder: Option<&Path>, warn: impl FnOnce(&str), out: &Output) -> io::Result<()>;
 ```
 
 `snisplit_gui::driver`: `Driver::new` is replaced by a `Keeper` (the runtime, the
 session handle and the lock) that hands out the `Driver`:
 
 ```rust
-pub struct Keeper { /* private */ }
+pub struct Folders { pub sites: Option<PathBuf>, pub home: Option<PathBuf>, pub lock: Option<PathBuf> }
+pub struct Keeper { runtime: Option<Runtime>, tracked: Mutex<Tracked> }
 impl Keeper {
     pub fn new() -> io::Result<Keeper>;
     pub fn driver(&self, folders: Folders, wake: Wake) -> (Driver<'_>, Receiver<Event>);
@@ -525,6 +529,7 @@ the rules while the session ends was considered and deferred; it is not built.
      report in; exit code 1, and the next launch shows the leftovers (change 2).
 2. **Leftovers shown at launch.** At launch the window claims the lock (change 3) and,
    if it got it or could not take a lock, counts the snisplit rules on a blocking thread
+   (without a lock, a count above 0 is only logged; see the review fixes below)
    (`session::count_rules`, `@(Get-DnsClientNrptRule | Where-Object { $_.Comment -eq
    'snisplit' }).Count`, through the same host abstraction removal uses; nothing is
    removed and the DNS cache is not cleared). Activity gets `snisplit DNS rules in place:
@@ -534,12 +539,14 @@ the rules while the session ends was considered and deferred; it is not built.
    is not delayed (the count runs off the UI thread); a result that arrives after Start
    was pressed is ignored, also when Start was followed by Stop and the window is Off
    again (that count may have seen the live session's rules).
-3. **One instance at a time.** `snisplit::instance::claim(app_folder)` opens
-   `instance.lock` in the per-user folder (`%APPDATA%\snisplit`, the parent of the
-   sites folder), creating the folder if needed, with no sharing on Windows
-   (`share_mode(0)`), and the open handle is the lock: a file left by a killed process
-   does not block. Only a sharing violation (OS error 32) counts as held elsewhere; any
-   other error, or no per-user folder, means no lock, logged, and snisplit goes on.
+3. **One instance at a time.** `snisplit::instance::claim(folder)` opens
+   `instance.lock` in the machine-wide folder `%ProgramData%\snisplit` (read from the
+   `ProgramData` environment variable; the review fixes below moved it there from the
+   per-user `%APPDATA%\snisplit`), creating the folder if needed, with read access only
+   and no sharing on Windows (`share_mode(0)`), and the open handle is the lock: a file
+   left by a killed process does not block. Only a sharing violation (OS error 32)
+   counts as held elsewhere; any other error, or no `ProgramData`, means no lock,
+   logged, and snisplit goes on.
    Nothing is ever deleted. On other targets the file is opened without locking (the
    API compiles; the semantics are Windows only). The window keeps the lock in the
    keeper until the post-window wait is over, so a window that is gone but still
@@ -547,9 +554,9 @@ the rules while the session ends was considered and deferred; it is not built.
    claims again; Start, leftover removal and the switches are refused. `snisplit run`
    with routing takes the lock and, if it is held, exits with code 1 and `snisplit:
    error: another snisplit is already running, or is still turning off: wait a few
-   seconds, then try again`. `snisplit cleanup` does not keep the lock; if it is held
-   it prints `snisplit: warning: another snisplit is running and will lose its DNS
-   rules` and goes ahead.
+   seconds, then try again`. `snisplit cleanup` holds the lock while it removes the
+   rules (review fix 3 below); if it is held elsewhere it prints `snisplit: warning:
+   another snisplit is running and will lose its DNS rules` and goes ahead.
 4. **A broken site file named like a built-in.** A row is identified by its name and
    where it comes from (`SiteId { name, origin: BuiltIn | File }`). Opening a row, the
    remove question, Remove, tests and switches address the id. A broken `steam.profile`
@@ -583,9 +590,101 @@ window at once, the exit codes, the leftovers sentence at launch, Already open a
 again, the broken file row), and the review fixes above. `tools\acceptance\m9b.ps1`
 now has steps for a kill and the leftovers at the next launch, and for a second window.
 
+## Review fixes to changes 1-4
+
+An independent review of 39879e8..c3b4196 found these; each is fixed, with tests where
+the code can be reached without a window.
+
+1. **A panic on the UI thread left the rules in place.** winit re-raises a UI panic out
+   of `eframe::run_native`, so `Keeper::finish` never ran and the runtime's drop
+   cancelled the session before it removed its rules. The keeper's runtime is now an
+   `Option` that one wind-down takes: `finish` runs it, and `Drop` runs the same
+   bounded stop-and-wait (60 s, then a 1 s runtime shutdown) when `finish` has not, also
+   while unwinding. It cannot run twice; the exit code logic is unchanged.
+2. **The lock was per user, the rules are machine-wide.** A second account (or "run as"
+   another administrator) took its own lock, counted the first user's live rules and
+   was offered "Remove leftover settings". The lock is now
+   `%ProgramData%\snisplit\instance.lock`, opened with `FILE_READ_DATA` only and
+   `share_mode(0)`: read access is the least that the exclusive share mode checks
+   against (an open with no data access skips the share check, so it would lock
+   nothing), and the default `%ProgramData%` permissions give other accounts read but
+   not write access to a file one account created, so asking for write access would
+   turn the second account's claim into "no lock". std refuses `create(true)` without
+   write, so the options say write and create (open always, never truncate) and
+   `access_mode` replaces the requested access. The file is never written, truncated or
+   deleted. The folder comes from the `ProgramData` variable in `main.rs` and
+   `window.rs` only; `Folders::lock` carries it into the driver, so tests inject a
+   temporary folder. When the lock cannot be taken for a reason other than a holder
+   (no `ProgramData`, a folder that cannot be made, access denied), snisplit goes on
+   unlocked as before, and the window then does not enter "Off, with leftovers" from
+   the launch count: it logs `N snisplit DNS rules are in place; with no lock they may
+   belong to another running snisplit, so they are not offered for removal (Start
+   still removes them)`. A late `Elsewhere` after this window took the lock is ignored.
+   Hardening, since any local account can pre-create the folder and snisplit runs
+   elevated: the folder and an existing lock file are read with `symlink_metadata` and
+   must be a real folder and a regular file without a reparse point (junctions and
+   symbolic links are reparse points), and the file is opened with
+   `FILE_FLAG_OPEN_REPARSE_POINT`, so a planted link is never followed. A refusal means
+   no lock, with the reason in Activity or on stderr. No DACL is changed.
+3. **`snisplit cleanup` dropped its claim before removing the rules.** It now holds it
+   until the removal has finished (`session::cleanup`). Held elsewhere: the warning,
+   then the removal, as before.
+4. **Missing tests** for `run` and `cleanup` with the lock held (below).
+5. **Hide before closing.** Where the window acts on `Effect::Exit` it sends
+   `ViewportCommand::Visible(false)`, then `Close`, then asks for a repaint, so the
+   window cannot sit on screen unresponsive while the wait after it runs (winit only
+   posts the destroy message). eframe 0.37 still runs the logic pass of a hidden root
+   viewport and paints invisible windows directly on Windows, so the `Close` is handled.
+6. **`tools/acceptance/m9b.ps1`.** Everything after the first window start runs in
+   `try { } finally { }`: an abort (Ctrl+C, an error) removes any rules pointing at the
+   relay and logs that it did, also between the deliberate kill and the leftover
+   removal; a completed run leaves the finally block idle, so "left running for you to
+   look at" stays as it was. The kill uses the Process object's `Kill()` guarded by
+   `HasExited`, never a process id. When the surviving window is the second one, step
+   12 says to press Try again first. Parsed with the language parser under Windows
+   PowerShell 5.1 and pwsh 7 (0 errors); not run.
+
+Known risks, not fixed:
+
+- A PowerShell call stuck beyond the 60 s limit keeps running after the process has
+  released the lock and exited its wait; if it is a removal, it could remove the rules
+  of a new instance started in the meantime.
+- Another local account can hold or pre-create the lock so that snisplit says "Already
+  open" (a local denial of service, the same class as that account binding the
+  loopback ports snisplit needs). The way out is `snisplit cleanup`, which warns and
+  proceeds. The lock is advisory between cooperating snisplit processes, not a security
+  boundary. A link swapped in between the folder check and the open is not caught for
+  the folder (the file open does not follow links).
+- The cli outside Windows has no `ProgramData` and so runs unlocked; routing is Windows
+  only anyway.
+
+Tests: 637 pass on Windows (620 before). cli: 7 lock tests (a lock file that cannot be
+written is still claimed and still excludes a second claim, the lock path under a given
+`ProgramData` written out by hand, an unset or empty `ProgramData`, a lock path that is a
+folder, a lock folder that is a junction and one that is a symbolic link with nothing
+created in the target, a lock file that is a symbolic link with its target untouched;
+the link tests return early if the link cannot be made, and on this machine they ran), 3
+cleanup tests through the fake host (held elsewhere: the warning and one removal; ours:
+the lock is still held during the removal and free after it; no lock folder: the
+removal still runs and its refusal is returned), 1 binary test (a routed `run` while the
+lock is held exits with code 1 and the one-line message; the child gets a temporary
+`ProgramData` and `APPDATA` and a missing profile file, so even a broken lock check
+stops before any DNS change). gui: 2 keeper tests (a keeper dropped without `finish`,
+and one dropped by a panic unwinding past it, both send the stop to a slow fake session
+and wait for its end), 3 state tests (rules found without a lock are logged, not offered,
+and Start still runs; `Elsewhere` while Off at launch shows Already open; a late
+`Elsewhere` after the lock was taken changes nothing), 1 view test (no leftovers button
+without a lock).
+
+Not seen in a real window: the hide before the close, the drop path after a real UI
+panic, and the machine-wide lock with two accounts.
+
+The owner ran two on-demand antivirus scans on 2026-11-15, of the release folder and then of the whole repository; neither reported anything. These were file scans of the builds from before changes 1-4 and say nothing about behaviour-based detection or about the CI-built release zip.
+
 ## Awaiting the owner
 
-1. The release build of 0.2.0 is in `target\release` (built after the changes 1-4).
+1. The release build of 0.2.0 is in `target\release` (built after the review fixes to
+   changes 1-4).
 2. The rest of the unelevated smoke run, at a time when nobody else uses the PC: Test
    on example.org, the add flow on example.net or example.org (and medium.com for the
    covered refusal), a switch and its `off.list`, Remove, Start unelevated showing
