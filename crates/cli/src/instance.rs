@@ -3,7 +3,7 @@ use std::fs::{self, File, Metadata, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 
-use platform::{held_by_another, is_link, open_exclusive};
+use platform::{held_by_another, is_link, open_exclusive, open_folder};
 
 const MACHINE_FOLDER_VARIABLE: &str = "ProgramData";
 const APP_FOLDER: &str = "snisplit";
@@ -18,6 +18,7 @@ const FILE_REFUSED: &str =
 #[derive(Debug)]
 pub struct Instance {
     _open: File,
+    _folder: File,
 }
 
 #[derive(Debug)]
@@ -44,32 +45,37 @@ pub fn claim(folder: Option<&Path>) -> Claim {
     let Some(folder) = folder else {
         return Claim::Unlocked(io::Error::new(io::ErrorKind::NotFound, NO_MACHINE_FOLDER));
     };
-    if let Err(error) = usable_folder(folder) {
-        return Claim::Unlocked(error);
-    }
+    let pinned = match usable_folder(folder) {
+        Ok(pinned) => pinned,
+        Err(error) => return Claim::Unlocked(error),
+    };
     let path = lock_path(folder);
     if let Err(error) = usable_existing_file(&path) {
         return Claim::Unlocked(error);
     }
     match open_exclusive(&path) {
-        Ok(open) => Claim::Ours(Instance { _open: open }),
+        Ok(open) => Claim::Ours(Instance {
+            _open: open,
+            _folder: pinned,
+        }),
         Err(error) if held_by_another(&error) => Claim::Elsewhere,
         Err(error) => Claim::Unlocked(error),
     }
 }
 
-fn usable_folder(folder: &Path) -> io::Result<()> {
-    if existing(folder)?.is_some() {
-        return real_folder(folder);
-    }
-    fs::create_dir_all(folder)?;
-    real_folder(folder)
-}
-
-fn real_folder(folder: &Path) -> io::Result<()> {
-    match existing(folder)? {
-        Some(metadata) if metadata.is_dir() && !is_link(&metadata) => Ok(()),
-        _ => Err(refused(FOLDER_REFUSED)),
+fn usable_folder(folder: &Path) -> io::Result<File> {
+    let pinned = match open_folder(folder) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            fs::create_dir_all(folder)?;
+            open_folder(folder)?
+        }
+        opened => opened?,
+    };
+    let metadata = pinned.metadata()?;
+    if metadata.is_dir() && !is_link(&metadata) {
+        Ok(pinned)
+    } else {
+        Err(refused(FOLDER_REFUSED))
     }
 }
 
@@ -100,16 +106,30 @@ fn creating_options() -> OpenOptions {
 
 #[cfg(windows)]
 mod platform {
-    use std::fs::{File, Metadata};
+    use std::fs::{File, Metadata, OpenOptions};
     use std::io;
     use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
     use std::path::Path;
 
     const SHARE_NOTHING: u32 = 0;
+    const FILE_SHARE_READ: u32 = 0x0001;
+    const FILE_SHARE_WRITE: u32 = 0x0002;
     const FILE_READ_DATA: u32 = 0x0001;
+    const FILE_LIST_DIRECTORY: u32 = 0x0001;
+    const FILE_READ_ATTRIBUTES: u32 = 0x0080;
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
     const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
     const ERROR_SHARING_VIOLATION: i32 = 32;
+
+    pub(super) fn open_folder(path: &Path) -> io::Result<File> {
+        OpenOptions::new()
+            .read(true)
+            .access_mode(FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)
+    }
 
     pub(super) fn open_exclusive(path: &Path) -> io::Result<File> {
         super::creating_options()
@@ -133,6 +153,13 @@ mod platform {
     use std::fs::{File, Metadata};
     use std::io;
     use std::path::Path;
+
+    pub(super) fn open_folder(path: &Path) -> io::Result<File> {
+        if super::existing(path)?.is_some_and(|metadata| is_link(&metadata)) {
+            return Err(super::refused(super::FOLDER_REFUSED));
+        }
+        File::open(path)
+    }
 
     pub(super) fn open_exclusive(path: &Path) -> io::Result<File> {
         super::creating_options().open(path)

@@ -43,6 +43,47 @@ fn a_second_claim_is_refused_while_the_first_is_held_and_succeeds_once_it_is_dro
 }
 
 #[cfg(windows)]
+const ERROR_SHARING_VIOLATION: i32 = 32;
+
+#[cfg(windows)]
+#[test]
+fn the_lock_folder_cannot_be_renamed_while_a_claim_is_held_and_can_be_once_it_is_dropped() {
+    let folder = TempFolder::new("rename");
+    let moved = folder.0.join("moved");
+    let held = claim(Some(&folder.app()));
+    assert!(matches!(held, Claim::Ours(_)), "{held:?}");
+    let refused = fs::rename(folder.app(), &moved).unwrap_err();
+    assert_eq!(refused.raw_os_error(), Some(ERROR_SHARING_VIOLATION));
+    let second = claim(Some(&folder.app()));
+    assert!(matches!(second, Claim::Elsewhere), "{second:?}");
+    drop(second);
+    drop(held);
+    fs::rename(folder.app(), &moved).unwrap();
+    assert!(moved.join("instance.lock").is_file());
+}
+
+#[cfg(windows)]
+#[test]
+fn a_lock_folder_held_open_without_sharing_proceeds_unlocked_rather_than_held() {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_LIST_DIRECTORY: u32 = 0x0001;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    let folder = TempFolder::new("folder-unshared");
+    fs::create_dir_all(folder.app()).unwrap();
+    let _unshared = OpenOptions::new()
+        .read(true)
+        .access_mode(FILE_LIST_DIRECTORY)
+        .share_mode(0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(folder.app())
+        .unwrap();
+    match claim(Some(&folder.app())) {
+        Claim::Unlocked(error) => assert_eq!(error.raw_os_error(), Some(ERROR_SHARING_VIOLATION)),
+        other => panic!("expected an unlocked claim, got {other:?}"),
+    }
+}
+
+#[cfg(windows)]
 #[test]
 fn a_lock_file_that_cannot_be_written_is_still_claimed_and_still_excludes_a_second_claim() {
     let folder = TempFolder::new("read-only");

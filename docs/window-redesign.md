@@ -621,11 +621,18 @@ the code can be reached without a window.
    belong to another running snisplit, so they are not offered for removal (Start
    still removes them)`. A late `Elsewhere` after this window took the lock is ignored.
    Hardening, since any local account can pre-create the folder and snisplit runs
-   elevated: the folder and an existing lock file are read with `symlink_metadata` and
-   must be a real folder and a regular file without a reparse point (junctions and
-   symbolic links are reparse points), and the file is opened with
-   `FILE_FLAG_OPEN_REPARSE_POINT`, so a planted link is never followed. A refusal means
-   no lock, with the reason in Activity or on stderr. No DACL is changed.
+   elevated: the folder itself is opened as a handle (list and read-attributes access,
+   `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT`, sharing read and write
+   but not delete) and its attributes are taken from that handle; it must be a real
+   folder without a reparse point (junctions and symbolic links are reparse points).
+   The handle is kept for the life of the claim, so while it is open the folder cannot
+   be renamed or deleted, and so cannot be swapped for a link between the check and the
+   lock-file open. A second snisplit opens the folder the same way and gets as far as
+   the lock file, so it still reports held elsewhere. An existing lock file is read
+   with `symlink_metadata` and must be a regular file without a reparse point, and it
+   is opened with `FILE_FLAG_OPEN_REPARSE_POINT`; both act on the last path component
+   only, which is why the folder is pinned by its handle. A refusal means no lock, with
+   the reason in Activity or on stderr. No DACL is changed.
 3. **`snisplit cleanup` dropped its claim before removing the rules.** It now holds it
    until the removal has finished (`session::cleanup`). Held elsewhere: the warning,
    then the removal, as before.
@@ -653,8 +660,17 @@ Known risks, not fixed:
   open" (a local denial of service, the same class as that account binding the
   loopback ports snisplit needs). The way out is `snisplit cleanup`, which warns and
   proceeds. The lock is advisory between cooperating snisplit processes, not a security
-  boundary. A link swapped in between the folder check and the open is not caught for
-  the folder (the file open does not follow links).
+  boundary. Before the folder was held as a handle, an account controlling
+  `%ProgramData%\snisplit` could swap the folder for a junction after the check, and
+  the elevated snisplit then created or held `instance.lock` in a folder of that
+  account's choosing. With the handle held from the check until the claim ends, the
+  folder can no longer be renamed or deleted, so that swap no longer redirects the file
+  open. That account can still make snisplit run unlocked (refuse or block the folder)
+  or say "Already open" (hold the lock file). Not ruled out: turning the folder into a
+  junction in place, without renaming it, while it is still empty (setting a reparse
+  point may need only write-attributes access, which a share mode does not gate); std
+  offers no way to open the file relative to the folder handle, and this case is not
+  tested.
 - The cli outside Windows has no `ProgramData` and so runs unlocked; routing is Windows
   only anyway.
 
