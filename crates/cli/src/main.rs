@@ -76,7 +76,7 @@ fn only_instance() -> io::Result<Option<Instance>> {
         Claim::Ours(held) => Ok(Some(held)),
         Claim::Elsewhere => Err(io::Error::new(io::ErrorKind::AddrInUse, ALREADY_RUNNING)),
         Claim::Unlocked(error) => {
-            eprintln!("snisplit: warning: not checking for another running snisplit: {error}");
+            eprintln!("{}", instance::unlocked_warning(&error));
             Ok(None)
         }
     }

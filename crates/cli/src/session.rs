@@ -241,8 +241,10 @@ fn cleanup_with<H: Host>(
     out: &Output,
 ) -> io::Result<()> {
     let claim = instance::claim(lock_folder);
-    if let Claim::Elsewhere = claim {
-        warn(CLEANUP_WHILE_RUNNING);
+    match &claim {
+        Claim::Ours(_) => {}
+        Claim::Elsewhere => warn(CLEANUP_WHILE_RUNNING),
+        Claim::Unlocked(error) => warn(&instance::unlocked_warning(error)),
     }
     let removed = remove_rules_with(host, out);
     drop(claim);

@@ -735,7 +735,6 @@ mod start_up {
         );
     }
 
-    #[cfg(windows)]
     fn cleanup_fake(host: &FakeHost, lock_folder: Option<&Path>) -> (io::Result<()>, Vec<String>) {
         let mut warnings = Vec::new();
         let recorder = Recorder::stopping_when(never_stops);
@@ -799,7 +798,30 @@ mod start_up {
             removed.map_err(|error| error.to_string()),
             Err("powershell: Access is denied.".to_string())
         );
-        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(
+            warnings,
+            [
+                "snisplit: warning: not checking for another running snisplit: no machine-wide snisplit folder: the ProgramData environment variable is not set"
+            ]
+        );
+        assert_eq!(host.calls(), ["remove"]);
+    }
+
+    #[test]
+    fn cleanup_with_an_unusable_lock_folder_warns_why_and_still_removes_the_rules() {
+        let folder = SnisplitFolder::new("cleanup-unusable");
+        std::fs::create_dir_all(&folder.app).unwrap();
+        let in_the_way = folder.app.join("lock");
+        std::fs::write(&in_the_way, b"a file where the lock folder should be").unwrap();
+        let host = FakeHost::default();
+        let (removed, warnings) = cleanup_fake(&host, Some(&in_the_way));
+        assert!(removed.is_ok(), "{removed:?}");
+        assert_eq!(
+            warnings,
+            [
+                "snisplit: warning: not checking for another running snisplit: the snisplit lock folder is a link or not a real folder, so it is not used"
+            ]
+        );
         assert_eq!(host.calls(), ["remove"]);
     }
 

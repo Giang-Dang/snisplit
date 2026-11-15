@@ -61,7 +61,7 @@ for it was removed; no code from it exists.
 
 - `crates/core`: TLS ClientHello and HTTP Host inspection, domain matcher, split
   strategy (reused by the relay); segment planner, flow table, engine, packet loop
-  (parked). 12 real Steam ClientHello fixtures. The workspace has 637 passing tests on Windows.
+  (parked). 12 real Steam ClientHello fixtures. The workspace has 640 passing tests on Windows.
 - `snisplit_core::probe` and `snisplit_relay::probe`: the `probe` attempts, a hand-built
   ClientHello, reply classification, verdict and suggested profile (milestone 6).
 - `crates/core` also has the DNS codec (`dns`), the relay's first-flight decision

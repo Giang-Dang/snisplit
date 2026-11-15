@@ -28,6 +28,10 @@ pub enum Claim {
     Unlocked(io::Error),
 }
 
+pub fn unlocked_warning(error: &io::Error) -> String {
+    format!("snisplit: warning: not checking for another running snisplit: {error}")
+}
+
 pub fn folder() -> Option<PathBuf> {
     folder_from(|key| std::env::var_os(key))
 }

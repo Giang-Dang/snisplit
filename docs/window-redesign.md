@@ -635,7 +635,8 @@ the code can be reached without a window.
    the reason in Activity or on stderr. No DACL is changed.
 3. **`snisplit cleanup` dropped its claim before removing the rules.** It now holds it
    until the removal has finished (`session::cleanup`). Held elsewhere: the warning,
-   then the removal, as before.
+   then the removal, as before. No lock: `snisplit: warning: not checking for another
+   running snisplit: <reason>` (the line `run` prints), then the removal.
 4. **Missing tests** for `run` and `cleanup` with the lock held (below).
 5. **Hide before closing.** Where the window acts on `Effect::Exit` it sends
    `ViewportCommand::Visible(false)`, then `Close`, then asks for a repaint, so the
