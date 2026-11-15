@@ -1,3 +1,4 @@
+pub mod instance;
 mod plan;
 pub mod profile;
 mod profile_file;
