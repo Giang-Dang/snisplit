@@ -3,6 +3,8 @@
 use std::process::ExitCode;
 
 #[cfg(windows)]
+mod widgets;
+#[cfg(windows)]
 mod window;
 
 #[cfg(windows)]

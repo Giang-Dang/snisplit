@@ -1,5 +1,7 @@
 use std::time::{Duration, Instant};
 
+use snisplit::session::Failure;
+
 use super::*;
 
 fn runtime() -> Runtime {
@@ -27,7 +29,7 @@ fn a_session_task_that_never_ends_is_given_up_after_the_limit() {
 
 #[test]
 fn dropping_the_driver_does_not_wait_for_a_blocking_task_that_never_returns() {
-    let (driver, _events) = Driver::new(None, Arc::new(|| {})).unwrap();
+    let (driver, _events) = Driver::new(Folders::default(), Arc::new(|| {})).unwrap();
     let blocked = Duration::from_secs(4);
     drop(
         driver
@@ -38,4 +40,27 @@ fn dropping_the_driver_does_not_wait_for_a_blocking_task_that_never_returns() {
     let started = Instant::now();
     drop(driver);
     assert!(started.elapsed() < Duration::from_secs(3));
+}
+
+#[test]
+fn a_session_result_becomes_a_clean_end_or_a_failure_with_its_text() {
+    assert_eq!(session_end(Ok(())), SessionEnd::Clean);
+    assert_eq!(
+        session_end(Err(io::Error::other("adapter list unreadable"))),
+        SessionEnd::Failed {
+            failure: Failure::Other,
+            detail: "adapter list unreadable".to_string()
+        }
+    );
+}
+
+#[test]
+fn only_the_probe_with_the_cancelled_id_is_aborted() {
+    let (mut driver, _events) = Driver::new(Folders::default(), Arc::new(|| {})).unwrap();
+    let task = driver.runtime().spawn(std::future::pending::<()>());
+    driver.probe = Some((7, task));
+    driver.run(Effect::CancelProbe(6));
+    assert_eq!(driver.probe.as_ref().map(|(id, _)| *id), Some(7));
+    driver.run(Effect::CancelProbe(7));
+    assert!(driver.probe.is_none());
 }
