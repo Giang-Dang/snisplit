@@ -88,12 +88,37 @@ Wait-Owner '7. Press the round Stop button and wait until the line under it says
 Log-State 'step 7, after Stop'
 
 Wait-Owner '8. Press Start again and wait until it says On.'
-Log-State 'step 8, on again before the close'
-Say '9. Close the window with its X button while it is on. The window should say Turning off... and close by itself. The script waits up to 120 s.'
+Log-State 'step 8, on again before the kill'
+
+Wait-Owner '9. Nothing to click: the script now ends snisplit-gui abruptly (as Task Manager would) while it is on, and starts it again.'
+Stop-Process -Id $gui.Id -Force
+$killed = $gui.WaitForExit(20000)
+Start-Sleep 2
+Log "step 9: killed while on: exited=$killed; snisplit rules: $((Rules).Count) (expected above 0)"
+$gui = Start-Process $built -PassThru
+Start-Sleep 5
+Log "window again: process $($gui.Id), title '$((Get-Process -Id $gui.Id -ErrorAction SilentlyContinue).MainWindowTitle)'"
+$null = Ask '   Does the window say Off, with leftovers, that snisplit did not get to turn off properly last time, and offer Remove leftover settings? (y/n)'
+
+Wait-Owner '10. Press Remove leftover settings and wait until the line under the button says Off.'
+Log-State 'step 10, after removing the leftovers'
+Log "  snisplit rules: $((Rules).Count) (expected 0)"
+
+Say '11. With this window open, the script starts a second snisplit-gui.'
+$second = Start-Process $built -PassThru
+Start-Sleep 4
+$null = Ask '   Does the second window say Already open, with a Try again button? (y/n)'
+Wait-Owner '   Close the second window (the one that says Already open) with its X button.'
+$secondClosed = $second.WaitForExit(20000)
+Log "step 11: second window closed=$secondClosed, exit code $(if ($secondClosed) { $second.ExitCode }); processes: $((Snisplit-Processes).Name -join ',')"
+
+Wait-Owner '12. In the remaining window press Start and wait until it says On.'
+Log-State 'step 12, on again before the close'
+Say '13. Close the window with its X button while it is on. The window should say Turning off... and close by itself. The script waits up to 120 s.'
 $closedInTime = $gui.WaitForExit(120000)
 Start-Sleep 2
-Log "step 9: closed while on: exited=$closedInTime, exit code $(if ($closedInTime) { $gui.ExitCode })"
-Log-State 'step 9, after closing'
+Log "step 13: closed while on: exited=$closedInTime, exit code $(if ($closedInTime) { $gui.ExitCode })"
+Log-State 'step 13, after closing'
 if (-not $closedInTime) { Log 'snisplit-gui did not exit within 120 s; it was left running for you to look at' }
 if ($closedInTime -and (RulesToRelay).Count -gt 0) { Log 'RULES LEFT after closing the window; removing them'; Remove-RelayRules; Log "rules now: $((RulesToRelay).Count)" }
 $null = Ask '   Did Kaspersky or Windows show anything during this run? (no, or what it said)'

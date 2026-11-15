@@ -164,8 +164,9 @@ cargo build --release
 
 ## If something goes wrong
 
-- A listed site stops resolving after a crash or a kill: run `snisplit cleanup` as
-  administrator, or start `snisplit run` again.
+- Listed sites stop opening after a restart, or after snisplit was killed: open
+  snisplit once and press "Remove leftover settings" (or Start), or run
+  `snisplit cleanup` as administrator.
 - "binding 127.0.0.2:53 failed" or similar: another program holds that loopback
   address and port. Stop it, or stop the other copy of snisplit.
 - A site still fails: run `snisplit probe <domain>` and read the verdict; restart the

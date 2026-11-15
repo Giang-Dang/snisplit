@@ -34,7 +34,9 @@ and plain words. Built 2026-11-15. Version 0.2.0.
 - `crates/gui/src/address.rs`: a typed address or pasted link to a domain.
 - `crates/gui/src/report.rs`: a probe report in plain words, plus the technical lines.
 - `crates/gui/src/log_file.rs`: "Save to a file".
-- `crates/gui/src/driver.rs`: runs the effects off the UI thread.
+- `crates/cli/src/instance.rs`: the one-instance lock file.
+- `crates/gui/src/driver.rs`: runs the effects off the UI thread; `Keeper` outlives the
+  window.
 - `crates/gui/src/window.rs` (Windows only): draws the view and emits events.
 - `crates/gui/src/widgets.rs` (Windows only): round button, ring, switch, triangle, marks.
 
@@ -59,6 +61,32 @@ pub fn failure(error: &io::Error) -> Failure;
 
 `snisplit_gui`: new modules `address`, `log_file`, `view`; `driver::Folders { sites, home }`
 and `Driver::new(folders, wake)`; `state` reworked (events and effects below).
+
+Changes 1-4 (below) add:
+
+```rust
+// snisplit::instance
+pub struct Instance { /* the open lock file */ }
+pub enum Claim { Ours(Instance), Elsewhere, Unlocked(io::Error) }
+pub fn claim(app_folder: Option<&Path>) -> Claim;
+// snisplit::session
+pub fn count_rules(out: &Output) -> io::Result<usize>;
+// snisplit_gui::driver: Driver::new is replaced by
+pub struct Keeper { /* runtime, session handle, lock */ }
+impl Keeper {
+    pub fn new() -> io::Result<Keeper>;
+    pub fn driver(&self, folders: Folders, wake: Wake) -> (Driver<'_>, Receiver<Event>);
+    pub fn finish(self) -> Ending;
+}
+pub enum Ending { Clean, RulesMayRemain, TimedOut }
+// snisplit_gui::state
+pub enum Origin { BuiltIn, File }
+pub struct SiteId { pub name: String, pub origin: Origin }
+pub enum Claimed { Ours, Elsewhere, Unlocked(String) }
+// Relay::AlreadyOpen; Event::{Launched, InstanceClaimed, ClaimAgainPressed,
+// LeftoversCounted}; Effect::{ClaimInstance, CountLeftovers}; RowPressed, SwitchPressed,
+// TestPressed, Open::Site and Target::Site carry a SiteId.
+```
 
 ## Per-site switch (`off.list`)
 
@@ -127,6 +155,8 @@ small form's one sentence) and the right-hand footer text:
 | Off, with leftovers | Start | double ring | Off, with leftovers | snisplit could not tidy up after itself. `<sites>` may not open until the leftover settings are removed. + "Remove leftover settings", "See what happened" | pressing Start also removes them |
 | Leftovers, removal refused | Start | double ring | Off, with leftovers | (as above) / Windows refused to remove them. If you did not start it with Run as administrator, close this window, right-click snisplit-gui and choose Run as administrator. | pressing Start also removes them |
 | Removing leftovers | Wait (disabled) | arc | Removing leftover settings... | (none) | version 0.2.0 |
+| Off, with leftovers found at launch | Start | double ring | Off, with leftovers | snisplit did not get to turn off properly last time. Some of its settings are still in place, so the sites below may not open. + "Remove leftover settings", "See what happened" | pressing Start also removes them |
+| Already open (another snisplit holds the lock) | Try again | double ring | Already open | snisplit is already running, or is still turning off. Wait a few seconds, then press Try again. (switches disabled) | version 0.2.0 |
 
 `<sites>` lists the titles of the sites of the session: "Steam opens through snisplit.",
 "Steam and example.com open through snisplit.", "Steam, Medium and example.com open
@@ -215,8 +245,9 @@ Activity is what gets saved and sent. No clipboard.
   Start still removes stale rules first.
 - Closing: the first close while starting, on or applying stops the session and waits
   ("Turning off..."); the window exits when the session has ended. A second close while
-  it is still stopping exits at once and logs that rules may remain. A close while
-  leftovers are being removed waits for that result the same way.
+  it is still stopping closes the window at once and logs that rules may remain; the
+  process then waits for the removal after the window is gone (change 1 below). A close
+  while leftovers are being removed waits for that result the same way.
 - A failure while closing keeps the window open only when the rule removal failed
   (leftovers, so the owner sees it); the next close exits. Any other failure while
   closing exits, because the session now reports a failed removal explicitly and so
@@ -427,9 +458,122 @@ tests, 2 address tests, 2 driver unit tests.
 Not seen in a real window: Escape, the Keep / Remove order on screen, the row id salt,
 and how a long path wraps in the save note.
 
+## Owner's elevated run of tools/acceptance/m9b.ps1, 2026-11-15 10:00-10:04, binary built from 0c8d793 (before the review fixes)
+
+- Start: 3 rules; the store over HTTPS answered 200 and over HTTP 302, through the relay.
+- Medium switched off while on: 2 rules, medium.com resolving directly; switched back
+  on: 3 rules.
+- A site added while on: 4 rules, and the added site resolved to the relay (HTTPS
+  status 403).
+- Removing it while on: 3 rules and 1 site file.
+- Stop: 0 rules.
+- Closing with X while on: the process exited with code 0, and 0 rules were left.
+- The owner saw "Applying your change..." and reported nothing from the antivirus.
+
+The review fixes above and changes 1-4 below were made after this run and have not
+been seen in a real window.
+
+## Changes 1-4 after the owner's run
+
+Logoff, shutdown and any abrupt kill (Task Manager, a crash, power loss) are handled by
+recovery at the next launch (change 2), not at the moment they happen. A handler for the
+Windows end-session messages (`WM_QUERYENDSESSION` / `WM_ENDSESSION`) that would remove
+the rules while the session ends was considered and deferred; it is not built.
+
+1. **No frozen window on the second close.** Before, a second close while stopping
+   emitted `Effect::Exit`; eframe drops the App before it destroys the window, and the
+   App owned the `Driver`, whose `Drop` waited up to 60 s for the session on the UI
+   thread, so the window showed "Not responding". Now `run()` in `window.rs` owns a
+   `driver::Keeper`: the tokio runtime, the stop handle of the running session, the task
+   that reports the end of the latest session or leftover removal, and the
+   one-instance lock (change 3). The App holds a `Driver<'keeper>` that only borrows the
+   keeper, and nothing in the App blocks when it is dropped. After `eframe::run_native`
+   returns (the window is gone), `run()` calls `Keeper::finish`: it sends the stop (in
+   case the window ended while the session ran), waits up to 60 s for the latest session
+   or leftover removal to end, shuts the runtime down with a 1 s limit, releases the
+   lock, and only then returns. Exit code 0 when the latest session ended cleanly, or
+   failed for a reason other than removing its rules, or the latest leftover removal
+   succeeded, or nothing was started; exit code 1 when its rules may remain (a failed or
+   crashed removal), when the wait gave up, or when the window could not be created.
+   Exit paths:
+   - First close while off, failed or with leftovers: `Exit` at once; nothing to wait
+     for after the window, except the result of an earlier session or removal, which is
+     already known. So a close from "Off, with leftovers" after a failed stop exits with
+     code 1; leftovers found at launch and not removed exit with code 0, since this run
+     made no rules.
+   - First close while starting, on or applying: stop, "Turning off...", the window
+     waits; when the session ends cleanly it exits, and the wait after the window is
+     immediate (code 0).
+   - Failed removal at the first close: the window stays open showing "Off, with
+     leftovers" (as before); the next close exits with code 1, or with code 0 if
+     "Remove leftover settings" succeeded in between.
+   - Second close while still stopping (or while removing leftovers): the window closes
+     at once; the process waits up to 60 s after the window is gone for the removal.
+   - The removal fails or does not finish in 60 s after the window is gone: no window to
+     report in; exit code 1, and the next launch shows the leftovers (change 2).
+2. **Leftovers shown at launch.** At launch the window claims the lock (change 3) and,
+   if it got it or could not take a lock, counts the snisplit rules on a blocking thread
+   (`session::count_rules`, `@(Get-DnsClientNrptRule | Where-Object { $_.Comment -eq
+   'snisplit' }).Count`, through the same host abstraction removal uses; nothing is
+   removed and the DNS cache is not cleared). Activity gets `snisplit DNS rules in place:
+   N`. Above 0, the window enters "Off, with leftovers" with the sentence in the table
+   above and the existing button; Start still removes stale rules first. A failed check
+   logs `could not check for leftover DNS rules: <cause>` and stays Off. The first paint
+   is not delayed (the count runs off the UI thread); a result that arrives after Start
+   was pressed is ignored, also when Start was followed by Stop and the window is Off
+   again (that count may have seen the live session's rules).
+3. **One instance at a time.** `snisplit::instance::claim(app_folder)` opens
+   `instance.lock` in the per-user folder (`%APPDATA%\snisplit`, the parent of the
+   sites folder), creating the folder if needed, with no sharing on Windows
+   (`share_mode(0)`), and the open handle is the lock: a file left by a killed process
+   does not block. Only a sharing violation (OS error 32) counts as held elsewhere; any
+   other error, or no per-user folder, means no lock, logged, and snisplit goes on.
+   Nothing is ever deleted. On other targets the file is opened without locking (the
+   API compiles; the semantics are Windows only). The window keeps the lock in the
+   keeper until the post-window wait is over, so a window that is gone but still
+   turning off still holds it. Held elsewhere: "Already open" (table above); Try again
+   claims again; Start, leftover removal and the switches are refused. `snisplit run`
+   with routing takes the lock and, if it is held, exits with code 1 and `snisplit:
+   error: another snisplit is already running, or is still turning off: wait a few
+   seconds, then try again`. `snisplit cleanup` does not keep the lock; if it is held
+   it prints `snisplit: warning: another snisplit is running and will lose its DNS
+   rules` and goes ahead.
+4. **A broken site file named like a built-in.** A row is identified by its name and
+   where it comes from (`SiteId { name, origin: BuiltIn | File }`). Opening a row, the
+   remove question, Remove, tests and switches address the id. A broken `steam.profile`
+   is its own row: opening it opens only it, Remove asks "Remove steam?" and deletes the
+   file, the built-in Steam row stays with its switch and has no Remove, and deleting
+   the file while on neither drops the built-in row nor restarts the session. A valid
+   hand-written file named like a built-in is also its own row; both rows share the
+   `off.list` entry of that name, so switching one switches both.
+
+Tests: 620 pass on Windows (592 before). cli: 5 lock tests (a second claim refused
+while the first is held and accepted after it is dropped, a stale lock file, a missing
+folder, a folder that cannot be made, no per-user folder), the count script text and
+its parse, the count through the fake host with no removal. gui: 7 keeper tests
+(dropping the driver while a slow fake session stops returns in under 250 ms and the
+wait after sees a clean end; a crash while stopping after the window is gone means
+rules may remain, and the wait sends the stop itself; a failure for another reason is
+clean; a session that ignores the stop is given up after the limit; a successful
+leftover removal after a failed stop is clean; a refused removal is not; a stuck
+blocking task does not hold the exit), the report tests assert the returned outcome,
+11 state tests (launch, leftovers found, none, failed check, a result after Start and
+after Start-Stop, no lock, Already open and Try again, closing while Already open, and
+three for the broken `steam.profile`), 3 view tests (the leftovers-at-launch and
+Already open headers written out by hand, the broken `steam.profile` row), 3 driver
+tests with temporary folders (the lock stays with the keeper after the window side is
+dropped until `finish`, no folder means unlocked, deleting a broken `steam.profile`
+removes that file and the built-in stays listed). No test starts PowerShell for DNS
+rules, counts or removes real rules, or touches `%APPDATA%\snisplit`.
+
+Not seen in a real window: everything in changes 1-4 (the second close leaving the
+window at once, the exit codes, the leftovers sentence at launch, Already open and Try
+again, the broken file row), and the review fixes above. `tools\acceptance\m9b.ps1`
+now has steps for a kill and the leftovers at the next launch, and for a second window.
+
 ## Awaiting the owner
 
-1. The release build of 0.2.0 is in `target\release` (built after 20b551a).
+1. The release build of 0.2.0 is in `target\release` (built after the changes 1-4).
 2. The rest of the unelevated smoke run, at a time when nobody else uses the PC: Test
    on example.org, the add flow on example.net or example.org (and medium.com for the
    covered refusal), a switch and its `off.list`, Remove, Start unelevated showing
@@ -438,5 +582,6 @@ and how a long path wraps in the save note.
 3. `tools\acceptance\m9b.ps1` from an elevated PowerShell (log in `%TEMP%\m9b-gui.log`).
 4. Whether Kaspersky showed anything, and whether the window looks right on the owner's
    display (fonts, sizes, the dark colours).
-5. Still open from before: logoff or shutdown with the window open; the browser fallback
+5. Still open from before: logoff or shutdown with the window open (now expected to be
+   shown as leftovers at the next launch); the browser fallback
    from HTTP/3 (docs/milestone-8.md); the draft release (docs/milestone-7.md).
