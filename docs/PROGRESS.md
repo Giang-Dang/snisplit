@@ -1,6 +1,6 @@
 # snisplit progress
 
-Read this first when resuming. Last updated 2026-11-15. The plan itself is PLAN.md;
+Read this first when resuming. Last updated 2026-11-15 (window redesign, 0.2.0). The plan itself is PLAN.md;
 this file says where the work stands and what to do next.
 
 ## Where things stand
@@ -16,6 +16,7 @@ this file says where the work stands and what to do next.
 | 6 `probe` | **Done** 2026-11-15 (docs/milestone-6.md): `snisplit probe <domain>` reproduces section 1's no-bypass and split rows (store.steampowered.com, medium.com blocked, cut at byte 1 and `hoSt:` pass; example.org not blocked) and prints a profile file; library entry point `snisplit_relay::probe::probe` for the UI |
 | 8 QUIC | **Measured** 2026-11-14 (docs/milestone-8.md): not filtered by server name on this ISP; no QUIC work. Awaiting the owner: one routed browser run to time the fallback to TCP |
 | 9 UI | **Done** 2026-11-15 (docs/milestone-9.md): `snisplit-gui` (egui) starts and stops the relay and lists, checks, adds and removes sites; the owner's elevated run passed every step: Start, fetch through the relay, add a site, Stop, Start again, close while running, 0 rules left |
+| 9b Window redesign | **Built, not seen in a real window** 2026-11-15 (docs/window-redesign.md): version 0.2.0; a 400 px window with one round button, a switch per site (`off.list`, which `run` honours too), rows that open in place, plain failure causes, leftovers removal, Activity with Save to a file. The release build and the smoke run were blocked because a `snisplit-gui` started at 07:32 was still running; awaiting the owner: close it, build, `tools/acceptance/m9b.ps1` |
 | 7 Releases | **Built** 2026-11-15 (docs/milestone-7.md): README, release workflow, version 0.1.0, draft release `v0.1.0` with the Windows archive. Awaiting the owner: try the downloaded archive, publish the draft, a friend installs |
 | 10 Linux and macOS | Deferred (PLAN.md D13) |
 
@@ -30,6 +31,9 @@ Milestones 6 to 9 are built (PLAN.md D13 to D15). Everything that needs
 administrator rights or a second person waits for the owner, in this order:
 
 1. Done 2026-11-15: `tools/acceptance/m9.ps1` passed (docs/milestone-9.md).
+1b. The redesigned window (0.2.0): close the running snisplit-gui, `cargo build --release -p
+   snisplit-gui`, the unelevated smoke run, then `tools/acceptance/m9b.ps1` elevated
+   (docs/window-redesign.md, last section).
 2. While the window is running: open a listed site in a browser that used it over
    HTTP/3 before, and see that it falls back to TCP quickly (docs/milestone-8.md).
 3. The draft release: download, check, publish, a friend installs (docs/milestone-7.md).
@@ -57,7 +61,7 @@ for it was removed; no code from it exists.
 
 - `crates/core`: TLS ClientHello and HTTP Host inspection, domain matcher, split
   strategy (reused by the relay); segment planner, flow table, engine, packet loop
-  (parked). 12 real Steam ClientHello fixtures. The workspace has 510 passing tests on Windows.
+  (parked). 12 real Steam ClientHello fixtures. The workspace has 581 passing tests on Windows.
 - `snisplit_core::probe` and `snisplit_relay::probe`: the `probe` attempts, a hand-built
   ClientHello, reply classification, verdict and suggested profile (milestone 6).
 - `crates/core` also has the DNS codec (`dns`), the relay's first-flight decision
@@ -72,7 +76,10 @@ for it was removed; no code from it exists.
   from 127.0.0.4, then user sites from `%APPDATA%\snisplit\sites`; Windows NRPT routing through
   PowerShell. The crate is also a library `snisplit` (session, profiles, sites, system DNS).
 - `crates/gui`: `snisplit-gui`, the egui window (Windows only; a stub elsewhere), its state
-  machine and effect driver (milestone 9).
+  machine, the view texts and the effect driver (milestone 9, redesigned in 0.2.0:
+  docs/window-redesign.md).
+- `%APPDATA%\snisplit\off.list`: the sites switched off, one name per line; read by the
+  window and by `run` without `--profile` or `--profile-file`.
 - `crates/backend-windows`: WinDivert FFI and the `sniff` / `capture` examples
   (parked; `capture` is how the fixtures were recorded).
 - Local-only branch `m2/windows` (never pushed): runtime-loaded WinDivert and a

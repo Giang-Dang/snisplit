@@ -47,19 +47,33 @@ DNS rules needs them.
 ### Window
 
 Right-click `snisplit-gui.exe` and choose Run as administrator, or just start it and
-confirm the Windows prompt. The window has:
+confirm the Windows prompt. The window is small (400 px wide) and has:
 
-- **Start / Stop** and a status line. Stopping, or closing the window, removes the
-  DNS rules before the program exits.
-- **Sites**: the built-in profiles (Steam, medium.com) and the sites you added, each
-  with a Check button that tests the site now.
-- **Add a site**: type a domain and press Check. snisplit tests it and shows what a
-  plain connection and each method did. If a method works, press Add; the site is
-  saved and, when the relay is running, it restarts so the site applies at once.
-- **Log**: what the relay reports.
+- **One round button.** Its word says what pressing it does (Start, Cancel, Stop, Try
+  again); the line under it says what snisplit is doing (Off, Starting..., On, Applying
+  your change..., Turning off...). A hollow ring is off, a turning arc is busy, a filled
+  button is on, a double ring means something went wrong. Stopping, or closing the
+  window, removes the DNS rules before the program exits; keep the window open while
+  you use the sites.
+- **Sites**: the ones that come with snisplit (Steam, Medium) and the ones you added,
+  each with an On/Off switch. Only the sites switched on go through snisplit. Changing a
+  switch while snisplit is on restarts it for about 2 seconds. Press a site's name to
+  open it: its domains, Test (tests the site now, with snisplit on or off), Remove for
+  sites you added, and "What snisplit tried".
+- **Add a site**: type an address, or paste a link (it is shortened to the address), and
+  press Test. If snisplit can open the site, press Add and turn on.
+- **Activity**: what snisplit did, in more technical words. "Save to a file" writes
+  `snisplit-log.txt` to your Desktop, to send to whoever helps you.
 
-Sites you add are stored as small text files in `%APPDATA%\snisplit\sites`. The
-command line reads the same folder.
+If snisplit cannot start, the window says why in plain words (another program is in the
+way, or Windows refused the change because it was not started as administrator); "See
+what happened" shows the details. If a stop could not remove the DNS rules, the window
+says "Off, with leftovers" and offers "Remove leftover settings"; pressing Start also
+removes them.
+
+Sites you add are stored as small text files in `%APPDATA%\snisplit\sites`; the sites
+switched off are listed by name in `%APPDATA%\snisplit\off.list`. The command line reads
+the same folder and the same list.
 
 ### Command line
 
@@ -99,9 +113,12 @@ Other commands:
    Windows PowerShell 5.1 do not use `>`, which writes UTF-16; paste the text into
    Notepad and save it, or pipe it through `Set-Content -Encoding ascii`.
 
-3. `.\snisplit run` relays the built-in profiles plus every file in that folder. A
-   file with a mistake is reported by name and skipped. To run a chosen set instead,
-   name them: `--profile steam --profile-file my-sites.profile`.
+3. `.\snisplit run` relays the built-in profiles plus every file in that folder,
+   except the sites named in `%APPDATA%\snisplit\off.list` (one name per line, as the
+   window's switches write it; a name that matches no site is ignored). A file with a
+   mistake is reported by name and skipped. With every site switched off, `run` stops
+   with an error before it changes anything. To run a chosen set instead, name them:
+   `--profile steam --profile-file my-sites.profile`; `off.list` is not used then.
 
 A profile file looks like this:
 
