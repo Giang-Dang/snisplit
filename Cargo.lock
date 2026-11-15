@@ -1690,7 +1690,7 @@ dependencies = [
 
 [[package]]
 name = "snisplit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "snisplit-core",
  "snisplit-relay",
@@ -1700,18 +1700,18 @@ dependencies = [
 
 [[package]]
 name = "snisplit-backend-windows"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "snisplit-core",
 ]
 
 [[package]]
 name = "snisplit-core"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "snisplit-gui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eframe",
  "snisplit",
@@ -1722,7 +1722,7 @@ dependencies = [
 
 [[package]]
 name = "snisplit-relay"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "snisplit-core",
  "tokio",
