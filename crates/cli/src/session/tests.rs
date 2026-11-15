@@ -208,6 +208,7 @@ mod start_up {
         add_takes: Duration,
         add_begun: Notify,
         removal_refused: bool,
+        rules_left: usize,
     }
 
     #[derive(Clone, Default)]
@@ -279,7 +280,7 @@ mod start_up {
                     "powershell: Access is denied.",
                 ));
             }
-            Ok(0)
+            Ok(self.0.rules_left)
         }
     }
 
@@ -425,6 +426,30 @@ mod start_up {
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         assert_eq!(error.to_string(), "powershell: Access is denied.");
         assert_eq!(recorder.lines(), ["stopping"]);
+    }
+
+    #[test]
+    fn rules_still_in_place_after_a_removal_are_a_removal_failure() {
+        let host = FakeHost::with(Fake {
+            rules_left: 2,
+            ..Fake::default()
+        });
+        let recorder = Recorder::stopping_when(never_stops);
+        let error = serve_fake(
+            &host,
+            options(true, &[ip(192, 0, 2, 1)]),
+            std::future::ready(()),
+            recorder.output(),
+        )
+        .unwrap_err();
+        assert_eq!(failure(&error), Failure::RemovingRules);
+        assert_eq!(
+            error.to_string(),
+            "2 snisplit DNS rules are still in place after removing them"
+        );
+        assert_eq!(recorder.lines(), ["stopping", "snisplit DNS rules left: 2"]);
+        let cleanup = remove_rules_with(&host, &recorder.output()).unwrap_err();
+        assert_eq!(failure(&cleanup), Failure::RemovingRules);
     }
 
     #[test]
