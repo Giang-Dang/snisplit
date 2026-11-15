@@ -90,6 +90,90 @@ fn a_folder_that_cannot_be_created_proceeds_unlocked_rather_than_held() {
     assert!(matches!(claimed, Claim::Unlocked(_)), "{claimed:?}");
 }
 
+fn refusal(claimed: Claim) -> String {
+    match claimed {
+        Claim::Unlocked(error) => error.to_string(),
+        other => panic!("expected an unlocked claim, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_lock_path_that_is_a_folder_is_refused_and_leaves_the_claim_unlocked() {
+    let folder = TempFolder::new("lock-is-folder");
+    fs::create_dir_all(folder.app().join("instance.lock")).unwrap();
+    assert_eq!(
+        refusal(claim(Some(&folder.app()))),
+        "the snisplit lock file is a link or not a regular file, so it is not used"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn a_lock_folder_that_is_a_junction_is_refused_and_nothing_is_created_in_its_target() {
+    let folder = TempFolder::new("junction");
+    let target = folder.0.join("target");
+    fs::create_dir_all(&target).unwrap();
+    let made = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(folder.app())
+        .arg(&target)
+        .output()
+        .unwrap();
+    if !made.status.success() {
+        eprintln!("skipped: mklink /J failed: {made:?}");
+        return;
+    }
+    assert_eq!(
+        refusal(claim(Some(&folder.app()))),
+        "the snisplit lock folder is a link or not a real folder, so it is not used"
+    );
+    assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
+}
+
+#[cfg(windows)]
+const ERROR_PRIVILEGE_NOT_HELD: i32 = 1314;
+
+#[cfg(windows)]
+#[test]
+fn a_lock_folder_that_is_a_symbolic_link_is_refused_and_nothing_is_created_in_its_target() {
+    let folder = TempFolder::new("symlink-folder");
+    let target = folder.0.join("target");
+    fs::create_dir_all(&target).unwrap();
+    match std::os::windows::fs::symlink_dir(&target, folder.app()) {
+        Err(error) if error.raw_os_error() == Some(ERROR_PRIVILEGE_NOT_HELD) => {
+            eprintln!("skipped: creating a symbolic link needs a privilege this process lacks");
+            return;
+        }
+        made => made.unwrap(),
+    }
+    assert_eq!(
+        refusal(claim(Some(&folder.app()))),
+        "the snisplit lock folder is a link or not a real folder, so it is not used"
+    );
+    assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
+}
+
+#[cfg(windows)]
+#[test]
+fn a_lock_file_that_is_a_symbolic_link_is_refused_and_its_target_is_left_alone() {
+    let folder = TempFolder::new("symlink-file");
+    fs::create_dir_all(folder.app()).unwrap();
+    let target = folder.0.join("elsewhere.txt");
+    fs::write(&target, b"not snisplit's").unwrap();
+    match std::os::windows::fs::symlink_file(&target, folder.app().join("instance.lock")) {
+        Err(error) if error.raw_os_error() == Some(ERROR_PRIVILEGE_NOT_HELD) => {
+            eprintln!("skipped: creating a symbolic link needs a privilege this process lacks");
+            return;
+        }
+        made => made.unwrap(),
+    }
+    assert_eq!(
+        refusal(claim(Some(&folder.app()))),
+        "the snisplit lock file is a link or not a regular file, so it is not used"
+    );
+    assert_eq!(fs::read(&target).unwrap(), b"not snisplit's");
+}
+
 #[test]
 fn no_machine_wide_folder_proceeds_unlocked_and_says_why() {
     match claim(None) {
