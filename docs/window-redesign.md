@@ -737,3 +737,20 @@ but not the lock folder handle (921a2c7) or the cleanup warning (80beab3).
 
 Not seen in a real window after this run: the lock folder handle, a real UI panic, the
 lock with two accounts, Escape, and the Keep / Remove order.
+
+## Antivirus detection of the 11:40 build, 2026-11-15
+
+After the 11:40 release build (HEAD 80beab3), the owner's Kaspersky scan reported
+`snisplit-gui.exe` in the release folder as `VHO:Trojan-PSW.Win64.BroPass.gen`,
+"detected by Kaspersky Security Network", and removed the file. `snisplit.exe` from the
+same build was still in place afterwards (SHA-256
+619743cd6b853bda2daefdfe34ee45e3f503041ceefacdd9ed6d0b4407c7847c); the hash of the
+removed file was not taken.
+
+What is known: the only build that was file-scanned clean is the one of 09:09 (0c8d793).
+The builds of 10:32 and 11:06 were never file-scanned; the owner's 11:28 run of the 11:06
+build showed no alert. `Cargo.lock` differs from the 09:09 build only in the version
+number, so the dependency set is the same. Which change the detection reacts to is not
+known. No build, release or acceptance run is made until the owner decides how to
+proceed; the earlier sentence that two scans reported nothing describes the older builds
+only.
