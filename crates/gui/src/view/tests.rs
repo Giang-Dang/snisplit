@@ -637,6 +637,32 @@ fn a_failed_test_offers_try_again_and_a_covered_save_names_the_owner() {
 }
 
 #[test]
+fn a_save_that_fails_for_another_reason_says_so_and_points_at_activity() {
+    let at = Instant::now();
+    let (mut state, _) = panel_after(Verdict::ProfileSuggested, at);
+    state.update(Event::SiteSaved(Err(crate::state::SaveRefusal::Other(
+        "a site named example-net already exists".to_string(),
+    ))));
+    let panel = add_panel(&state, at).unwrap();
+    assert_eq!(panel.mark, Some(Mark::Trouble));
+    assert_eq!(
+        panel.headline.as_deref(),
+        Some("Could not add example.net.")
+    );
+    assert_eq!(labels(&panel.buttons), ["Close", "See what happened"]);
+}
+
+#[test]
+fn an_unexpected_end_after_it_was_on_says_off_not_could_not_start() {
+    let mut state = on(three_sites(), Instant::now());
+    state.update(ended(Failure::Other));
+    let hero = hero(&state);
+    assert_eq!(hero.state_line, "Off");
+    assert_eq!(hero.action, "Try again");
+    assert_eq!(hero.sentences, ["snisplit stopped unexpectedly."]);
+}
+
+#[test]
 fn activity_counts_lines_and_says_where_the_file_was_saved() {
     let mut state = State::new();
     state.update(Event::SessionLine("starting snisplit".to_string()));
