@@ -14,8 +14,6 @@ use snisplit::{VERSION, profile};
 const EXIT_RUNTIME_ERROR: u8 = 1;
 const EXIT_USAGE_ERROR: u8 = 2;
 const ALREADY_RUNNING: &str = "another snisplit is already running, or is still turning off: wait a few seconds, then try again";
-const CLEANUP_WHILE_RUNNING: &str =
-    "snisplit: warning: another snisplit is running and will lose its DNS rules";
 
 fn main() -> ExitCode {
     let args = env::args_os()
@@ -66,10 +64,11 @@ fn claim_instance() -> Claim {
 }
 
 fn cleanup() -> io::Result<()> {
-    if let Claim::Elsewhere = claim_instance() {
-        eprintln!("{CLEANUP_WHILE_RUNNING}");
-    }
-    session::remove_rules(&session::stdout())
+    session::cleanup(
+        instance::folder().as_deref(),
+        |warning| eprintln!("{warning}"),
+        &session::stdout(),
+    )
 }
 
 fn only_instance() -> io::Result<Option<Instance>> {

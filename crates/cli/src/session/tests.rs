@@ -210,6 +210,7 @@ mod start_up {
         removal_refused: bool,
         rules_left: usize,
         rules_in_place: usize,
+        lock_probed_on_removal: Option<std::path::PathBuf>,
     }
 
     #[derive(Clone, Default)]
@@ -275,6 +276,14 @@ mod start_up {
 
         fn remove_rules(&self) -> io::Result<usize> {
             self.record("remove".to_string());
+            if let Some(folder) = &self.0.lock_probed_on_removal {
+                let during = match instance::claim(Some(folder)) {
+                    Claim::Ours(_) => "free",
+                    Claim::Elsewhere => "held",
+                    Claim::Unlocked(_) => "unlocked",
+                };
+                self.record(format!("lock during removal: {during}"));
+            }
             if self.0.removal_refused {
                 return Err(io::Error::new(
                     io::ErrorKind::PermissionDenied,
@@ -724,6 +733,74 @@ mod start_up {
                 "192.0.2.1:53".parse().unwrap()
             ]
         );
+    }
+
+    #[cfg(windows)]
+    fn cleanup_fake(host: &FakeHost, lock_folder: Option<&Path>) -> (io::Result<()>, Vec<String>) {
+        let mut warnings = Vec::new();
+        let recorder = Recorder::stopping_when(never_stops);
+        let removed = cleanup_with(
+            host,
+            lock_folder,
+            |warning| warnings.push(warning.to_string()),
+            &recorder.output(),
+        );
+        assert_eq!(recorder.lines(), [RULES_LEFT]);
+        (removed, warnings)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cleanup_while_another_snisplit_holds_the_lock_warns_and_still_removes_the_rules() {
+        let folder = SnisplitFolder::new("cleanup-held");
+        let held = instance::claim(Some(&folder.app));
+        assert!(matches!(held, Claim::Ours(_)), "{held:?}");
+        let host = FakeHost::default();
+        let (removed, warnings) = cleanup_fake(&host, Some(&folder.app));
+        assert!(removed.is_ok(), "{removed:?}");
+        assert_eq!(
+            warnings,
+            ["snisplit: warning: another snisplit is running and will lose its DNS rules"]
+        );
+        assert_eq!(host.calls(), ["remove"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cleanup_keeps_the_lock_until_the_removal_has_finished_and_then_lets_it_go() {
+        let folder = SnisplitFolder::new("cleanup-ours");
+        let host = FakeHost::with(Fake {
+            lock_probed_on_removal: Some(folder.app.clone()),
+            ..Fake::default()
+        });
+        let (removed, warnings) = cleanup_fake(&host, Some(&folder.app));
+        assert!(removed.is_ok(), "{removed:?}");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(host.calls(), ["remove", "lock during removal: held"]);
+        let after = instance::claim(Some(&folder.app));
+        assert!(matches!(after, Claim::Ours(_)), "{after:?}");
+    }
+
+    #[test]
+    fn cleanup_without_a_lock_folder_still_removes_and_reports_a_refusal() {
+        let host = FakeHost::with(Fake {
+            removal_refused: true,
+            ..Fake::default()
+        });
+        let mut warnings = Vec::new();
+        let recorder = Recorder::stopping_when(never_stops);
+        let removed = cleanup_with(
+            &host,
+            None,
+            |warning| warnings.push(warning.to_string()),
+            &recorder.output(),
+        );
+        assert_eq!(
+            removed.map_err(|error| error.to_string()),
+            Err("powershell: Access is denied.".to_string())
+        );
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(host.calls(), ["remove"]);
     }
 
     #[cfg(windows)]

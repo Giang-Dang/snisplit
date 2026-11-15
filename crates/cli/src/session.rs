@@ -17,6 +17,7 @@ use tokio::sync::watch;
 use tokio::task::{JoinError, JoinSet, spawn_blocking};
 
 use crate::VERSION;
+use crate::instance::{self, Claim};
 use crate::plan::{self, Selected};
 use crate::profile_file::ProfileSpec;
 use crate::routing::{self, ProfileRule, StartFailure};
@@ -41,6 +42,8 @@ pub enum Failure {
     Other,
 }
 
+const CLEANUP_WHILE_RUNNING: &str =
+    "snisplit: warning: another snisplit is running and will lose its DNS rules";
 const NO_UPSTREAM: &str = "no usable upstream DNS server found; pass --upstream <ipv4>";
 const NOTHING_SWITCHED_ON: &str = "every site is switched off: turn one on in snisplit-gui or take its name out of off.list in the snisplit folder, or choose sites with --profile or --profile-file";
 const TIMING: Timing = Timing {
@@ -221,6 +224,29 @@ pub fn remove_rules(out: &Output) -> io::Result<()> {
 
 pub fn count_rules(out: &Output) -> io::Result<usize> {
     count_rules_with(&System, out)
+}
+
+pub fn cleanup(
+    lock_folder: Option<&Path>,
+    warn: impl FnOnce(&str),
+    out: &Output,
+) -> io::Result<()> {
+    cleanup_with(&System, lock_folder, warn, out)
+}
+
+fn cleanup_with<H: Host>(
+    host: &H,
+    lock_folder: Option<&Path>,
+    warn: impl FnOnce(&str),
+    out: &Output,
+) -> io::Result<()> {
+    let claim = instance::claim(lock_folder);
+    if let Claim::Elsewhere = claim {
+        warn(CLEANUP_WHILE_RUNNING);
+    }
+    let removed = remove_rules_with(host, out);
+    drop(claim);
+    removed
 }
 
 async fn serve_on<H: Host>(
