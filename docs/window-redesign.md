@@ -861,10 +861,10 @@ two accounts, or logoff and shutdown with the window open.
 
 Binaries: the release build in `target\release` whose product code is 80beab3 (the
 window binary relinked at 11:58 from unchanged source), so these runs include the lock
-folder handle (921a2c7) and the cleanup warning (80beab3). Scripts at 67e193a. Before
-the runs the owner repeated the antivirus scan of the release folder and of the five
-diagnostic samples, hours after they were built; it was clean again. So the 11:40
-detection was not reproduced on any rebuilt file, at once or later.
+folder handle (921a2c7) and the cleanup warning (80beab3). Scripts at 67e193a. The owner
+reported that a repeat scan of the release folder and the five samples, hours after they
+were built, was clean. So the 11:40 detection was not reproduced on any rebuilt file, at
+once or later.
 
 - **`m9c.ps1` (unattended), 15:52:15-15:53:05: RESULT PASS, 39 checks.** `snisplit run`
   came on with 3 rules; the store answered HTTPS 200 and HTTP 302 through 127.0.0.2; a
@@ -891,13 +891,19 @@ detection was not reproduced on any rebuilt file, at once or later.
   in quick succession while on: both close requests accepted, exit after 1.5 s, code 0,
   0 rules, no poll saw the window not responding. The owner answered "no" to whether the
   antivirus or Windows showed anything.
-- The lead looked at the screenshots: they match the approved design (round button
-  naming the action, state line under it, per-site switches). The screenshots stay on
-  the owner's PC.
+- The lead looked at eight of the ten screenshots (the states in question: on, applying,
+  leftovers, already open): they match the approved design (round button naming the
+  action, state line under it, per-site switches). The screenshots stay on the owner's PC.
 - With these runs the items previously listed as not seen in a real window are now seen:
   the lock folder handle (second instance refused by both the window and `run`), the
-  clean stop of `run`, the leftovers state at launch, the hide-then-close on a double
-  close. Still not covered by any run: a real UI panic, the lock with two accounts,
-  logoff or shutdown with the window open, Escape and the Keep / Remove order on screen.
+  clean stop of `run`, the leftovers state at launch.
+- Not separately confirmed by these runs: the hide before the close on a double close.
+  What was observed for the double close is only that both close requests were accepted,
+  the exit came after 1.5 s with code 0 and 0 rules, and no poll saw the window not
+  responding; this looks the same as a single close, and the responding flag could not
+  have tripped in that time. The evidence that the window vanishes at once is the owner's
+  own answer after the 11:28 run of the 11:06 build.
+- Still not covered by any run: a real UI panic, the lock with two accounts, logoff or
+  shutdown with the window open, Escape and the Keep / Remove order on screen.
 - Both scripts had never been run elevated before; this was also their first real run,
   and every wait behaved as intended (no timeout, no early return).
