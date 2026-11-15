@@ -47,8 +47,7 @@ person and cannot be met by the lead.
 
 ## Awaiting the owner
 
-1. Run the elevated window acceptance on this PC first (docs/milestone-9.md,
-   `tools/acceptance/m9.ps1`).
+1. Done 2026-11-15: the elevated window acceptance passed (docs/milestone-9.md).
 2. Download the draft's zip on this PC, compare the SHA-256, start `snisplit-gui.exe`
    from it and see whether Windows or the antivirus objects.
 3. Publish the draft, then ask a friend to install from it with only the README.

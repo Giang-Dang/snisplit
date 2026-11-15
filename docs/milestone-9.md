@@ -261,13 +261,13 @@ session at exit with a tokio timer created outside the runtime, which panicked a
 session had already ended and its rules had been removed (exit code 101). The wait now
 runs inside the runtime; two driver tests fail on the old code and pass on the new.
 
-Never exercised in a real window: Start that succeeds, Running, Stop, the Add button (no
+Before the owner's run (last section), never exercised in a real window: Start that succeeds, Running, Stop, the Add button (no
 blocked domain outside the built-ins was allowed to be probed tonight), a restart after a
 site change, closing while running with rules present, the 60 s shutdown safety net, and
 logoff or shutdown with the window open (not handled; a rule left behind is removed by
 the next start or by `snisplit cleanup`).
 
-## Awaiting the owner
+## The elevated run (done 2026-11-15, results in the last section)
 
 Run from an elevated PowerShell in the repo, with no snisplit running:
 
@@ -278,8 +278,8 @@ powershell -ExecutionPolicy Bypass -File tools\acceptance\m9.ps1
 
 The script refuses to run unelevated or while a `snisplit*` process exists, starts the
 release GUI and pauses after each step, logging rule counts and results to
-`$env:TEMP\m9-gui.log`. It parses cleanly (PowerShell parser, no errors) but has never
-been run. `pwsh -File tools\acceptance\m9.ps1` works too: the script calls `curl.exe`
+`$env:TEMP\m9-gui.log`. The owner ran it on 2026-11-15; results are in the last section.
+`pwsh -File tools\acceptance\m9.ps1` works too: the script calls `curl.exe`
 through a helper named `Fetch`, so Windows PowerShell's `curl` alias does not interfere.
 
 1. The window shows the site list (confirms rendering on the owner's display).
@@ -292,8 +292,7 @@ through a helper named `Fetch`, so Windows PowerShell's `curl` alias does not in
 6. Start again: rules are logged while it runs.
 7. Close the window while it runs: the process exits by itself and 0 rules are left.
 
-Also open: whether Kaspersky reacts to an elevated GUI that starts PowerShell (no alert
-was possible tonight since nothing ran elevated), and whether a font with Vietnamese
+Still open for the owner: whether Kaspersky showed anything during the elevated run, and whether a font with Vietnamese
 letters is wanted (the default egui fonts show them as boxes; domains are ASCII anyway).
 
 ## Elevated acceptance, `m9.ps1`, 2026-11-15 07:21-07:24 (owner)
@@ -307,17 +306,19 @@ owner's site is written here as "the added site"; its name stays out of the repo
 | 0 Window | Start button, the steam and medium sites and the Add a site field are shown (owner) |
 | 1 Start | Status "Running: the listed sites go through snisplit"; 3 snisplit rules; store resolves to 127.0.0.2, HTTPS `200` |
 | 2 Fetch | Store HTTPS `200` and HTTP `302`, both through 127.0.0.2 |
-| 3 Add a site | The window offered Add; the site file exists; the added site resolves to 127.0.0.4 and HTTPS answers `403` through the relay, which is the site's own reply to curl, so the connection got through |
+| 3 Add a site | The window offered Add; the site file exists; the added site resolves to 127.0.0.4 and curl gets HTTP `403` over a certificate-checked TLS connection through the relay (a blocked connection gives `000`), so the handshake got through; where the 403 comes from is not known and a browser was not tried |
 | 4 Stop | 0 rules; store and the added site resolve to their real addresses again |
 | 5 Start again | 3 rules; store HTTPS `200` through 127.0.0.2 |
 | 6 Close with X while running | Exited by itself with code 0; no process, 0 rules |
 
-Throughout, example.org resolved to the same addresses as before. No antivirus alert
-was reported. One ordering note: the site file and the third rule were already
-present in the log line after step 1, so the site was added before that line was
-written; the restart on adding a site while running is therefore not shown
-separately by this log.
+Throughout, example.org resolved to the same addresses as before. The window ran
+elevated for about three minutes and exited with code 0, and the binary is still on
+disk; whether the antivirus showed anything was not asked yet. One ordering note: the
+site file and the third rule were already present in the log line after step 1, so the
+site was added before that line was written; the restart on adding a site while
+running is therefore not shown by this log.
 
-Still unverified: the added site in a browser, logoff or shutdown with the window
-open, and the browser fallback from HTTP/3 (docs/milestone-8.md).
-
+Still unverified in a real window: the added site in a browser; adding or removing a
+site while Running; the fixes for Stop followed by a site change, a failed rule
+removal at close, and a second close while stopping (tests only); logoff or shutdown
+with the window open; the browser fallback from HTTP/3 (docs/milestone-8.md).
