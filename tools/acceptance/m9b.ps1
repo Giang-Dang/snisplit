@@ -111,6 +111,10 @@ $null = Ask '   Does the second window say Already open, with a Try again button
 Wait-Owner '   Close the second window (the one that says Already open) with its X button.'
 $secondClosed = $second.WaitForExit(20000)
 Log "step 11: second window closed=$secondClosed, exit code $(if ($secondClosed) { $second.ExitCode }); processes: $((Snisplit-Processes).Name -join ',')"
+if ($gui.HasExited -and -not $second.HasExited) {
+  Log '  the first window was closed instead of the second; the script goes on with the second'
+  $gui = $second
+}
 
 Wait-Owner '12. In the remaining window press Start and wait until it says On.'
 Log-State 'step 12, on again before the close'

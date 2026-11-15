@@ -62,30 +62,42 @@ pub fn failure(error: &io::Error) -> Failure;
 `snisplit_gui`: new modules `address`, `log_file`, `view`; `driver::Folders { sites, home }`
 and `Driver::new(folders, wake)`; `state` reworked (events and effects below).
 
-Changes 1-4 (below) add:
+Changes 1-4 (below) add `snisplit::instance` (`Instance` holds the open lock file):
 
 ```rust
-// snisplit::instance
-pub struct Instance { /* the open lock file */ }
+pub struct Instance { /* private */ }
 pub enum Claim { Ours(Instance), Elsewhere, Unlocked(io::Error) }
 pub fn claim(app_folder: Option<&Path>) -> Claim;
-// snisplit::session
+```
+
+`snisplit::session`:
+
+```rust
 pub fn count_rules(out: &Output) -> io::Result<usize>;
-// snisplit_gui::driver: Driver::new is replaced by
-pub struct Keeper { /* runtime, session handle, lock */ }
+```
+
+`snisplit_gui::driver`: `Driver::new` is replaced by a `Keeper` (the runtime, the
+session handle and the lock) that hands out the `Driver`:
+
+```rust
+pub struct Keeper { /* private */ }
 impl Keeper {
     pub fn new() -> io::Result<Keeper>;
     pub fn driver(&self, folders: Folders, wake: Wake) -> (Driver<'_>, Receiver<Event>);
     pub fn finish(self) -> Ending;
 }
 pub enum Ending { Clean, RulesMayRemain, TimedOut }
-// snisplit_gui::state
+```
+
+`snisplit_gui::state`: `Relay::AlreadyOpen`; events `Launched`, `InstanceClaimed`,
+`ClaimAgainPressed`, `LeftoversCounted`; effects `ClaimInstance`, `CountLeftovers`;
+`RowPressed`, `SwitchPressed`, `TestPressed`, `Open::Site` and `Target::Site` carry a
+`SiteId`:
+
+```rust
 pub enum Origin { BuiltIn, File }
 pub struct SiteId { pub name: String, pub origin: Origin }
 pub enum Claimed { Ours, Elsewhere, Unlocked(String) }
-// Relay::AlreadyOpen; Event::{Launched, InstanceClaimed, ClaimAgainPressed,
-// LeftoversCounted}; Effect::{ClaimInstance, CountLeftovers}; RowPressed, SwitchPressed,
-// TestPressed, Open::Site and Target::Site carry a SiteId.
 ```
 
 ## Per-site switch (`off.list`)
