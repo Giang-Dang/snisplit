@@ -129,6 +129,23 @@ try {
   Log-State 'step 13, after closing'
   if (-not $closedInTime) { Log 'snisplit-gui did not exit within 120 s; it was left running for you to look at' }
   if ($closedInTime -and (RulesToRelay).Count -gt 0) { Log 'RULES LEFT after closing the window; removing them'; Remove-RelayRules; Log "rules now: $((RulesToRelay).Count)" }
+
+  Say '14. The script starts the window once more, to close it twice in a row.'
+  $gui = Start-Process $built -PassThru
+  Start-Sleep 3
+  Wait-Owner '    Press Start and wait until it says On.'
+  Log-State 'step 14, on again before the double close'
+  Say '    Press the X button twice quickly. The window should vanish at once and not show Not responding. The script waits up to 120 s for the process to end.'
+  $closeWatch = [Diagnostics.Stopwatch]::StartNew()
+  $closedTwice = $gui.WaitForExit(120000)
+  $closeWatch.Stop()
+  Start-Sleep 2
+  Log "step 14: closed twice while on: exited=$closedTwice, exit code $(if ($closedTwice) { $gui.ExitCode }), seconds from the prompt to the process ending: $([int]$closeWatch.Elapsed.TotalSeconds)"
+  Log-State 'step 14, after the double close'
+  $null = Ask '    Did the window vanish at once after the second X, without Not responding? (y/n)'
+  if (-not $closedTwice) { Log 'snisplit-gui did not exit within 120 s; it was left running for you to look at' }
+  if ($closedTwice -and (RulesToRelay).Count -gt 0) { Log 'RULES LEFT after the double close; removing them'; Remove-RelayRules; Log "rules now: $((RulesToRelay).Count)" }
+
   $null = Ask '   Did Kaspersky or Windows show anything during this run? (no, or what it said)'
 
   Say "Done. Log: $log. You can close this window."
