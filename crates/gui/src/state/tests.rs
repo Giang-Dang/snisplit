@@ -452,7 +452,7 @@ fn a_site_change_while_off_only_reloads_the_list() {
 fn a_switch_turned_off_while_on_restarts_and_is_pending_until_the_session_is_ready() {
     let mut state = running();
     assert_eq!(
-        state.update(Event::SwitchPressed("medium".to_string())),
+        state.update(Event::SwitchPressed(id("medium"))),
         [Effect::SetSwitch {
             name: "medium".to_string(),
             on: false
@@ -463,11 +463,11 @@ fn a_switch_turned_off_while_on_restarts_and_is_pending_until_the_session_is_rea
         [Effect::StopSession]
     );
     assert!(state.applying());
-    let medium = state.site("medium").unwrap().clone();
+    let medium = state.site(&id("medium")).unwrap().clone();
     assert!(!medium.on);
     assert!(state.switch_pending(&medium));
-    assert!(!state.switch_pending(state.site("news").unwrap()));
-    assert_eq!(state.update(Event::SwitchPressed("medium".to_string())), []);
+    assert!(!state.switch_pending(state.site(&id("news")).unwrap()));
+    assert_eq!(state.update(Event::SwitchPressed(id("medium"))), []);
     assert_eq!(
         state.update(Event::SessionEnded(SessionEnd::Clean)),
         [Effect::StartSession]
@@ -570,10 +570,10 @@ fn a_switch_while_off_or_after_an_explicit_stop_only_saves() {
 #[test]
 fn broken_files_have_no_switch_and_switches_are_locked_while_closing() {
     let mut state = running();
-    assert_eq!(state.update(Event::SwitchPressed("bad".to_string())), []);
-    assert_eq!(state.update(Event::SwitchPressed("nobody".to_string())), []);
+    assert_eq!(state.update(Event::SwitchPressed(id("bad"))), []);
+    assert_eq!(state.update(Event::SwitchPressed(id("nobody"))), []);
     state.update(Event::CloseRequested);
-    assert_eq!(state.update(Event::SwitchPressed("news".to_string())), []);
+    assert_eq!(state.update(Event::SwitchPressed(id("news"))), []);
 }
 
 #[test]
@@ -583,7 +583,7 @@ fn a_failed_switch_write_changes_nothing_and_is_logged() {
         state.update(Event::SwitchSaved(Err("disk full".to_string()))),
         []
     );
-    assert!(state.site("medium").unwrap().on);
+    assert!(state.site(&id("medium")).unwrap().on);
     assert_eq!(last_log(&state), "the switch was not saved: disk full");
 }
 
@@ -592,12 +592,12 @@ fn removing_asks_once_in_the_open_row_and_only_user_and_broken_sites_can_be_remo
     let mut state = with_sites();
     state.update(Event::RemovePressed);
     assert!(!state.confirming_remove());
-    state.update(Event::RowPressed("medium".to_string()));
+    state.update(Event::RowPressed(id("medium")));
     state.update(Event::RemovePressed);
     assert!(!state.confirming_remove());
     assert_eq!(state.update(Event::RemoveConfirmed), []);
-    state.update(Event::RowPressed("news".to_string()));
-    assert_eq!(*state.open(), Open::Site("news".to_string()));
+    state.update(Event::RowPressed(id("news")));
+    assert_eq!(*state.open(), Open::Site(id("news")));
     state.update(Event::RemovePressed);
     assert!(state.confirming_remove());
     state.update(Event::RemoveKept);
@@ -609,7 +609,7 @@ fn removing_asks_once_in_the_open_row_and_only_user_and_broken_sites_can_be_remo
         [Effect::DeleteSite("news".to_string())]
     );
     assert_eq!(state.update(Event::RemoveConfirmed), []);
-    state.update(Event::RowPressed("bad".to_string()));
+    state.update(Event::RowPressed(id("bad")));
     state.update(Event::RemovePressed);
     assert_eq!(
         state.update(Event::RemoveConfirmed),
@@ -620,22 +620,22 @@ fn removing_asks_once_in_the_open_row_and_only_user_and_broken_sites_can_be_remo
 #[test]
 fn a_confirmation_armed_on_one_row_deletes_nothing_once_another_row_is_open() {
     let mut state = with_sites();
-    state.update(Event::RowPressed("news".to_string()));
+    state.update(Event::RowPressed(id("news")));
     state.update(Event::RemovePressed);
     assert!(state.confirming_remove());
-    state.update(Event::RowPressed("bad".to_string()));
+    state.update(Event::RowPressed(id("bad")));
     assert_eq!(state.update(Event::RemoveConfirmed), []);
 }
 
 #[test]
 fn closing_or_leaving_a_row_while_it_asks_drops_the_question() {
     let mut state = with_sites();
-    state.update(Event::RowPressed("news".to_string()));
+    state.update(Event::RowPressed(id("news")));
     state.update(Event::RemovePressed);
-    state.update(Event::RowPressed("news".to_string()));
+    state.update(Event::RowPressed(id("news")));
     assert_eq!(*state.open(), Open::Nothing);
     assert!(!state.confirming_remove());
-    state.update(Event::RowPressed("news".to_string()));
+    state.update(Event::RowPressed(id("news")));
     assert!(!state.confirming_remove());
     assert_eq!(state.update(Event::RemoveConfirmed), []);
 
@@ -650,17 +650,17 @@ fn closing_or_leaving_a_row_while_it_asks_drops_the_question() {
     state.update(Event::RemovePressed);
     let sites = state.sites().to_vec();
     state.update(Event::SitesLoaded(sites));
-    assert_eq!(*state.open(), Open::Site("news".to_string()));
+    assert_eq!(*state.open(), Open::Site(id("news")));
     assert!(!state.confirming_remove());
 }
 
 #[test]
 fn a_removal_is_traced_in_activity_by_site_name() {
     let mut state = with_sites();
-    state.update(Event::RowPressed("medium".to_string()));
+    state.update(Event::RowPressed(id("medium")));
     state.update(Event::RemovePressed);
     assert_eq!(log_of(&state), Vec::<String>::new());
-    state.update(Event::RowPressed("news".to_string()));
+    state.update(Event::RowPressed(id("news")));
     state.update(Event::RemovePressed);
     assert_eq!(last_log(&state), "remove news asked");
     state.update(Event::RemoveConfirmed);
@@ -678,7 +678,7 @@ fn removing_a_switched_off_site_while_on_needs_no_restart() {
     ]);
     state.update(Event::StartPressed);
     ready(&mut state, Instant::now());
-    state.update(Event::RowPressed("news".to_string()));
+    state.update(Event::RowPressed(id("news")));
     assert_eq!(
         state.update(Event::SiteRemoved(Ok("news".to_string()))),
         [Effect::LoadSites]
@@ -788,7 +788,7 @@ fn one_test_runs_at_a_time() {
     let at = Instant::now();
     assert_eq!(
         state.update(Event::TestPressed {
-            name: "medium".to_string(),
+            site: id("medium"),
             at
         }),
         [Effect::Probe {
@@ -798,7 +798,7 @@ fn one_test_runs_at_a_time() {
     );
     assert_eq!(
         state.update(Event::TestPressed {
-            name: "news".to_string(),
+            site: id("news"),
             at
         }),
         []
@@ -808,7 +808,7 @@ fn one_test_runs_at_a_time() {
     assert_eq!(state.update(Event::AddTestPressed { at }), []);
     assert_eq!(
         state.update(Event::TestPressed {
-            name: "bad".to_string(),
+            site: id("bad"),
             at
         }),
         []
@@ -828,7 +828,7 @@ fn a_site_test_uses_its_test_address_and_keeps_the_result_with_the_site() {
     let finished_at = pressed_at + Duration::from_secs(4);
     assert_eq!(
         state.update(Event::TestPressed {
-            name: "steam".to_string(),
+            site: id("steam"),
             at: pressed_at
         }),
         [Effect::Probe {
@@ -843,7 +843,7 @@ fn a_site_test_uses_its_test_address_and_keeps_the_result_with_the_site() {
         at: finished_at,
     });
     assert_eq!(
-        state.tested("steam"),
+        state.tested(&id("steam")),
         Some(&Tested {
             domain: "store.steampowered.com".to_string(),
             at: finished_at,
@@ -858,7 +858,7 @@ fn a_site_test_uses_its_test_address_and_keeps_the_result_with_the_site() {
         ]
     );
     state.update(Event::TestPressed {
-        name: "steam".to_string(),
+        site: id("steam"),
         at: finished_at,
     });
     state.update(Event::ProbeFinished {
@@ -866,7 +866,7 @@ fn a_site_test_uses_its_test_address_and_keeps_the_result_with_the_site() {
         result: Err("timed out".to_string()),
         at: finished_at,
     });
-    assert_eq!(state.tested("steam").unwrap().view, None);
+    assert_eq!(state.tested(&id("steam")).unwrap().view, None);
 }
 
 #[test]
@@ -939,12 +939,12 @@ fn opening_a_row_closes_the_add_panel_and_cancels_its_test() {
     state.update(Event::FieldEdited("example.net".to_string()));
     state.update(Event::AddTestPressed { at: Instant::now() });
     assert_eq!(
-        state.update(Event::RowPressed("news".to_string())),
+        state.update(Event::RowPressed(id("news"))),
         [Effect::CancelProbe(1)]
     );
-    assert_eq!(*state.open(), Open::Site("news".to_string()));
+    assert_eq!(*state.open(), Open::Site(id("news")));
     assert_eq!(state.probe(), None);
-    assert_eq!(state.update(Event::RowPressed("news".to_string())), []);
+    assert_eq!(state.update(Event::RowPressed(id("news"))), []);
     assert_eq!(*state.open(), Open::Nothing);
 }
 
@@ -956,12 +956,12 @@ fn closing_the_panel_cancels_its_test_but_a_site_test_survives_its_row_closing()
     state.update(Event::FieldEdited("example.net".to_string()));
     state.update(Event::AddTestPressed { at });
     assert_eq!(state.update(Event::PanelClosed), [Effect::CancelProbe(1)]);
-    state.update(Event::RowPressed("news".to_string()));
+    state.update(Event::RowPressed(id("news")));
     state.update(Event::TestPressed {
-        name: "news".to_string(),
+        site: id("news"),
         at,
     });
-    assert_eq!(state.update(Event::RowPressed("news".to_string())), []);
+    assert_eq!(state.update(Event::RowPressed(id("news"))), []);
     assert_eq!(state.update(Event::AddRowPressed), []);
     assert_eq!(state.probe().map(|probing| probing.id), Some(2));
 }
@@ -970,9 +970,9 @@ fn closing_the_panel_cancels_its_test_but_a_site_test_survives_its_row_closing()
 fn a_reloaded_list_forgets_the_rows_and_results_of_removed_sites() {
     let mut state = with_sites();
     let at = Instant::now();
-    state.update(Event::RowPressed("news".to_string()));
+    state.update(Event::RowPressed(id("news")));
     state.update(Event::TestPressed {
-        name: "news".to_string(),
+        site: id("news"),
         at,
     });
     state.update(Event::ProbeFinished {
@@ -980,7 +980,7 @@ fn a_reloaded_list_forgets_the_rows_and_results_of_removed_sites() {
         result: Err("timed out".to_string()),
         at,
     });
-    assert!(state.tested("news").is_some());
+    assert!(state.tested(&id("news")).is_some());
     state.update(Event::SitesLoaded(vec![site(
         "medium",
         "Medium",
@@ -989,7 +989,7 @@ fn a_reloaded_list_forgets_the_rows_and_results_of_removed_sites() {
         true,
     )]));
     assert_eq!(*state.open(), Open::Nothing);
-    assert_eq!(state.tested("news"), None);
+    assert_eq!(state.tested(&id("news")), None);
 }
 
 #[test]
@@ -1207,7 +1207,7 @@ fn already_open_refuses_start_switches_and_leftover_removal_until_a_retry_claims
     let mut state = launched(Claimed::Elsewhere);
     assert_eq!(state.relay(), Relay::AlreadyOpen);
     assert_eq!(state.update(Event::StartPressed), []);
-    assert_eq!(state.update(Event::SwitchPressed("medium".to_string())), []);
+    assert_eq!(state.update(Event::SwitchPressed(id("medium"))), []);
     assert_eq!(state.update(Event::RemoveLeftoversPressed), []);
     assert_eq!(state.relay(), Relay::AlreadyOpen);
     assert_eq!(
@@ -1229,4 +1229,94 @@ fn already_open_refuses_start_switches_and_leftover_removal_until_a_retry_claims
 fn closing_while_already_open_exits_at_once() {
     let mut state = launched(Claimed::Elsewhere);
     assert_eq!(state.update(Event::CloseRequested), [Effect::Exit]);
+}
+
+fn id(name: &str) -> SiteId {
+    match name {
+        "steam" | "medium" => SiteId::built_in(name),
+        _ => SiteId::file(name),
+    }
+}
+
+fn with_a_broken_steam_file() -> State {
+    loaded(vec![
+        site(
+            "steam",
+            "Steam",
+            &["steampowered.com"],
+            SiteKind::BuiltIn,
+            true,
+        ),
+        site(
+            "steam",
+            "steam",
+            &[],
+            SiteKind::Broken("steam.profile:1: unknown key \"x\"".to_string()),
+            false,
+        ),
+    ])
+}
+
+fn kinds(state: &State) -> Vec<(String, SiteKind)> {
+    state
+        .sites()
+        .iter()
+        .map(|site| (site.name.clone(), site.kind.clone()))
+        .collect()
+}
+
+#[test]
+fn a_broken_file_named_like_a_built_in_opens_asks_and_is_deleted_on_its_own() {
+    let mut state = with_a_broken_steam_file();
+    state.update(Event::RowPressed(SiteId::file("steam")));
+    assert_eq!(*state.open(), Open::Site(SiteId::file("steam")));
+    state.update(Event::RemovePressed);
+    assert!(state.confirming_remove());
+    assert_eq!(last_log(&state), "remove steam asked");
+    assert_eq!(
+        state.update(Event::RemoveConfirmed),
+        [Effect::DeleteSite("steam".to_string())]
+    );
+    assert_eq!(
+        state.update(Event::SiteRemoved(Ok("steam".to_string()))),
+        [Effect::LoadSites]
+    );
+    assert_eq!(kinds(&state), [("steam".to_string(), SiteKind::BuiltIn)]);
+    assert_eq!(*state.open(), Open::Nothing);
+}
+
+#[test]
+fn the_built_in_of_the_same_name_opens_apart_from_the_file_and_offers_no_removal() {
+    let mut state = with_a_broken_steam_file();
+    state.update(Event::RowPressed(SiteId::built_in("steam")));
+    assert_eq!(*state.open(), Open::Site(SiteId::built_in("steam")));
+    state.update(Event::RemovePressed);
+    assert!(!state.confirming_remove());
+    assert_eq!(state.update(Event::RemoveConfirmed), []);
+    assert_eq!(
+        state.update(Event::SwitchPressed(SiteId::built_in("steam"))),
+        [Effect::SetSwitch {
+            name: "steam".to_string(),
+            on: false
+        }]
+    );
+    assert_eq!(
+        state.update(Event::SwitchPressed(SiteId::file("steam"))),
+        []
+    );
+}
+
+#[test]
+fn deleting_the_broken_file_while_on_keeps_the_built_in_running_without_a_restart() {
+    let mut state = with_a_broken_steam_file();
+    state.update(Event::StartPressed);
+    ready(&mut state, Instant::now());
+    assert_eq!(state.relay(), Relay::On);
+    assert_eq!(
+        state.update(Event::SiteRemoved(Ok("steam".to_string()))),
+        [Effect::LoadSites]
+    );
+    assert_eq!(state.relay(), Relay::On);
+    assert!(!state.applying());
+    assert_eq!(kinds(&state), [("steam".to_string(), SiteKind::BuiltIn)]);
 }

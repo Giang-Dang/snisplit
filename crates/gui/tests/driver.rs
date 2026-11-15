@@ -237,3 +237,34 @@ fn without_a_site_folder_the_window_runs_unlocked_and_says_why() {
         ))
     );
 }
+
+#[test]
+fn deleting_a_broken_file_named_like_a_built_in_removes_the_file_and_the_built_in_stays() {
+    let folder = TempFolder::new("broken-steam");
+    fs::create_dir_all(folder.sites()).unwrap();
+    fs::write(
+        folder.sites().join("steam.profile"),
+        "name steam\nnot a key\n",
+    )
+    .unwrap();
+    let keeper = Keeper::new().unwrap();
+    let (mut window, events, _) = driver(&keeper, folder.folders());
+    window.run(Effect::LoadSites);
+    let before = listed(events.recv_timeout(WAIT).unwrap());
+    assert_eq!(before.len(), 3);
+    assert!(matches!(before[2], (ref name, SiteKind::Broken(_), false) if name == "steam"));
+    window.run(Effect::DeleteSite("steam".to_string()));
+    assert_eq!(
+        events.recv_timeout(WAIT).unwrap(),
+        Event::SiteRemoved(Ok("steam".to_string()))
+    );
+    assert!(!folder.sites().join("steam.profile").exists());
+    window.run(Effect::LoadSites);
+    assert_eq!(
+        listed(events.recv_timeout(WAIT).unwrap()),
+        [
+            ("steam".to_string(), SiteKind::BuiltIn, true),
+            ("medium".to_string(), SiteKind::BuiltIn, true),
+        ]
+    );
+}

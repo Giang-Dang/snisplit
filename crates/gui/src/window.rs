@@ -486,8 +486,7 @@ fn site_row(
     compact: bool,
     pressed: &mut Vec<Event>,
 ) {
-    let broken = row.switch.is_none();
-    ui.push_id((&row.name, broken), |ui| {
+    ui.push_id(&row.id, |ui| {
         site_frame(ui, row, details, compact, pressed);
     });
 }
@@ -508,7 +507,7 @@ fn site_frame(
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 if widgets::disclosure(ui, row.open).clicked() {
-                    pressed.push(Event::RowPressed(row.name.clone()));
+                    pressed.push(Event::RowPressed(row.id.clone()));
                 }
                 let name_width = (ui.available_width() - SWITCH_AREA).max(40.0);
                 let height = if compact { 22.0 } else { 40.0 };
@@ -524,7 +523,7 @@ fn site_frame(
                                 .sense(Sense::click()),
                         );
                         if name.clicked() {
-                            pressed.push(Event::RowPressed(row.name.clone()));
+                            pressed.push(Event::RowPressed(row.id.clone()));
                         }
                         if !compact {
                             ui.add(
@@ -539,7 +538,7 @@ fn site_frame(
                         let toggled =
                             widgets::switch(ui, switch.on, switch.busy, switch.enabled).clicked();
                         if toggled {
-                            pressed.push(Event::SwitchPressed(row.name.clone()));
+                            pressed.push(Event::SwitchPressed(row.id.clone()));
                         }
                         ui.label(RichText::new(switch.label).size(12.0).color(SOFT));
                     }

@@ -4,7 +4,7 @@ use snisplit::session::Failure;
 use snisplit_core::probe::Verdict;
 
 use crate::address;
-use crate::state::{Adding, Event, Note, Open, Relay, Row, Site, SiteKind, State, Target};
+use crate::state::{Adding, Event, Note, Open, Relay, Row, Site, SiteId, SiteKind, State, Target};
 
 const OFF_HINT: &str = "The sites switched on below will not open until you press Start.";
 const NOTHING_ON: &str = "Turn on at least one site below, then press Start.";
@@ -120,7 +120,7 @@ pub struct Switch {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteRow {
-    pub name: String,
+    pub id: SiteId,
     pub title: String,
     pub sub: String,
     pub dimmed: bool,
@@ -379,7 +379,7 @@ pub fn rows(state: &State) -> Vec<SiteRow> {
                 enabled: !pending && !state.closing() && state.relay() != Relay::AlreadyOpen,
             });
             SiteRow {
-                name: site.name.clone(),
+                id: site.id(),
                 title: site.title.clone(),
                 sub: match &site.kind {
                     SiteKind::BuiltIn => COMES_WITH.to_string(),
@@ -387,7 +387,7 @@ pub fn rows(state: &State) -> Vec<SiteRow> {
                     SiteKind::Broken(problem) => mistake(problem),
                 },
                 dimmed: !site.relayed(),
-                open: *state.open() == Open::Site(site.name.clone()),
+                open: *state.open() == Open::Site(site.id()),
                 switch,
             }
         })
@@ -399,10 +399,10 @@ fn mistake(problem: &str) -> String {
 }
 
 pub fn details(state: &State, now: Instant) -> Option<Details> {
-    let Open::Site(name) = state.open() else {
+    let Open::Site(id) = state.open() else {
         return None;
     };
-    let site = state.site(name)?;
+    let site = state.site(id)?;
     let mut details = Details {
         domains: site.domains.join(", "),
         sentence: None,
@@ -414,7 +414,7 @@ pub fn details(state: &State, now: Instant) -> Option<Details> {
     if let SiteKind::Broken(problem) = &site.kind {
         details.sentence = Some(mistake(problem));
     }
-    let tested = state.tested(name);
+    let tested = state.tested(id);
     if let Some(tested) = tested {
         details.sentence = Some(test_sentence(
             &tested.domain,
@@ -428,7 +428,7 @@ pub fn details(state: &State, now: Instant) -> Option<Details> {
     }
     let testing_here = state
         .probe()
-        .filter(|probing| probing.target == Target::Site(name.clone()));
+        .filter(|probing| probing.target == Target::Site(id.clone()));
     if let Some(probing) = testing_here {
         details.testing = Some(testing_line(
             &probing.domain,
@@ -448,7 +448,7 @@ pub fn details(state: &State, now: Instant) -> Option<Details> {
             "Test"
         };
         let press = Event::TestPressed {
-            name: name.clone(),
+            site: id.clone(),
             at: now,
         };
         details

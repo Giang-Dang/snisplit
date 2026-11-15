@@ -457,13 +457,13 @@ fn rows_say_where_a_site_comes_from_and_a_broken_file_has_no_switch() {
 fn an_opened_row_offers_test_and_remove_and_after_a_test_says_what_was_found() {
     let at = Instant::now();
     let mut state = three_sites();
-    state.update(Event::RowPressed("example-com".to_string()));
+    state.update(Event::RowPressed(id("example-com")));
     let fresh = details(&state, at).unwrap();
     assert_eq!(fresh.domains, "example.com");
     assert_eq!(fresh.sentence, None);
     assert_eq!(labels(&fresh.buttons), ["Test", "Remove"]);
     state.update(Event::TestPressed {
-        name: "example-com".to_string(),
+        site: id("example-com"),
         at,
     });
     let testing = details(&state, at + Duration::from_secs(3)).unwrap();
@@ -514,11 +514,11 @@ fn a_built_in_row_has_no_remove_and_a_broken_one_shows_its_mistake_with_remove_o
             false,
         ),
     ]);
-    state.update(Event::RowPressed("steam".to_string()));
+    state.update(Event::RowPressed(id("steam")));
     let steam = details(&state, at).unwrap();
     assert_eq!(steam.domains, "steampowered.com, steamstatic.com");
     assert_eq!(labels(&steam.buttons), ["Test"]);
-    state.update(Event::RowPressed("bad".to_string()));
+    state.update(Event::RowPressed(id("bad")));
     let bad = details(&state, at).unwrap();
     assert_eq!(
         bad.sentence.as_deref(),
@@ -554,7 +554,7 @@ fn test_sentences_name_the_tested_address_for_each_finding() {
 #[test]
 fn removing_asks_with_the_restart_sentence_only_when_it_restarts() {
     let mut state = on(three_sites(), Instant::now());
-    state.update(Event::RowPressed("example-com".to_string()));
+    state.update(Event::RowPressed(id("example-com")));
     state.update(Event::RemovePressed);
     let asked = details(&state, Instant::now()).unwrap().confirm.unwrap();
     assert_eq!(asked.question, "Remove example.com?");
@@ -562,7 +562,7 @@ fn removing_asks_with_the_restart_sentence_only_when_it_restarts() {
     assert_eq!(labels(&asked.buttons), ["Keep", "Remove"]);
     assert_eq!(asked.buttons[1].press, Event::RemoveConfirmed);
     let mut off = three_sites();
-    off.update(Event::RowPressed("example-com".to_string()));
+    off.update(Event::RowPressed(id("example-com")));
     off.update(Event::RemovePressed);
     assert_eq!(
         details(&off, Instant::now()).unwrap().confirm.unwrap().note,
@@ -760,4 +760,47 @@ fn activity_counts_lines_and_says_where_the_file_was_saved() {
     state.update(Event::LogSaved(Err("access denied".to_string())));
     assert_eq!(save_note(&state), "Could not save the file: access denied");
     assert_eq!(footer_note(&state, Instant::now()), "version 0.2.0");
+}
+
+fn id(name: &str) -> SiteId {
+    match name {
+        "steam" | "medium" => SiteId::built_in(name),
+        _ => SiteId::file(name),
+    }
+}
+
+#[test]
+fn a_broken_file_named_like_a_built_in_is_its_own_row_with_remove_and_the_built_in_keeps_its_switch()
+ {
+    let at = Instant::now();
+    let mut state = state_with(vec![
+        site("steam", "Steam", SiteKind::BuiltIn, true),
+        site(
+            "steam",
+            "steam",
+            SiteKind::Broken("steam.profile:1: oops".to_string()),
+            false,
+        ),
+    ]);
+    state.update(Event::RowPressed(SiteId::file("steam")));
+    let listed = rows(&state);
+    let opened: Vec<bool> = listed.iter().map(|row| row.open).collect();
+    assert_eq!(opened, [false, true]);
+    assert!(listed[0].switch.is_some() && listed[1].switch.is_none());
+    let broken = details(&state, at).unwrap();
+    assert_eq!(
+        broken.sentence.as_deref(),
+        Some("This file has a mistake and is skipped: steam.profile:1: oops")
+    );
+    assert_eq!(labels(&broken.buttons), ["Remove"]);
+    state.update(Event::RemovePressed);
+    assert_eq!(
+        details(&state, at)
+            .unwrap()
+            .confirm
+            .map(|confirm| confirm.question),
+        Some("Remove steam?".to_string())
+    );
+    state.update(Event::RowPressed(SiteId::built_in("steam")));
+    assert_eq!(labels(&details(&state, at).unwrap().buttons), ["Test"]);
 }

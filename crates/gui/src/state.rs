@@ -45,6 +45,34 @@ pub enum SiteKind {
     Broken(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Origin {
+    BuiltIn,
+    File,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SiteId {
+    pub name: String,
+    pub origin: Origin,
+}
+
+impl SiteId {
+    pub fn built_in(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            origin: Origin::BuiltIn,
+        }
+    }
+
+    pub fn file(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            origin: Origin::File,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Site {
     pub name: String,
@@ -55,6 +83,24 @@ pub struct Site {
 }
 
 impl Site {
+    pub fn origin(&self) -> Origin {
+        match self.kind {
+            SiteKind::BuiltIn => Origin::BuiltIn,
+            SiteKind::User | SiteKind::Broken(_) => Origin::File,
+        }
+    }
+
+    pub fn id(&self) -> SiteId {
+        SiteId {
+            name: self.name.clone(),
+            origin: self.origin(),
+        }
+    }
+
+    pub fn is(&self, id: &SiteId) -> bool {
+        self.name == id.name && self.origin() == id.origin
+    }
+
     pub fn removable(&self) -> bool {
         self.kind != SiteKind::BuiltIn
     }
@@ -97,7 +143,7 @@ pub struct ProbeView {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
-    Site(String),
+    Site(SiteId),
     Adding,
 }
 
@@ -129,7 +175,7 @@ pub enum Adding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Open {
     Nothing,
-    Site(String),
+    Site(SiteId),
     Add,
 }
 
@@ -172,11 +218,11 @@ pub enum Event {
     RemoveLeftoversPressed,
     LeftoversRemoved(Result<(), String>),
     SitesLoaded(Vec<Site>),
-    RowPressed(String),
-    SwitchPressed(String),
+    RowPressed(SiteId),
+    SwitchPressed(SiteId),
     SwitchSaved(Result<(String, bool), String>),
     TestPressed {
-        name: String,
+        site: SiteId,
         at: Instant,
     },
     CancelTestPressed,
@@ -245,7 +291,7 @@ pub struct State {
     showing_attempts: bool,
     probe: Option<Probing>,
     probes_started: u64,
-    tests: Vec<(String, Tested)>,
+    tests: Vec<(SiteId, Tested)>,
     adding: Adding,
     field: String,
     page: Page,
@@ -294,8 +340,14 @@ impl State {
         &self.sites
     }
 
-    pub fn site(&self, name: &str) -> Option<&Site> {
-        self.sites.iter().find(|site| site.name == name)
+    pub fn site(&self, id: &SiteId) -> Option<&Site> {
+        self.sites.iter().find(|site| site.is(id))
+    }
+
+    fn switchable_named(&self, name: &str) -> Option<&Site> {
+        self.sites
+            .iter()
+            .find(|site| site.name == name && site.switchable())
     }
 
     pub fn log(&self) -> impl Iterator<Item = &str> {
@@ -358,10 +410,10 @@ impl State {
         self.probe.as_ref()
     }
 
-    pub fn tested(&self, name: &str) -> Option<&Tested> {
+    pub fn tested(&self, id: &SiteId) -> Option<&Tested> {
         self.tests
             .iter()
-            .find(|(tested, _)| tested == name)
+            .find(|(tested, _)| tested == id)
             .map(|(_, tested)| tested)
     }
 
@@ -389,7 +441,7 @@ impl State {
     }
 
     pub fn title_of(&self, name: &str) -> String {
-        self.site(name)
+        self.switchable_named(name)
             .map_or_else(|| name.to_string(), |site| site.title.clone())
     }
 
@@ -429,10 +481,10 @@ impl State {
                 self.sites_loaded(sites);
                 Vec::new()
             }
-            Event::RowPressed(name) => self.row_pressed(name),
-            Event::SwitchPressed(name) => self.switch_pressed(&name),
+            Event::RowPressed(id) => self.row_pressed(id),
+            Event::SwitchPressed(id) => self.switch_pressed(&id),
             Event::SwitchSaved(saved) => self.switch_saved(saved),
-            Event::TestPressed { name, at } => self.test_site(&name, at),
+            Event::TestPressed { site, at } => self.test_site(site, at),
             Event::CancelTestPressed => self.cancel_probe(),
             Event::ProbeFinished { id, result, at } => {
                 self.probe_finished(id, result, at);
@@ -657,27 +709,26 @@ impl State {
     fn sites_loaded(&mut self, sites: Vec<Site>) {
         self.sites = sites;
         self.confirming_remove = false;
-        let known = |name: &str| self.sites.iter().any(|site| site.name == name);
-        if let Open::Site(name) = &self.open
-            && !known(name)
+        if let Open::Site(id) = &self.open
+            && self.site(id).is_none()
         {
             self.open = Open::Nothing;
         }
-        let names: Vec<String> = self.sites.iter().map(|site| site.name.clone()).collect();
-        self.tests.retain(|(name, _)| names.contains(name));
+        let ids: Vec<SiteId> = self.sites.iter().map(Site::id).collect();
+        self.tests.retain(|(id, _)| ids.contains(id));
     }
 
-    fn row_pressed(&mut self, name: String) -> Vec<Effect> {
-        if self.open == Open::Site(name.clone()) {
+    fn row_pressed(&mut self, id: SiteId) -> Vec<Effect> {
+        if self.open == Open::Site(id.clone()) {
             self.open = Open::Nothing;
             self.confirming_remove = false;
             return Vec::new();
         }
-        if self.site(&name).is_none() {
+        if self.site(&id).is_none() {
             return Vec::new();
         }
         let effects = self.cancel_adding_probe();
-        self.open = Open::Site(name);
+        self.open = Open::Site(id);
         self.confirming_remove = false;
         self.showing_attempts = false;
         effects
@@ -685,13 +736,13 @@ impl State {
 
     fn open_site(&self) -> Option<&Site> {
         match &self.open {
-            Open::Site(name) => self.site(name),
+            Open::Site(id) => self.site(id),
             Open::Nothing | Open::Add => None,
         }
     }
 
-    fn switch_pressed(&mut self, name: &str) -> Vec<Effect> {
-        let Some(site) = self.site(name) else {
+    fn switch_pressed(&mut self, id: &SiteId) -> Vec<Effect> {
+        let Some(site) = self.site(id) else {
             return Vec::new();
         };
         let blocked = self.closing || self.relay == Relay::AlreadyOpen;
@@ -699,7 +750,7 @@ impl State {
             return Vec::new();
         }
         vec![Effect::SetSwitch {
-            name: name.to_string(),
+            name: site.name.clone(),
             on: !site.on,
         }]
     }
@@ -712,13 +763,18 @@ impl State {
                 return Vec::new();
             }
         };
-        let Some(site) = self.sites.iter_mut().find(|site| site.name == name) else {
-            return Vec::new();
-        };
-        if site.on == on {
+        let mut changed = false;
+        for site in self
+            .sites
+            .iter_mut()
+            .filter(|site| site.name == name && site.switchable())
+        {
+            changed |= site.on != on;
+            site.on = on;
+        }
+        if !changed {
             return Vec::new();
         }
-        site.on = on;
         let verb = if on { "switched on" } else { "switched off" };
         let anything_on = self.anything_on();
         self.apply_change(format!("site {name} {verb}"), anything_on)
@@ -754,15 +810,15 @@ impl State {
         effects
     }
 
-    fn test_site(&mut self, name: &str, at: Instant) -> Vec<Effect> {
+    fn test_site(&mut self, id: SiteId, at: Instant) -> Vec<Effect> {
         let Some(domain) = self
-            .site(name)
+            .site(&id)
             .and_then(Site::test_domain)
             .map(str::to_string)
         else {
             return Vec::new();
         };
-        self.begin_probe(domain, Target::Site(name.to_string()), at)
+        self.begin_probe(domain, Target::Site(id), at)
     }
 
     fn test_typed(&mut self, at: Instant) -> Vec<Effect> {
@@ -850,10 +906,10 @@ impl State {
             }
         }
         match probing.target {
-            Target::Site(name) => {
-                self.tests.retain(|(tested, _)| *tested != name);
+            Target::Site(id) => {
+                self.tests.retain(|(tested, _)| *tested != id);
                 self.tests.push((
-                    name,
+                    id,
                     Tested {
                         domain: probing.domain,
                         at,
@@ -903,10 +959,11 @@ impl State {
                 return Vec::new();
             }
         };
-        let was_relayed = self.site(&name).is_some_and(Site::relayed);
-        self.sites.retain(|site| site.name != name);
-        self.tests.retain(|(tested, _)| *tested != name);
-        if self.open == Open::Site(name.clone()) {
+        let removed = SiteId::file(&name);
+        let was_relayed = self.site(&removed).is_some_and(Site::relayed);
+        self.sites.retain(|site| !site.is(&removed));
+        self.tests.retain(|(tested, _)| *tested != removed);
+        if self.open == Open::Site(removed) {
             self.open = Open::Nothing;
         }
         let mut effects = vec![Effect::LoadSites];
