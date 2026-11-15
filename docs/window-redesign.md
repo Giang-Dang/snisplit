@@ -168,6 +168,7 @@ The add panel ("Add a site"):
 |---|---|---|---|
 | Typing | | field, hint "example.net or a pasted link" | Test, Close |
 | Mistyped | | Type only the address, like example.net. A pasted link such as https://example.net/page is accepted and shortened. | Test, Close |
+| Mistyped, the host has letters outside ASCII | | Addresses with letters other than a to z, such as accented letters or other scripts, are not supported yet. Type an address like example.net. | Test, Close |
 | Testing | | field locked showing the address; Testing `<domain>`... up to 10 seconds | Cancel |
 | Blocked, can open | + | `<domain>` is blocked here, and snisplit can open it. | Add and turn on, Not now, What snisplit tried |
 | Already opens | = | `<domain>` already opens normally. Nothing to add. / If it fails in your browser anyway, the cause is something snisplit does not handle. | Done, Test another, What snisplit tried |
@@ -230,8 +231,9 @@ the path holds the user name. No clipboard.
   `upstream_servers`), so the NRPT rules, which only steer the Windows DNS client, never
   apply; an answer that is loopback is refused (`is_usable_upstream`); each attempt is a
   `TcpStream::connect` to that address on 443 or 80, never through the relay.
-- The address field: surrounding spaces, a scheme (`https://`), user info, port, path,
-  query, fragment and one trailing dot are removed, the rest is lower-cased and must be a
+- The address field: surrounding spaces, a scheme (`https://`) or a bare leading `//`,
+  user info, port, path (which starts at `/` or `\`), query, fragment and one trailing dot
+  are removed, the rest is lower-cased and must be a
   domain (`parse_domain`) whose last label is not all digits (so an IPv4 address is
   refused).
 

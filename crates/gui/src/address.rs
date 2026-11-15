@@ -1,19 +1,28 @@
 const SCHEME_END: &str = "://";
-const PATH_STARTS: [char; 3] = ['/', '?', '#'];
+const NETWORK_PATH_START: &str = "//";
+const PATH_STARTS: [char; 4] = ['/', '\\', '?', '#'];
 
 pub fn site_address(text: &str) -> Option<String> {
-    let host = without_port(without_user(before_path(without_scheme(text.trim()))));
-    let host = host.strip_suffix('.').unwrap_or(host);
+    let host = host_part(text);
     let domain = snisplit::parse_domain(host).ok()?;
     let top_label = domain.rsplit('.').next()?;
     let numeric = top_label.bytes().all(|byte| byte.is_ascii_digit());
     (!numeric).then_some(domain)
 }
 
+pub fn non_ascii_host(text: &str) -> bool {
+    !host_part(text).is_ascii()
+}
+
+fn host_part(text: &str) -> &str {
+    let host = without_port(without_user(before_path(without_scheme(text.trim()))));
+    host.strip_suffix('.').unwrap_or(host)
+}
+
 fn without_scheme(text: &str) -> &str {
     match text.split_once(SCHEME_END) {
         Some((scheme, rest)) if is_scheme(scheme) => rest,
-        _ => text,
+        _ => text.strip_prefix(NETWORK_PATH_START).unwrap_or(text),
     }
 }
 
@@ -74,6 +83,27 @@ mod tests {
             site_address("example.com:"),
             Some("example.com".to_string())
         );
+    }
+
+    #[test]
+    fn a_backslash_ends_the_host_before_any_user_part_and_a_leading_double_slash_is_dropped() {
+        assert_eq!(
+            site_address("https://example.com\\@example.net"),
+            Some("example.com".to_string())
+        );
+        assert_eq!(
+            site_address("//example.com/x"),
+            Some("example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn only_a_host_with_non_ascii_letters_counts_as_non_ascii() {
+        assert!(non_ascii_host("caf\u{e9}.example.com"));
+        assert!(non_ascii_host("https://\u{4f8b}\u{3048}.example/page"));
+        assert!(!non_ascii_host("my site/caf\u{e9}"));
+        assert!(!non_ascii_host("example.com/caf\u{e9}"));
+        assert_eq!(site_address("caf\u{e9}.example.com"), None);
     }
 
     #[test]

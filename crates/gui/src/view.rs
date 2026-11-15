@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use snisplit::session::Failure;
 use snisplit_core::probe::Verdict;
 
+use crate::address;
 use crate::log_file::Place;
 use crate::state::{Adding, Event, Note, Open, Relay, Row, Site, SiteKind, State, Target};
 
@@ -21,6 +22,7 @@ const LEFTOVERS_REFUSED: &str = "Windows refused to remove them. If you did not 
 const LEFTOVERS_REMOVED: &str = "The leftover settings were removed.";
 const RESTARTS: &str = "snisplit restarts for about 2 seconds.";
 const MISTYPED: &str = "Type only the address, like example.net. A pasted link such as https://example.net/page is accepted and shortened.";
+const NON_ASCII: &str = "Addresses with letters other than a to z, such as accented letters or other scripts, are not supported yet. Type an address like example.net.";
 const BROWSER_ANYWAY: &str =
     "If it fails in your browser anyway, the cause is something snisplit does not handle.";
 const NOTHING_ANSWERED: &str = "Nothing snisplit tried got an answer. The site may be down, or blocked in a way snisplit cannot get around.";
@@ -507,6 +509,14 @@ pub fn testing_line(domain: &str, elapsed: Duration) -> String {
     }
 }
 
+fn mistyped_hint(field: &str) -> &'static str {
+    if address::non_ascii_host(field) {
+        NON_ASCII
+    } else {
+        MISTYPED
+    }
+}
+
 pub fn add_panel(state: &State, now: Instant) -> Option<AddPanel> {
     if *state.open() != Open::Add {
         return None;
@@ -527,7 +537,7 @@ pub fn add_panel(state: &State, now: Instant) -> Option<AddPanel> {
     match state.adding() {
         Adding::Typing { mistyped } => {
             panel.field_enabled = true;
-            panel.hint = mistyped.then_some(MISTYPED);
+            panel.hint = mistyped.then(|| mistyped_hint(state.field()));
             let can_test = state.probe().is_none() && !state.field().trim().is_empty();
             panel.buttons = vec![
                 Button::new("Test", Event::AddTestPressed { at: now }, Style::Plain)

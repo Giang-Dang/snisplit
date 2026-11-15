@@ -522,6 +522,14 @@ fn the_add_panel_starts_with_a_field_and_refuses_a_mistyped_address_with_a_hint(
         )
     );
     assert!(mistyped.buttons[0].enabled);
+    state.update(Event::FieldEdited("caf\u{e9}.example.com".to_string()));
+    state.update(Event::AddTestPressed { at });
+    assert_eq!(
+        add_panel(&state, at).unwrap().hint,
+        Some(
+            "Addresses with letters other than a to z, such as accented letters or other scripts, are not supported yet. Type an address like example.net."
+        )
+    );
 }
 
 #[test]
