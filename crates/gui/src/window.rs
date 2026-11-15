@@ -34,7 +34,8 @@ const SMALL_BUTTON: f32 = 56.0;
 const BIG_LABEL: f32 = 19.0;
 const SMALL_LABEL: f32 = 14.0;
 const SWITCH_AREA: f32 = 104.0;
-const SAVE_ROW_HEIGHT: f32 = 48.0;
+const SAVE_ROW_GAP: i8 = 8;
+const LOG_MARGIN: f32 = 10.0;
 const BUTTON_PADDING: f32 = 12.0;
 const BUTTON_GAP: f32 = 8.0;
 const DETAILS_INDENT: f32 = 16.0;
@@ -179,11 +180,38 @@ impl App {
             });
         });
         ui.add_space(6.0);
-        let height = (ui.available_height() - SAVE_ROW_HEIGHT).max(SAVE_ROW_HEIGHT);
+        egui::Panel::bottom("save")
+            .show_separator_line(false)
+            .frame(Frame::new().inner_margin(Margin {
+                left: 0,
+                right: 0,
+                top: SAVE_ROW_GAP,
+                bottom: 0,
+            }))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let save = Button {
+                        label: "Save to a file".to_string(),
+                        press: Event::SaveLogPressed,
+                        style: Style::Plain,
+                        enabled: true,
+                    };
+                    styled_button(ui, &save, pressed);
+                    ui.add(
+                        Label::new(
+                            RichText::new(view::save_note(&self.state))
+                                .size(12.0)
+                                .color(SOFT),
+                        )
+                        .wrap(),
+                    );
+                });
+            });
+        let height = (ui.available_height() - 2.0 * LOG_MARGIN).max(LOG_MARGIN);
         Frame::new()
             .fill(DEEP)
             .corner_radius(8.0)
-            .inner_margin(10.0)
+            .inner_margin(LOG_MARGIN)
             .show(ui, |ui| {
                 ScrollArea::vertical()
                     .id_salt("activity")
@@ -199,24 +227,6 @@ impl App {
                         }
                     });
             });
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            let save = Button {
-                label: "Save to a file".to_string(),
-                press: Event::SaveLogPressed,
-                style: Style::Plain,
-                enabled: true,
-            };
-            styled_button(ui, &save, pressed);
-            ui.add(
-                Label::new(
-                    RichText::new(view::save_note(&self.state))
-                        .size(12.0)
-                        .color(SOFT),
-                )
-                .wrap(),
-            );
-        });
     }
 }
 
@@ -489,6 +499,7 @@ fn site_row(
                         let colour = if row.dimmed { MUTED } else { TEXT };
                         let name = ui.add(
                             Label::new(RichText::new(&row.title).size(16.0).color(colour))
+                                .selectable(false)
                                 .truncate()
                                 .sense(Sense::click()),
                         );
