@@ -306,7 +306,7 @@ owner's site is written here as "the added site"; its name stays out of the repo
 | 0 Window | Start button, the steam and medium sites and the Add a site field are shown (owner) |
 | 1 Start | Status "Running: the listed sites go through snisplit"; 3 snisplit rules; store resolves to 127.0.0.2, HTTPS `200` |
 | 2 Fetch | Store HTTPS `200` and HTTP `302`, both through 127.0.0.2 |
-| 3 Add a site | The window offered Add; the site file exists; the added site resolves to 127.0.0.4 and curl gets HTTP `403` over a certificate-checked TLS connection through the relay (a blocked connection gives `000`), so the handshake got through; where the 403 comes from is not known and a browser was not tried |
+| 3 Add a site | The window offered Add; the site file exists; the added site resolves to 127.0.0.4 and curl gets HTTP `403` over a certificate-checked TLS connection through the relay (a blocked connection gives `000`), so the handshake got through; where the 403 comes from is not known; no browser was used in this run |
 | 4 Stop | 0 rules; store and the added site resolve to their real addresses again |
 | 5 Start again | 3 rules; store HTTPS `200` through 127.0.0.2 |
 | 6 Close with X while running | Exited by itself with code 0; no process, 0 rules |
@@ -322,6 +322,7 @@ The owner's answers after the run (2026-11-15):
 - The added site opens in a browser while snisplit is Running.
 - Kaspersky showed nothing during the elevated run.
 
-Still unverified in a real window: adding or removing a site while Running; the fixes for Stop followed by a site change, a failed rule
-removal at close, and a second close while stopping (tests only); logoff or shutdown
-with the window open; the browser fallback from HTTP/3 (docs/milestone-8.md).
+Still unverified in a real window: adding or removing a site while Running; the
+fixes for Stop followed by a site change, a failed rule removal at close, and a second
+close while stopping (tests only); logoff or shutdown with the window open; the
+browser fallback from HTTP/3 (docs/milestone-8.md).
