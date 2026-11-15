@@ -1,10 +1,11 @@
 use std::future::Future;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use snisplit::instance::{self, Claim, Instance};
 use snisplit::profile::BUILT_IN;
 use snisplit::session::{self, Failure, Output, RunOptions};
 use snisplit::{
@@ -19,7 +20,7 @@ use tokio::task::{JoinError, JoinHandle};
 
 use crate::log_file;
 use crate::report;
-use crate::state::{Effect, Event, ProbeView, SaveRefusal, SessionEnd, site_list};
+use crate::state::{Claimed, Effect, Event, ProbeView, SaveRefusal, SessionEnd, site_list};
 
 const SHUTDOWN_LIMIT: Duration = Duration::from_secs(60);
 const RUNTIME_LIMIT: Duration = Duration::from_secs(1);
@@ -70,6 +71,7 @@ pub enum Ending {
 struct Tracked {
     stop: Option<oneshot::Sender<()>>,
     tidying: Option<JoinHandle<Rules>>,
+    instance: Option<Instance>,
 }
 
 type Stopped = oneshot::Receiver<()>;
@@ -141,6 +143,8 @@ impl Driver<'_> {
 
     pub fn run(&mut self, effect: Effect) {
         match effect {
+            Effect::ClaimInstance => self.claim_instance(),
+            Effect::CountLeftovers => self.count_leftovers(),
             Effect::StartSession => self.start_session(),
             Effect::StopSession => self.stop_session(),
             Effect::RemoveLeftovers => self.remove_leftovers(),
@@ -153,6 +157,36 @@ impl Driver<'_> {
             Effect::SaveLog(lines) => self.save_log(&lines),
             Effect::Exit => {}
         }
+    }
+
+    fn claim_instance(&self) {
+        let app_folder = self.folders.sites.as_deref().and_then(Path::parent);
+        let claimed = match instance::claim(app_folder) {
+            Claim::Ours(held) => {
+                self.keeper.tracked().instance = Some(held);
+                Claimed::Ours
+            }
+            Claim::Elsewhere => Claimed::Elsewhere,
+            Claim::Unlocked(error) => Claimed::Unlocked(error.to_string()),
+        };
+        self.inbox.send(Event::InstanceClaimed(claimed));
+    }
+
+    fn count_leftovers(&self) {
+        let out = self.inbox.output();
+        let inbox = self.inbox.clone();
+        let work = self
+            .runtime()
+            .spawn_blocking(move || session::count_rules(&out).map_err(|error| error.to_string()));
+        self.runtime().spawn(async move {
+            let counted = work.await.unwrap_or_else(|error| {
+                Err(format!(
+                    "the check {} before it reported",
+                    how_it_ended(&error)
+                ))
+            });
+            inbox.send(Event::LeftoversCounted(counted));
+        });
     }
 
     fn start_session(&mut self) {

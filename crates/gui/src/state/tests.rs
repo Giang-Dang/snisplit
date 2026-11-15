@@ -1099,3 +1099,134 @@ fn the_site_list_titles_sites_and_switches_off_the_listed_names() {
     assert_eq!(sites[2].test_domain(), Some("news.example.com"));
     assert_eq!(sites[4].test_domain(), None);
 }
+
+fn launched(claimed: Claimed) -> State {
+    let mut state = with_sites();
+    assert_eq!(
+        state.update(Event::Launched),
+        [Effect::LoadSites, Effect::ClaimInstance]
+    );
+    state.update(Event::InstanceClaimed(claimed));
+    state
+}
+
+#[test]
+fn a_claimed_instance_counts_leftovers_and_rules_found_show_the_leftovers_from_last_time() {
+    let mut state = with_sites();
+    state.update(Event::Launched);
+    assert_eq!(
+        state.update(Event::InstanceClaimed(Claimed::Ours)),
+        [Effect::CountLeftovers]
+    );
+    assert_eq!(state.relay(), Relay::Off);
+    state.update(Event::LeftoversCounted(Ok(2)));
+    assert_eq!(
+        state.relay(),
+        Relay::Leftovers {
+            removal_refused: false
+        }
+    );
+    assert!(state.leftovers_from_last_time());
+    assert_eq!(
+        last_log(&state),
+        "snisplit DNS rules left from an earlier run were found"
+    );
+    assert_eq!(
+        state.update(Event::RemoveLeftoversPressed),
+        [Effect::RemoveLeftovers]
+    );
+    state.update(Event::LeftoversRemoved(Ok(())));
+    assert_eq!(state.relay(), Relay::Off);
+    assert!(!state.leftovers_from_last_time());
+}
+
+#[test]
+fn start_still_works_from_leftovers_found_at_launch_and_forgets_where_they_came_from() {
+    let mut state = launched(Claimed::Ours);
+    state.update(Event::LeftoversCounted(Ok(1)));
+    assert_eq!(state.update(Event::StartPressed), [Effect::StartSession]);
+    assert!(!state.leftovers_from_last_time());
+}
+
+#[test]
+fn no_rules_found_at_launch_stays_off() {
+    let mut state = launched(Claimed::Ours);
+    state.update(Event::LeftoversCounted(Ok(0)));
+    assert_eq!(state.relay(), Relay::Off);
+    assert!(!state.leftovers_from_last_time());
+}
+
+#[test]
+fn a_failed_check_logs_the_raw_cause_and_stays_off() {
+    let mut state = launched(Claimed::Ours);
+    state.update(Event::LeftoversCounted(Err(
+        "powershell: Access is denied.".to_string(),
+    )));
+    assert_eq!(state.relay(), Relay::Off);
+    assert_eq!(
+        last_log(&state),
+        "could not check for leftover DNS rules: powershell: Access is denied."
+    );
+}
+
+#[test]
+fn a_count_arriving_after_start_was_pressed_changes_nothing() {
+    let mut state = launched(Claimed::Ours);
+    state.update(Event::StartPressed);
+    state.update(Event::LeftoversCounted(Ok(3)));
+    assert_eq!(state.relay(), Relay::Starting);
+    let mut stopped = launched(Claimed::Ours);
+    stopped.update(Event::StartPressed);
+    stopped.update(Event::StopPressed);
+    stopped.update(Event::SessionEnded(SessionEnd::Clean));
+    assert_eq!(stopped.relay(), Relay::Off);
+    stopped.update(Event::LeftoversCounted(Ok(3)));
+    assert_eq!(stopped.relay(), Relay::Off);
+    assert!(!stopped.leftovers_from_last_time());
+}
+
+#[test]
+fn no_lock_is_logged_and_the_leftovers_are_still_counted() {
+    let mut state = with_sites();
+    state.update(Event::Launched);
+    assert_eq!(
+        state.update(Event::InstanceClaimed(Claimed::Unlocked(
+            "Access is denied. (os error 5)".to_string()
+        ))),
+        [Effect::CountLeftovers]
+    );
+    assert_eq!(state.relay(), Relay::Off);
+    assert_eq!(
+        last_log(&state),
+        "not checking for another running snisplit: Access is denied. (os error 5)"
+    );
+}
+
+#[test]
+fn already_open_refuses_start_switches_and_leftover_removal_until_a_retry_claims_it() {
+    let mut state = launched(Claimed::Elsewhere);
+    assert_eq!(state.relay(), Relay::AlreadyOpen);
+    assert_eq!(state.update(Event::StartPressed), []);
+    assert_eq!(state.update(Event::SwitchPressed("medium".to_string())), []);
+    assert_eq!(state.update(Event::RemoveLeftoversPressed), []);
+    assert_eq!(state.relay(), Relay::AlreadyOpen);
+    assert_eq!(
+        state.update(Event::ClaimAgainPressed),
+        [Effect::ClaimInstance]
+    );
+    state.update(Event::InstanceClaimed(Claimed::Elsewhere));
+    assert_eq!(state.relay(), Relay::AlreadyOpen);
+    assert_eq!(
+        state.update(Event::InstanceClaimed(Claimed::Ours)),
+        [Effect::CountLeftovers]
+    );
+    assert_eq!(state.relay(), Relay::Off);
+    assert_eq!(state.update(Event::ClaimAgainPressed), []);
+    assert_eq!(state.update(Event::StartPressed), [Effect::StartSession]);
+}
+
+#[test]
+fn closing_while_already_open_exits_at_once() {
+    let mut state = launched(Claimed::Elsewhere);
+    assert_eq!(state.update(Event::CloseRequested), [Effect::Exit]);
+}

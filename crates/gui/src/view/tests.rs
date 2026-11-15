@@ -4,7 +4,7 @@ use snisplit::session::Failure;
 use snisplit_core::probe::Verdict;
 
 use super::*;
-use crate::state::{ProbeView, Row, SessionEnd, Site, SiteKind};
+use crate::state::{Claimed, ProbeView, Row, SessionEnd, Site, SiteKind};
 
 fn site(name: &str, title: &str, kind: SiteKind, on: bool) -> Site {
     let domains = match name {
@@ -343,6 +343,75 @@ fn leftovers_name_the_sites_offer_the_removal_and_report_its_outcome() {
 
 fn view_hero(state: &State) -> Hero {
     hero(state)
+}
+
+fn launched(claimed: Claimed) -> State {
+    let mut state = three_sites();
+    state.update(Event::Launched);
+    state.update(Event::InstanceClaimed(claimed));
+    state
+}
+
+#[test]
+fn leftovers_found_at_launch_say_it_did_not_turn_off_last_time_and_offer_the_removal() {
+    let mut state = launched(Claimed::Ours);
+    state.update(Event::LeftoversCounted(Ok(3)));
+    let hero = hero(&state);
+    assert_eq!(hero.ring, Ring::Warning);
+    assert_eq!(hero.tone, Tone::Trouble);
+    assert_eq!(hero.action, "Start");
+    assert_eq!(hero.press, Some(Event::StartPressed));
+    assert_eq!(hero.state_line, "Off, with leftovers");
+    assert_eq!(
+        hero.sentences,
+        [
+            "snisplit did not get to turn off properly last time. Some of its settings are still in place, so the sites below may not open."
+        ]
+    );
+    assert_eq!(
+        labels(&hero.buttons),
+        ["Remove leftover settings", "See what happened"]
+    );
+    assert_eq!(
+        footer_note(&state, Instant::now()),
+        "pressing Start also removes them"
+    );
+    state.update(Event::RemoveLeftoversPressed);
+    state.update(Event::LeftoversRemoved(Err("denied".to_string())));
+    assert_eq!(
+        view_hero(&state).sentences,
+        [
+            "snisplit did not get to turn off properly last time. Some of its settings are still in place, so the sites below may not open.",
+            "Windows refused to remove them. If you did not start it with Run as administrator, close this window, right-click snisplit-gui and choose Run as administrator."
+        ]
+    );
+}
+
+#[test]
+fn already_open_offers_only_try_again_and_disables_every_switch() {
+    let state = launched(Claimed::Elsewhere);
+    let hero = hero(&state);
+    assert_eq!(hero.ring, Ring::Warning);
+    assert_eq!(hero.action, "Try again");
+    assert_eq!(hero.press, Some(Event::ClaimAgainPressed));
+    assert_eq!(hero.state_line, "Already open");
+    assert_eq!(
+        hero.sentences,
+        [
+            "snisplit is already running, or is still turning off. Wait a few seconds, then press Try again."
+        ]
+    );
+    assert!(hero.buttons.is_empty());
+    let enabled: Vec<bool> = rows(&state)
+        .iter()
+        .filter_map(|row| row.switch.as_ref().map(|switch| switch.enabled))
+        .collect();
+    assert_eq!(enabled, [false, false, false]);
+    let mut freed = state.clone();
+    freed.update(Event::ClaimAgainPressed);
+    freed.update(Event::InstanceClaimed(Claimed::Ours));
+    assert_eq!(view_hero(&freed).state_line, "Off");
+    assert_eq!(view_hero(&freed).action, "Start");
 }
 
 #[test]

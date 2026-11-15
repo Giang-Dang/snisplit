@@ -19,6 +19,8 @@ const REFUSED: &str = "Windows refused the change snisplit needs. If you did not
 const UNEXPECTED: &str = "snisplit stopped unexpectedly.";
 const LEFTOVERS_REFUSED: &str = "Windows refused to remove them. If you did not start it with Run as administrator, close this window, right-click snisplit-gui and choose Run as administrator.";
 const LEFTOVERS_REMOVED: &str = "The leftover settings were removed.";
+const LEFTOVERS_FROM_LAST_TIME: &str = "snisplit did not get to turn off properly last time. Some of its settings are still in place, so the sites below may not open.";
+const ALREADY_OPEN: &str = "snisplit is already running, or is still turning off. Wait a few seconds, then press Try again.";
 const RESTARTS: &str = "snisplit restarts for about 2 seconds.";
 const MISTYPED: &str = "Type only the address, like example.net. A pasted link such as https://example.net/page is accepted and shortened.";
 const NON_ASCII: &str = "Addresses with letters other than a to z, such as accented letters or other scripts, are not supported yet. Type an address like example.net.";
@@ -239,10 +241,14 @@ pub fn hero(state: &State) -> Hero {
         Relay::Leftovers { removal_refused } => {
             trouble(&mut hero, state);
             hero.state_line = "Off, with leftovers";
-            let (phrase, _) = sites_phrase(&titles(state, state.session_sites()));
-            hero.sentences.push(format!(
-                "snisplit could not tidy up after itself. {phrase} may not open until the leftover settings are removed."
-            ));
+            if state.leftovers_from_last_time() {
+                hero.sentences.push(LEFTOVERS_FROM_LAST_TIME.to_string());
+            } else {
+                let (phrase, _) = sites_phrase(&titles(state, state.session_sites()));
+                hero.sentences.push(format!(
+                    "snisplit could not tidy up after itself. {phrase} may not open until the leftover settings are removed."
+                ));
+            }
             if removal_refused {
                 hero.sentences.push(LEFTOVERS_REFUSED.to_string());
             }
@@ -261,6 +267,14 @@ pub fn hero(state: &State) -> Hero {
             hero.action = "Wait";
             hero.press = None;
             hero.state_line = "Removing leftover settings...";
+        }
+        Relay::AlreadyOpen => {
+            hero.ring = Ring::Warning;
+            hero.tone = Tone::Trouble;
+            hero.action = "Try again";
+            hero.press = Some(Event::ClaimAgainPressed);
+            hero.state_line = "Already open";
+            hero.sentences.push(ALREADY_OPEN.to_string());
         }
     }
     if hero.compact.is_empty() {
@@ -362,7 +376,7 @@ pub fn rows(state: &State) -> Vec<SiteRow> {
                     (false, false) => "Off",
                 },
                 busy: pending,
-                enabled: !pending && !state.closing(),
+                enabled: !pending && !state.closing() && state.relay() != Relay::AlreadyOpen,
             });
             SiteRow {
                 name: site.name.clone(),

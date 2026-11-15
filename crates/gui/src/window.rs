@@ -85,9 +85,12 @@ impl<'keeper> App<'keeper> {
         };
         let (mut driver, events) =
             keeper.driver(folders, Arc::new(move || repaint.request_repaint()));
-        driver.run(Effect::LoadSites);
+        let mut state = State::new();
+        for effect in state.update(Event::Launched) {
+            driver.run(effect);
+        }
         Self {
-            state: State::new(),
+            state,
             driver,
             events,
             exit_allowed: false,

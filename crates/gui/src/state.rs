@@ -28,6 +28,14 @@ pub enum Relay {
         removal_refused: bool,
     },
     RemovingLeftovers,
+    AlreadyOpen,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Claimed {
+    Ours,
+    Elsewhere,
+    Unlocked(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,6 +158,10 @@ pub enum SaveRefusal {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
+    Launched,
+    InstanceClaimed(Claimed),
+    ClaimAgainPressed,
+    LeftoversCounted(Result<usize, String>),
     StartPressed,
     StopPressed,
     SessionReady {
@@ -199,6 +211,8 @@ pub enum Event {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
+    ClaimInstance,
+    CountLeftovers,
     StartSession,
     StopSession,
     RemoveLeftovers,
@@ -220,6 +234,8 @@ pub struct State {
     restart_pending: bool,
     applying: bool,
     closing: bool,
+    counting_leftovers: bool,
+    leftovers_from_last_time: bool,
     session_sites: Vec<String>,
     live_sites: Option<Vec<String>>,
     on_since: Option<Instant>,
@@ -251,6 +267,8 @@ impl State {
             restart_pending: false,
             applying: false,
             closing: false,
+            counting_leftovers: false,
+            leftovers_from_last_time: false,
             session_sites: Vec::new(),
             live_sites: None,
             on_since: None,
@@ -298,6 +316,10 @@ impl State {
 
     pub fn closing(&self) -> bool {
         self.closing
+    }
+
+    pub fn leftovers_from_last_time(&self) -> bool {
+        self.leftovers_from_last_time
     }
 
     pub fn anything_on(&self) -> bool {
@@ -373,6 +395,19 @@ impl State {
 
     pub fn update(&mut self, event: Event) -> Vec<Effect> {
         match event {
+            Event::Launched => vec![Effect::LoadSites, Effect::ClaimInstance],
+            Event::InstanceClaimed(claimed) => self.instance_claimed(claimed),
+            Event::ClaimAgainPressed => {
+                if self.relay == Relay::AlreadyOpen && !self.closing {
+                    vec![Effect::ClaimInstance]
+                } else {
+                    Vec::new()
+                }
+            }
+            Event::LeftoversCounted(counted) => {
+                self.leftovers_counted(counted);
+                Vec::new()
+            }
             Event::StartPressed => self.start(),
             Event::StopPressed => {
                 self.restart_pending = false;
@@ -472,6 +507,8 @@ impl State {
         }
         self.relay = Relay::Starting;
         self.note = None;
+        self.counting_leftovers = false;
+        self.leftovers_from_last_time = false;
         self.session_sites = self
             .sites
             .iter()
@@ -480,6 +517,45 @@ impl State {
             .collect();
         self.push_log("starting snisplit".to_string());
         vec![Effect::StartSession]
+    }
+
+    fn instance_claimed(&mut self, claimed: Claimed) -> Vec<Effect> {
+        if self.closing || !matches!(self.relay, Relay::Off | Relay::AlreadyOpen) {
+            return Vec::new();
+        }
+        match claimed {
+            Claimed::Elsewhere => {
+                self.relay = Relay::AlreadyOpen;
+                self.push_log("another snisplit is running, or is still turning off".to_string());
+                return Vec::new();
+            }
+            Claimed::Unlocked(why) => {
+                self.push_log(format!("not checking for another running snisplit: {why}"));
+            }
+            Claimed::Ours => {}
+        }
+        self.relay = Relay::Off;
+        self.counting_leftovers = true;
+        vec![Effect::CountLeftovers]
+    }
+
+    fn leftovers_counted(&mut self, counted: Result<usize, String>) {
+        let current = std::mem::take(&mut self.counting_leftovers);
+        let found = match counted {
+            Ok(found) => found,
+            Err(cause) => {
+                self.push_log(format!("could not check for leftover DNS rules: {cause}"));
+                return;
+            }
+        };
+        if !current || self.closing || self.relay != Relay::Off || found == 0 {
+            return;
+        }
+        self.relay = Relay::Leftovers {
+            removal_refused: false,
+        };
+        self.leftovers_from_last_time = true;
+        self.push_log("snisplit DNS rules left from an earlier run were found".to_string());
     }
 
     fn stop(&mut self) -> Vec<Effect> {
@@ -560,6 +636,7 @@ impl State {
         match removed {
             Ok(()) => {
                 self.relay = Relay::Off;
+                self.leftovers_from_last_time = false;
                 self.note = Some(Note::LeftoversRemoved);
                 self.push_log("the leftover DNS rules were removed".to_string());
                 if self.closing {
@@ -617,7 +694,8 @@ impl State {
         let Some(site) = self.site(name) else {
             return Vec::new();
         };
-        if self.closing || !site.switchable() || self.switch_pending(site) {
+        let blocked = self.closing || self.relay == Relay::AlreadyOpen;
+        if blocked || !site.switchable() || self.switch_pending(site) {
             return Vec::new();
         }
         vec![Effect::SetSwitch {
@@ -927,7 +1005,9 @@ impl State {
                 self.stop()
             }
             Relay::Stopping | Relay::RemovingLeftovers => Vec::new(),
-            Relay::Off | Relay::Failed { .. } | Relay::Leftovers { .. } => vec![Effect::Exit],
+            Relay::Off | Relay::Failed { .. } | Relay::Leftovers { .. } | Relay::AlreadyOpen => {
+                vec![Effect::Exit]
+            }
         }
     }
 
