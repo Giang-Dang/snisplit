@@ -3,7 +3,6 @@ mod probe;
 
 use std::env;
 use std::io::{self, Write};
-use std::path::Path;
 use std::process::ExitCode;
 
 use args::{Command, USAGE};
@@ -63,8 +62,7 @@ fn show_profile(name: &str) -> io::Result<()> {
 }
 
 fn claim_instance() -> Claim {
-    let sites_folder = sites::folder();
-    instance::claim(sites_folder.as_deref().and_then(Path::parent))
+    instance::claim(instance::folder().as_deref())
 }
 
 fn cleanup() -> io::Result<()> {

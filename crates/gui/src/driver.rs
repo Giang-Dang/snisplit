@@ -33,6 +33,7 @@ pub type Wake = Arc<dyn Fn() + Send + Sync>;
 pub struct Folders {
     pub sites: Option<PathBuf>,
     pub home: Option<PathBuf>,
+    pub lock: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -160,8 +161,7 @@ impl Driver<'_> {
     }
 
     fn claim_instance(&self) {
-        let app_folder = self.folders.sites.as_deref().and_then(Path::parent);
-        let claimed = match instance::claim(app_folder) {
+        let claimed = match instance::claim(self.folders.lock.as_deref()) {
             Claim::Ours(held) => {
                 self.keeper.tracked().instance = Some(held);
                 Claimed::Ours
@@ -334,11 +334,7 @@ impl Driver<'_> {
     }
 
     fn save_log(&self, lines: &[String]) {
-        let app_folder = self
-            .folders
-            .sites
-            .as_deref()
-            .and_then(std::path::Path::parent);
+        let app_folder = self.folders.sites.as_deref().and_then(Path::parent);
         let saved = log_file::save(lines, self.folders.home.as_deref(), app_folder)
             .map_err(|error| error.to_string());
         self.inbox.send(Event::LogSaved(saved));

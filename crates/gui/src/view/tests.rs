@@ -388,6 +388,23 @@ fn leftovers_found_at_launch_say_it_did_not_turn_off_last_time_and_offer_the_rem
 }
 
 #[test]
+fn rules_found_without_a_lock_leave_the_plain_off_header_with_no_leftovers_button() {
+    let mut state = launched(Claimed::Unlocked(
+        "Access is denied. (os error 5)".to_string(),
+    ));
+    state.update(Event::LeftoversCounted(Ok(3)));
+    let hero = hero(&state);
+    assert_eq!(hero.state_line, "Off");
+    assert_eq!(hero.action, "Start");
+    assert_eq!(hero.press, Some(Event::StartPressed));
+    assert!(
+        !labels(&hero.buttons).contains(&"Remove leftover settings"),
+        "{:?}",
+        labels(&hero.buttons)
+    );
+}
+
+#[test]
 fn already_open_offers_only_try_again_and_disables_every_switch() {
     let state = launched(Claimed::Elsewhere);
     let hero = hero(&state);

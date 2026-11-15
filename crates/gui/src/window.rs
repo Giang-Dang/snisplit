@@ -8,7 +8,7 @@ use eframe::egui::{
     self, Align, CornerRadius, FontId, Frame, Key, Label, Layout, Margin, RichText, ScrollArea,
     Sense, Stroke, TextEdit, Theme, Ui, Vec2, vec2,
 };
-use snisplit::sites;
+use snisplit::{instance, sites};
 use snisplit_gui::driver::{Driver, Ending, Folders, Keeper};
 use snisplit_gui::state::{Effect, Event, Page, Probing, Row, State};
 use snisplit_gui::view::{self, AddPanel, Button, Details, Hero, Ring, SiteRow, Style, Tone};
@@ -82,6 +82,7 @@ impl<'keeper> App<'keeper> {
         let folders = Folders {
             sites: sites::folder(),
             home: home_folder(),
+            lock: instance::folder(),
         };
         let (mut driver, events) =
             keeper.driver(folders, Arc::new(move || repaint.request_repaint()));

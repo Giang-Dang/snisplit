@@ -281,6 +281,7 @@ pub struct State {
     applying: bool,
     closing: bool,
     counting_leftovers: bool,
+    lock: Option<Claimed>,
     leftovers_from_last_time: bool,
     session_sites: Vec<String>,
     live_sites: Option<Vec<String>>,
@@ -314,6 +315,7 @@ impl State {
             applying: false,
             closing: false,
             counting_leftovers: false,
+            lock: None,
             leftovers_from_last_time: false,
             session_sites: Vec::new(),
             live_sites: None,
@@ -572,10 +574,11 @@ impl State {
     }
 
     fn instance_claimed(&mut self, claimed: Claimed) -> Vec<Effect> {
-        if self.closing || !matches!(self.relay, Relay::Off | Relay::AlreadyOpen) {
+        let already_ours = self.lock == Some(Claimed::Ours);
+        if already_ours || self.closing || !matches!(self.relay, Relay::Off | Relay::AlreadyOpen) {
             return Vec::new();
         }
-        match claimed {
+        match &claimed {
             Claimed::Elsewhere => {
                 self.relay = Relay::AlreadyOpen;
                 self.push_log("another snisplit is running, or is still turning off".to_string());
@@ -586,6 +589,7 @@ impl State {
             }
             Claimed::Ours => {}
         }
+        self.lock = Some(claimed);
         self.relay = Relay::Off;
         self.counting_leftovers = true;
         vec![Effect::CountLeftovers]
@@ -601,6 +605,12 @@ impl State {
             }
         };
         if !current || self.closing || self.relay != Relay::Off || found == 0 {
+            return;
+        }
+        if matches!(self.lock, Some(Claimed::Unlocked(_))) {
+            self.push_log(format!(
+                "{found} snisplit DNS rules are in place; with no lock they may belong to another running snisplit, so they are not offered for removal (Start still removes them)"
+            ));
             return;
         }
         self.relay = Relay::Leftovers {

@@ -1203,6 +1203,44 @@ fn no_lock_is_logged_and_the_leftovers_are_still_counted() {
 }
 
 #[test]
+fn rules_found_without_a_lock_are_logged_and_not_offered_as_leftovers_and_start_still_runs() {
+    let mut state = launched(Claimed::Unlocked(
+        "Access is denied. (os error 5)".to_string(),
+    ));
+    state.update(Event::LeftoversCounted(Ok(2)));
+    assert_eq!(state.relay(), Relay::Off);
+    assert!(!state.leftovers_from_last_time());
+    assert_eq!(
+        last_log(&state),
+        "2 snisplit DNS rules are in place; with no lock they may belong to another running snisplit, so they are not offered for removal (Start still removes them)"
+    );
+    assert_eq!(state.update(Event::RemoveLeftoversPressed), []);
+    assert_eq!(state.update(Event::StartPressed), [Effect::StartSession]);
+}
+
+#[test]
+fn a_claim_held_elsewhere_arriving_while_off_at_launch_shows_already_open() {
+    let mut state = with_sites();
+    state.update(Event::Launched);
+    assert_eq!(state.relay(), Relay::Off);
+    assert_eq!(state.update(Event::InstanceClaimed(Claimed::Elsewhere)), []);
+    assert_eq!(state.relay(), Relay::AlreadyOpen);
+    assert_eq!(
+        last_log(&state),
+        "another snisplit is running, or is still turning off"
+    );
+}
+
+#[test]
+fn a_late_claim_held_elsewhere_after_this_window_took_the_lock_changes_nothing() {
+    let mut state = launched(Claimed::Ours);
+    state.update(Event::LeftoversCounted(Ok(0)));
+    assert_eq!(state.update(Event::InstanceClaimed(Claimed::Elsewhere)), []);
+    assert_eq!(state.relay(), Relay::Off);
+    assert_eq!(state.update(Event::StartPressed), [Effect::StartSession]);
+}
+
+#[test]
 fn already_open_refuses_start_switches_and_leftover_removal_until_a_retry_claims_it() {
     let mut state = launched(Claimed::Elsewhere);
     assert_eq!(state.relay(), Relay::AlreadyOpen);

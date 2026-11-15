@@ -34,6 +34,7 @@ impl TempFolder {
         Folders {
             sites: Some(self.sites()),
             home: Some(self.root.join("home")),
+            lock: Some(self.root.join("ProgramData").join("snisplit")),
         }
     }
 }
@@ -226,14 +227,20 @@ fn the_instance_lock_stays_with_the_keeper_after_the_window_side_is_gone_until_i
 }
 
 #[test]
-fn without_a_site_folder_the_window_runs_unlocked_and_says_why() {
+fn without_a_lock_folder_the_window_runs_unlocked_and_says_why() {
+    let folder = TempFolder::new("no-lock");
     let keeper = Keeper::new().unwrap();
-    let (mut window, events, _) = driver(&keeper, Folders::default());
+    let folders = Folders {
+        lock: None,
+        ..folder.folders()
+    };
+    let (mut window, events, _) = driver(&keeper, folders);
     window.run(Effect::ClaimInstance);
     assert_eq!(
         events.recv_timeout(WAIT).unwrap(),
         Event::InstanceClaimed(Claimed::Unlocked(
-            "no per-user snisplit folder: the APPDATA environment variable is not set".to_string()
+            "no machine-wide snisplit folder: the ProgramData environment variable is not set"
+                .to_string()
         ))
     );
 }
