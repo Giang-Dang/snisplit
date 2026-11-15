@@ -1,7 +1,8 @@
+use std::future::Future;
 use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use snisplit::profile::BUILT_IN;
@@ -52,39 +53,90 @@ impl Inbox {
     }
 }
 
-struct Session {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rules {
+    Removed,
+    MayRemain,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ending {
+    Clean,
+    RulesMayRemain,
+    TimedOut,
+}
+
+#[derive(Default)]
+struct Tracked {
     stop: Option<oneshot::Sender<()>>,
-    ended: JoinHandle<()>,
+    tidying: Option<JoinHandle<Rules>>,
 }
 
-pub struct Driver {
-    runtime: Option<Runtime>,
-    inbox: Inbox,
-    folders: Folders,
-    session: Option<Session>,
-    probe: Option<(u64, JoinHandle<()>)>,
+type Stopped = oneshot::Receiver<()>;
+type Ready = Box<dyn FnOnce() + Send>;
+
+pub struct Keeper {
+    runtime: Runtime,
+    tracked: Mutex<Tracked>,
 }
 
-impl Driver {
-    pub fn new(folders: Folders, wake: Wake) -> io::Result<(Self, Receiver<Event>)> {
+impl Keeper {
+    pub fn new() -> io::Result<Self> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?;
-        let (events, received) = channel();
-        let driver = Self {
-            runtime: Some(runtime),
-            inbox: Inbox { events, wake },
-            folders,
-            session: None,
-            probe: None,
-        };
-        Ok((driver, received))
+        Ok(Self {
+            runtime,
+            tracked: Mutex::new(Tracked::default()),
+        })
     }
 
+    pub fn driver(&self, folders: Folders, wake: Wake) -> (Driver<'_>, Receiver<Event>) {
+        let (events, received) = channel();
+        let driver = Driver {
+            keeper: self,
+            inbox: Inbox { events, wake },
+            folders,
+            probe: None,
+        };
+        (driver, received)
+    }
+
+    pub fn finish(self) -> Ending {
+        self.finish_within(SHUTDOWN_LIMIT)
+    }
+
+    fn finish_within(self, limit: Duration) -> Ending {
+        let (stop, tidying) = {
+            let mut tracked = self.tracked();
+            (tracked.stop.take(), tracked.tidying.take())
+        };
+        if let Some(stop) = stop {
+            let _ = stop.send(());
+        }
+        let ending = match tidying {
+            None => Ending::Clean,
+            Some(task) => self.runtime.block_on(wait_for_tidying(task, limit)),
+        };
+        self.runtime.shutdown_timeout(RUNTIME_LIMIT);
+        ending
+    }
+
+    fn tracked(&self) -> MutexGuard<'_, Tracked> {
+        self.tracked.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+pub struct Driver<'keeper> {
+    keeper: &'keeper Keeper,
+    inbox: Inbox,
+    folders: Folders,
+    probe: Option<(u64, JoinHandle<()>)>,
+}
+
+impl Driver<'_> {
     fn runtime(&self) -> &Runtime {
-        self.runtime
-            .as_ref()
-            .expect("the runtime lives until the driver is dropped")
+        &self.keeper.runtime
     }
 
     pub fn run(&mut self, effect: Effect) {
@@ -103,15 +155,7 @@ impl Driver {
         }
     }
 
-    pub fn shutdown(&mut self) {
-        self.stop_session();
-        if let Some(session) = self.session.take() {
-            wait_until_ended(self.runtime(), session.ended, SHUTDOWN_LIMIT);
-        }
-    }
-
     fn start_session(&mut self) {
-        let (stop, stopped) = oneshot::channel::<()>();
         let options = RunOptions {
             verbose: false,
             profiles: BUILT_IN.iter().map(|built_in| built_in.name).collect(),
@@ -120,43 +164,54 @@ impl Driver {
             routing: true,
             upstreams: Vec::new(),
         };
-        let out = self.inbox.output();
-        let ready = self.inbox.clone();
-        let work = self.runtime().spawn(async move {
+        self.start_session_with(move |stopped, out, ready| async move {
             let stop_requested = async move {
                 let _ = stopped.await;
             };
-            session::serve_with_ready(options, stop_requested, out, move || {
-                ready.send(Event::SessionReady { at: Instant::now() });
-            })
-            .await
-        });
-        let task = self
-            .runtime()
-            .spawn(report_session_end(self.inbox.clone(), work));
-        self.session = Some(Session {
-            stop: Some(stop),
-            ended: task,
+            session::serve_with_ready(options, stop_requested, out, ready).await
         });
     }
 
+    fn start_session_with<Work>(&mut self, serve: impl FnOnce(Stopped, Output, Ready) -> Work)
+    where
+        Work: Future<Output = io::Result<()>> + Send + 'static,
+    {
+        let (stop, stopped) = oneshot::channel::<()>();
+        let ready = self.inbox.clone();
+        let ready: Ready = Box::new(move || ready.send(Event::SessionReady { at: Instant::now() }));
+        let work = self
+            .runtime()
+            .spawn(serve(stopped, self.inbox.output(), ready));
+        let task = self
+            .runtime()
+            .spawn(report_session_end(self.inbox.clone(), work));
+        let mut tracked = self.keeper.tracked();
+        tracked.stop = Some(stop);
+        tracked.tidying = Some(task);
+    }
+
     fn stop_session(&mut self) {
-        if let Some(stop) = self
-            .session
-            .as_mut()
-            .and_then(|session| session.stop.take())
-        {
+        if let Some(stop) = self.keeper.tracked().stop.take() {
             let _ = stop.send(());
         }
     }
 
     fn remove_leftovers(&self) {
+        self.remove_leftovers_with(session::remove_rules);
+    }
+
+    fn remove_leftovers_with(
+        &self,
+        remove: impl FnOnce(&Output) -> io::Result<()> + Send + 'static,
+    ) {
         let out = self.inbox.output();
         let work = self
             .runtime()
-            .spawn_blocking(move || session::remove_rules(&out).map_err(|error| error.to_string()));
-        self.runtime()
+            .spawn_blocking(move || remove(&out).map_err(|error| error.to_string()));
+        let task = self
+            .runtime()
             .spawn(report_leftovers_removed(self.inbox.clone(), work));
+        self.keeper.tracked().tidying = Some(task);
     }
 
     fn probe(&mut self, id: u64, domain: String) {
@@ -256,15 +311,6 @@ impl Driver {
     }
 }
 
-impl Drop for Driver {
-    fn drop(&mut self) {
-        self.shutdown();
-        if let Some(runtime) = self.runtime.take() {
-            runtime.shutdown_timeout(RUNTIME_LIMIT);
-        }
-    }
-}
-
 fn refusal(error: &io::Error) -> SaveRefusal {
     match sites::covered(error) {
         Some(covered) => SaveRefusal::Covered {
@@ -275,11 +321,25 @@ fn refusal(error: &io::Error) -> SaveRefusal {
     }
 }
 
-fn wait_until_ended(runtime: &Runtime, task: JoinHandle<()>, limit: Duration) -> bool {
-    runtime.block_on(async move { tokio::time::timeout(limit, task).await.is_ok() })
+async fn wait_for_tidying(task: JoinHandle<Rules>, limit: Duration) -> Ending {
+    match tokio::time::timeout(limit, task).await {
+        Ok(Ok(Rules::Removed)) => Ending::Clean,
+        Ok(Ok(Rules::MayRemain) | Err(_)) => Ending::RulesMayRemain,
+        Err(_) => Ending::TimedOut,
+    }
 }
 
-async fn report_session_end(inbox: Inbox, work: JoinHandle<io::Result<()>>) {
+fn rules_after(end: &SessionEnd) -> Rules {
+    match end {
+        SessionEnd::Failed {
+            failure: Failure::RemovingRules,
+            ..
+        } => Rules::MayRemain,
+        SessionEnd::Clean | SessionEnd::Failed { .. } => Rules::Removed,
+    }
+}
+
+async fn report_session_end(inbox: Inbox, work: JoinHandle<io::Result<()>>) -> Rules {
     let end = match work.await {
         Ok(result) => session_end(result),
         Err(error) => SessionEnd::Failed {
@@ -290,17 +350,25 @@ async fn report_session_end(inbox: Inbox, work: JoinHandle<io::Result<()>>) {
             ),
         },
     };
+    let rules = rules_after(&end);
     inbox.send(Event::SessionEnded(end));
+    rules
 }
 
-async fn report_leftovers_removed(inbox: Inbox, work: JoinHandle<Result<(), String>>) {
+async fn report_leftovers_removed(inbox: Inbox, work: JoinHandle<Result<(), String>>) -> Rules {
     let removed = work.await.unwrap_or_else(|error| {
         Err(format!(
             "the removal {} before it reported",
             how_it_ended(&error)
         ))
     });
+    let rules = if removed.is_ok() {
+        Rules::Removed
+    } else {
+        Rules::MayRemain
+    };
     inbox.send(Event::LeftoversRemoved(removed));
+    rules
 }
 
 fn how_it_ended(error: &JoinError) -> &'static str {

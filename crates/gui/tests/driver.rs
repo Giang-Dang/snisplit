@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
-use snisplit_gui::driver::{Driver, Folders};
+use snisplit_gui::driver::{Driver, Folders, Keeper};
 use snisplit_gui::state::{Effect, Event, SaveRefusal, SiteKind};
 
 const NEWS_PROFILE: &str = "name news-example-com\ndomains news.example.com\ntls-ports 443\ntls-split 1\nhttp-ports 80\nhttp-method host-spell\n";
@@ -44,16 +44,15 @@ impl Drop for TempFolder {
     }
 }
 
-fn driver(folders: Folders) -> (Driver, Receiver<Event>, Arc<AtomicUsize>) {
+fn driver(keeper: &Keeper, folders: Folders) -> (Driver<'_>, Receiver<Event>, Arc<AtomicUsize>) {
     let wakes = Arc::new(AtomicUsize::new(0));
     let counted = Arc::clone(&wakes);
-    let (driver, events) = Driver::new(
+    let (driver, events) = keeper.driver(
         folders,
         Arc::new(move || {
             counted.fetch_add(1, Ordering::SeqCst);
         }),
-    )
-    .unwrap();
+    );
     (driver, events, wakes)
 }
 
@@ -70,7 +69,8 @@ fn listed(event: Event) -> Vec<(String, SiteKind, bool)> {
 #[test]
 fn a_saved_site_is_listed_after_the_built_ins_and_a_removed_one_is_gone() {
     let folder = TempFolder::new("save");
-    let (mut driver, events, wakes) = driver(folder.folders());
+    let keeper = Keeper::new().unwrap();
+    let (mut driver, events, wakes) = driver(&keeper, folder.folders());
     driver.run(Effect::SaveSite(NEWS_PROFILE.to_string()));
     assert_eq!(
         events.recv_timeout(WAIT).unwrap(),
@@ -101,7 +101,8 @@ fn a_saved_site_is_listed_after_the_built_ins_and_a_removed_one_is_gone() {
 #[test]
 fn a_save_refused_because_the_domain_is_covered_names_the_domain_and_its_owner() {
     let folder = TempFolder::new("refused");
-    let (mut driver, events, _) = driver(folder.folders());
+    let keeper = Keeper::new().unwrap();
+    let (mut driver, events, _) = driver(&keeper, folder.folders());
     driver.run(Effect::SaveSite(
         "name medium-com\ndomains medium.com\n".to_string(),
     ));
@@ -117,7 +118,8 @@ fn a_save_refused_because_the_domain_is_covered_names_the_domain_and_its_owner()
 #[test]
 fn a_switch_is_written_to_off_list_and_the_reloaded_list_shows_it_off() {
     let folder = TempFolder::new("switch");
-    let (mut driver, events, _) = driver(folder.folders());
+    let keeper = Keeper::new().unwrap();
+    let (mut driver, events, _) = driver(&keeper, folder.folders());
     driver.run(Effect::SetSwitch {
         name: "medium".to_string(),
         on: false,
@@ -144,7 +146,8 @@ fn a_switch_is_written_to_off_list_and_the_reloaded_list_shows_it_off() {
 fn the_activity_file_goes_to_the_desktop_of_the_given_home_folder() {
     let folder = TempFolder::new("log");
     fs::create_dir_all(folder.root.join("home").join("Desktop")).unwrap();
-    let (mut driver, events, _) = driver(folder.folders());
+    let keeper = Keeper::new().unwrap();
+    let (mut driver, events, _) = driver(&keeper, folder.folders());
     driver.run(Effect::SaveLog(vec!["starting snisplit".to_string()]));
     assert_eq!(
         events.recv_timeout(WAIT).unwrap(),
@@ -169,7 +172,8 @@ fn the_activity_file_goes_to_the_desktop_of_the_given_home_folder() {
 
 #[test]
 fn without_a_site_folder_changes_are_refused_and_only_built_ins_are_listed() {
-    let (mut driver, events, _) = driver(Folders::default());
+    let keeper = Keeper::new().unwrap();
+    let (mut driver, events, _) = driver(&keeper, Folders::default());
     driver.run(Effect::SaveSite(NEWS_PROFILE.to_string()));
     let refused = "no site folder: the APPDATA environment variable is not set".to_string();
     assert_eq!(

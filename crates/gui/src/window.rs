@@ -1,4 +1,3 @@
-use std::io;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -10,7 +9,7 @@ use eframe::egui::{
     Sense, Stroke, TextEdit, Theme, Ui, Vec2, vec2,
 };
 use snisplit::sites;
-use snisplit_gui::driver::{Driver, Folders};
+use snisplit_gui::driver::{Driver, Ending, Folders, Keeper};
 use snisplit_gui::state::{Effect, Event, Page, Probing, Row, State};
 use snisplit_gui::view::{self, AddPanel, Button, Details, Hero, Ring, SiteRow, Style, Tone};
 
@@ -52,30 +51,32 @@ pub fn run() -> ExitCode {
             .with_resizable(true),
         ..Default::default()
     };
-    let outcome = eframe::run_native(
+    let Ok(keeper) = Keeper::new() else {
+        return ExitCode::FAILURE;
+    };
+    let window = eframe::run_native(
         TITLE,
         options,
-        Box::new(|creation| {
-            let app = App::new(&creation.egui_ctx)?;
-            Ok(Box::new(app))
-        }),
+        Box::new(|creation| Ok(Box::new(App::new(&creation.egui_ctx, &keeper)))),
     );
-    match outcome {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(_) => ExitCode::FAILURE,
+    let ending = keeper.finish();
+    if window.is_ok() && ending == Ending::Clean {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
     }
 }
 
-struct App {
+struct App<'keeper> {
     state: State,
-    driver: Driver,
+    driver: Driver<'keeper>,
     events: Receiver<Event>,
     exit_allowed: bool,
     reveal_panel: bool,
 }
 
-impl App {
-    fn new(ctx: &egui::Context) -> io::Result<Self> {
+impl<'keeper> App<'keeper> {
+    fn new(ctx: &egui::Context, keeper: &'keeper Keeper) -> Self {
         style(ctx);
         let repaint = ctx.clone();
         let folders = Folders {
@@ -83,15 +84,15 @@ impl App {
             home: home_folder(),
         };
         let (mut driver, events) =
-            Driver::new(folders, Arc::new(move || repaint.request_repaint()))?;
+            keeper.driver(folders, Arc::new(move || repaint.request_repaint()));
         driver.run(Effect::LoadSites);
-        Ok(Self {
+        Self {
             state: State::new(),
             driver,
             events,
             exit_allowed: false,
             reveal_panel: false,
-        })
+        }
     }
 
     fn handle(&mut self, ctx: &egui::Context, event: Event) {
@@ -230,7 +231,7 @@ impl App {
     }
 }
 
-impl eframe::App for App {
+impl eframe::App for App<'_> {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         while let Ok(event) = self.events.try_recv() {
             self.handle(ctx, event);
