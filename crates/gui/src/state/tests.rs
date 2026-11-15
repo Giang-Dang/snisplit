@@ -618,6 +618,59 @@ fn removing_asks_once_in_the_open_row_and_only_user_and_broken_sites_can_be_remo
 }
 
 #[test]
+fn a_confirmation_armed_on_one_row_deletes_nothing_once_another_row_is_open() {
+    let mut state = with_sites();
+    state.update(Event::RowPressed("news".to_string()));
+    state.update(Event::RemovePressed);
+    assert!(state.confirming_remove());
+    state.update(Event::RowPressed("bad".to_string()));
+    assert_eq!(state.update(Event::RemoveConfirmed), []);
+}
+
+#[test]
+fn closing_or_leaving_a_row_while_it_asks_drops_the_question() {
+    let mut state = with_sites();
+    state.update(Event::RowPressed("news".to_string()));
+    state.update(Event::RemovePressed);
+    state.update(Event::RowPressed("news".to_string()));
+    assert_eq!(*state.open(), Open::Nothing);
+    assert!(!state.confirming_remove());
+    state.update(Event::RowPressed("news".to_string()));
+    assert!(!state.confirming_remove());
+    assert_eq!(state.update(Event::RemoveConfirmed), []);
+
+    state.update(Event::RemovePressed);
+    state.update(Event::ActivityPressed);
+    assert!(!state.confirming_remove());
+    state.update(Event::BackPressed);
+    state.update(Event::RemovePressed);
+    state.update(Event::BackPressed);
+    assert!(!state.confirming_remove());
+
+    state.update(Event::RemovePressed);
+    let sites = state.sites().to_vec();
+    state.update(Event::SitesLoaded(sites));
+    assert_eq!(*state.open(), Open::Site("news".to_string()));
+    assert!(!state.confirming_remove());
+}
+
+#[test]
+fn a_removal_is_traced_in_activity_by_site_name() {
+    let mut state = with_sites();
+    state.update(Event::RowPressed("medium".to_string()));
+    state.update(Event::RemovePressed);
+    assert_eq!(log_of(&state), Vec::<String>::new());
+    state.update(Event::RowPressed("news".to_string()));
+    state.update(Event::RemovePressed);
+    assert_eq!(last_log(&state), "remove news asked");
+    state.update(Event::RemoveConfirmed);
+    assert_eq!(
+        log_of(&state),
+        ["remove news asked", "remove news confirmed"]
+    );
+}
+
+#[test]
 fn removing_a_switched_off_site_while_on_needs_no_restart() {
     let mut state = loaded(vec![
         site("medium", "Medium", &["medium.com"], SiteKind::BuiltIn, true),

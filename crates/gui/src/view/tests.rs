@@ -491,7 +491,8 @@ fn removing_asks_with_the_restart_sentence_only_when_it_restarts() {
     let asked = details(&state, Instant::now()).unwrap().confirm.unwrap();
     assert_eq!(asked.question, "Remove example.com?");
     assert_eq!(asked.note, Some("snisplit restarts for about 2 seconds."));
-    assert_eq!(labels(&asked.buttons), ["Remove", "Keep"]);
+    assert_eq!(labels(&asked.buttons), ["Keep", "Remove"]);
+    assert_eq!(asked.buttons[1].press, Event::RemoveConfirmed);
     let mut off = three_sites();
     off.update(Event::RowPressed("example-com".to_string()));
     off.update(Event::RemovePressed);

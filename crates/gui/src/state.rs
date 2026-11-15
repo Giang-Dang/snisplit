@@ -408,7 +408,7 @@ impl State {
                 Vec::new()
             }
             Event::RemovePressed => {
-                self.confirming_remove = self.open_site().is_some_and(Site::removable);
+                self.remove_pressed();
                 Vec::new()
             }
             Event::RemoveKept => {
@@ -438,10 +438,12 @@ impl State {
             Event::SiteSaved(saved) => self.site_saved(saved),
             Event::ActivityPressed => {
                 self.page = Page::Activity;
+                self.confirming_remove = false;
                 Vec::new()
             }
             Event::BackPressed => {
                 self.page = Page::Sites;
+                self.confirming_remove = false;
                 Vec::new()
             }
             Event::SaveLogPressed => vec![Effect::SaveLog(self.log.iter().cloned().collect())],
@@ -577,6 +579,7 @@ impl State {
 
     fn sites_loaded(&mut self, sites: Vec<Site>) {
         self.sites = sites;
+        self.confirming_remove = false;
         let known = |name: &str| self.sites.iter().any(|site| site.name == name);
         if let Open::Site(name) = &self.open
             && !known(name)
@@ -590,6 +593,7 @@ impl State {
     fn row_pressed(&mut self, name: String) -> Vec<Effect> {
         if self.open == Open::Site(name.clone()) {
             self.open = Open::Nothing;
+            self.confirming_remove = false;
             return Vec::new();
         }
         if self.site(&name).is_none() {
@@ -788,15 +792,29 @@ impl State {
         }
     }
 
+    fn removable_open_site(&self) -> Option<String> {
+        self.open_site()
+            .filter(|site| site.removable())
+            .map(|site| site.name.clone())
+    }
+
+    fn remove_pressed(&mut self) {
+        let asked = self.removable_open_site();
+        self.confirming_remove = asked.is_some();
+        if let Some(name) = asked {
+            self.push_log(format!("remove {name} asked"));
+        }
+    }
+
     fn remove_confirmed(&mut self) -> Vec<Effect> {
-        if !self.confirming_remove {
+        if !std::mem::take(&mut self.confirming_remove) {
             return Vec::new();
         }
-        self.confirming_remove = false;
-        match self.open_site().filter(|site| site.removable()) {
-            Some(site) => vec![Effect::DeleteSite(site.name.clone())],
-            None => Vec::new(),
-        }
+        let Some(name) = self.removable_open_site() else {
+            return Vec::new();
+        };
+        self.push_log(format!("remove {name} confirmed"));
+        vec![Effect::DeleteSite(name)]
     }
 
     fn site_removed(&mut self, removed: Result<String, String>) -> Vec<Effect> {

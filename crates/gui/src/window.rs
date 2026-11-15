@@ -239,6 +239,9 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.handle(ctx, Event::CloseRequested);
         }
+        if self.state.confirming_remove() && ctx.input(|i| i.key_pressed(Key::Escape)) {
+            self.handle(ctx, Event::RemoveKept);
+        }
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
@@ -473,6 +476,19 @@ fn wrapped(ui: &mut Ui, text: &str, size: f32, colour: egui::Color32) {
 }
 
 fn site_row(
+    ui: &mut Ui,
+    row: &SiteRow,
+    details: Option<&Details>,
+    compact: bool,
+    pressed: &mut Vec<Event>,
+) {
+    let broken = row.switch.is_none();
+    ui.push_id((&row.name, broken), |ui| {
+        site_frame(ui, row, details, compact, pressed);
+    });
+}
+
+fn site_frame(
     ui: &mut Ui,
     row: &SiteRow,
     details: Option<&Details>,

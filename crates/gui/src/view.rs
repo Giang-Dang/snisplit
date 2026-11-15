@@ -463,8 +463,8 @@ fn confirm(state: &State, site: &Site) -> Confirm {
         question: format!("Remove {}?", site.title),
         note: restarts.then_some(RESTARTS),
         buttons: vec![
-            Button::new("Remove", Event::RemoveConfirmed, Style::Light),
             Button::new("Keep", Event::RemoveKept, Style::Plain),
+            Button::new("Remove", Event::RemoveConfirmed, Style::Light),
         ],
     }
 }

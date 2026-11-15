@@ -157,7 +157,10 @@ tried" (after a test that ran) with the table. Test sentences:
 ("just now" in the first minute, then "N min ago".) While a row tests: a small turning
 ring, "Testing `<domain>`... up to 10 seconds" (after 10 s: "Testing `<domain>`... this one
 is taking longer than usual") and Cancel. Remove asks in the row: "Remove `<title>`?", plus
-"snisplit restarts for about 2 seconds." when it would restart, with Remove / Keep.
+"snisplit restarts for about 2 seconds." when it would restart, with Keep / Remove (Keep
+first). The question goes away when its row is closed, another row or the add panel is
+opened, the site list reloads, the page changes, or Escape is pressed. Activity records
+`remove <name> asked` and `remove <name> confirmed`.
 
 The add panel ("Add a site"):
 
