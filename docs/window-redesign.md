@@ -762,11 +762,15 @@ diagnosis only: 0c8d793, 39879e8, 54120ff, 714c683 and 80beab3, and 80beab3 was 
 at the original path. Result: the detection did not reproduce.
 
 - The antivirus command-line scan (report only) said "ok" for all six files.
-- The owner's scan of the release folder (1326 objects) and of the five samples, run
-  the same way as the scan that had flagged the 11:40 file, reported no threats.
+- The owner was asked to scan the release folder and the five samples the same way as
+  the scan that had flagged the 11:40 file; those scans (1326 objects and 5 objects)
+  reported no threats. Which scan and component flagged the 11:40 file is not recorded.
 - Linking the same commit twice gives files with different SHA-256 values, so none of
   the rebuilt files is byte-identical to the file that was flagged and removed.
 
 So no commit can be named as the cause. What is established is that one particular
-build of `snisplit-gui.exe` was flagged once by the cloud verdict, and that later builds
-of the same source, and of earlier source, are not flagged on the same PC.
+build of `snisplit-gui.exe` was flagged once by the cloud verdict, and that rebuilt files
+of the same source, and of earlier source, were not flagged when scanned once, minutes
+after they were built. The 11:40 file was flagged some time after its build, and no later
+rescan of the rebuilt files has been done yet. A clean local build says nothing about the
+CI-built zip, because every link produces a different file.
