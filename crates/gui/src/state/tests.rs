@@ -531,6 +531,20 @@ fn switching_the_last_site_off_turns_snisplit_off_instead_of_restarting() {
 }
 
 #[test]
+fn switching_the_last_site_off_during_the_starting_half_of_a_restart_ends_the_applying() {
+    let mut state = running();
+    state.update(switched("medium", false));
+    state.update(Event::SessionEnded(SessionEnd::Clean));
+    assert_eq!(state.relay(), Relay::Starting);
+    assert!(state.applying());
+    assert_eq!(state.update(switched("news", false)), [Effect::StopSession]);
+    assert!(!state.applying() && !state.restart_pending());
+    assert_eq!(crate::view::hero(&state).state_line, "Turning off...");
+    assert_eq!(state.update(Event::SessionEnded(SessionEnd::Clean)), []);
+    assert_eq!(state.relay(), Relay::Off);
+}
+
+#[test]
 fn an_explicit_stop_while_a_switch_change_applies_wins() {
     let mut state = running();
     state.update(switched("medium", false));

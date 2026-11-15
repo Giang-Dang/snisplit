@@ -651,6 +651,8 @@ impl State {
                     self.restart_pending = true;
                     self.applying = true;
                 } else {
+                    self.restart_pending = false;
+                    self.applying = false;
                     line.push_str("; every site is switched off, so snisplit turns off");
                 }
                 effects.extend(self.stop());
