@@ -50,82 +50,95 @@ if (Off-List-Names-Medium) { Say "Medium is switched off in the window from an e
 if ((RulesToRelay).Count -gt 0) { Log 'stale rules pointing at the relay found; removing them first'; Remove-RelayRules }
 Log-State 'before'
 
-$gui = Start-Process $built -PassThru
-Start-Sleep 3
-Log "window: process $($gui.Id), title '$((Get-Process -Id $gui.Id -ErrorAction SilentlyContinue).MainWindowTitle)'"
-$null = Ask '0. Does the window show a round Start button, Steam and Medium rows with switches, and Add a site? (y/n)'
+$script:completed = $false
+try {
+  $gui = Start-Process $built -PassThru
+  Start-Sleep 3
+  Log "window: process $($gui.Id), title '$((Get-Process -Id $gui.Id -ErrorAction SilentlyContinue).MainWindowTitle)'"
+  $null = Ask '0. Does the window show a round Start button, Steam and Medium rows with switches, and Add a site? (y/n)'
 
-Wait-Owner '1. Press the round Start button and wait until the line under it says On.'
-$null = Ask '   Does the line under the button say On, with a sentence that sites open through snisplit? (y/n)'
-Log-State 'step 1, after Start'
-Log "  medium.com goes to the relay: $(Goes-To-Relay 'medium.com')"
+  Wait-Owner '1. Press the round Start button and wait until the line under it says On.'
+  $null = Ask '   Does the line under the button say On, with a sentence that sites open through snisplit? (y/n)'
+  Log-State 'step 1, after Start'
+  Log "  medium.com goes to the relay: $(Goes-To-Relay 'medium.com')"
 
-Wait-Owner '2. Nothing to click: the script now fetches https://store.steampowered.com/ and the http page through snisplit.'
-Log "  curl store https: $(Fetch 'https://store.steampowered.com/'); store http: $(Fetch 'http://store.steampowered.com/')"
+  Wait-Owner '2. Nothing to click: the script now fetches https://store.steampowered.com/ and the http page through snisplit.'
+  Log "  curl store https: $(Fetch 'https://store.steampowered.com/'); store http: $(Fetch 'http://store.steampowered.com/')"
 
-Wait-Owner '3. Click the Medium switch to turn it Off, and wait until the line under the button says On again.'
-$null = Ask '   While it changed, did you see Applying your change... and Turning off beside the switch? (y/n)'
-Log-State 'step 3, Medium switched off while on'
-Log "  medium.com goes to the relay: $(Goes-To-Relay 'medium.com') (expected False); store goes to the relay: $(Goes-To-Relay 'store.steampowered.com') (expected True)"
+  Wait-Owner '3. Click the Medium switch to turn it Off, and wait until the line under the button says On again.'
+  $null = Ask '   While it changed, did you see Applying your change... and Turning off beside the switch? (y/n)'
+  Log-State 'step 3, Medium switched off while on'
+  Log "  medium.com goes to the relay: $(Goes-To-Relay 'medium.com') (expected False); store goes to the relay: $(Goes-To-Relay 'store.steampowered.com') (expected True)"
 
-Wait-Owner '4. Click the Medium switch again to turn it On, and wait for On.'
-Log-State 'step 4, Medium switched on again'
-Log "  medium.com goes to the relay: $(Goes-To-Relay 'medium.com') (expected True)"
+  Wait-Owner '4. Click the Medium switch again to turn it On, and wait for On.'
+  Log-State 'step 4, Medium switched on again'
+  Log "  medium.com goes to the relay: $(Goes-To-Relay 'medium.com') (expected True)"
 
-Say '5. Add a site while snisplit is on: click Add a site, type a blocked address that is not a Steam or medium.com name, press Test, and if the window offers it press Add and turn on. Wait for On.'
-Write-Host 'Type the same address here so the script can check it. It is not written to the log.'
-$script:addedDomain = (Read-Host 'Address').Trim()
-Wait-Owner '   When the new row is in the list and the line under the button says On again, continue.'
-$null = Ask '   What did the add panel say after the test? Answer with a number: 1 blocked and snisplit can open it, 2 already opens, 3 snisplit cannot open it, 4 could not test'
-Log-State 'step 5, after adding a site while on'
-Log-Added 'after adding'
+  Say '5. Add a site while snisplit is on: click Add a site, type a blocked address that is not a Steam or medium.com name, press Test, and if the window offers it press Add and turn on. Wait for On.'
+  Write-Host 'Type the same address here so the script can check it. It is not written to the log.'
+  $script:addedDomain = (Read-Host 'Address').Trim()
+  Wait-Owner '   When the new row is in the list and the line under the button says On again, continue.'
+  $null = Ask '   What did the add panel say after the test? Answer with a number: 1 blocked and snisplit can open it, 2 already opens, 3 snisplit cannot open it, 4 could not test'
+  Log-State 'step 5, after adding a site while on'
+  Log-Added 'after adding'
 
-Wait-Owner '6. Remove that site while on: click its name, press Remove, then Remove again in the question that appears. Wait for On.'
-Log-State 'step 6, after removing the site while on'
-Log-Added 'after removing'
+  Wait-Owner '6. Remove that site while on: click its name, press Remove, then Remove again in the question that appears. Wait for On.'
+  Log-State 'step 6, after removing the site while on'
+  Log-Added 'after removing'
 
-Wait-Owner '7. Press the round Stop button and wait until the line under it says Off.'
-Log-State 'step 7, after Stop'
+  Wait-Owner '7. Press the round Stop button and wait until the line under it says Off.'
+  Log-State 'step 7, after Stop'
 
-Wait-Owner '8. Press Start again and wait until it says On.'
-Log-State 'step 8, on again before the kill'
+  Wait-Owner '8. Press Start again and wait until it says On.'
+  Log-State 'step 8, on again before the kill'
 
-Wait-Owner '9. Nothing to click: the script now ends snisplit-gui abruptly (as Task Manager would) while it is on, and starts it again.'
-Stop-Process -Id $gui.Id -Force
-$killed = $gui.WaitForExit(20000)
-Start-Sleep 2
-Log "step 9: killed while on: exited=$killed; snisplit rules: $((Rules).Count) (expected above 0)"
-$gui = Start-Process $built -PassThru
-Start-Sleep 5
-Log "window again: process $($gui.Id), title '$((Get-Process -Id $gui.Id -ErrorAction SilentlyContinue).MainWindowTitle)'"
-$null = Ask '   Does the window say Off, with leftovers, that snisplit did not get to turn off properly last time, and offer Remove leftover settings? (y/n)'
+  Wait-Owner '9. Nothing to click: the script now ends snisplit-gui abruptly (as Task Manager would) while it is on, and starts it again.'
+  if (-not $gui.HasExited) { $gui.Kill() }
+  $killed = $gui.WaitForExit(20000)
+  Start-Sleep 2
+  Log "step 9: killed while on: exited=$killed; snisplit rules: $((Rules).Count) (expected above 0)"
+  $gui = Start-Process $built -PassThru
+  Start-Sleep 5
+  Log "window again: process $($gui.Id), title '$((Get-Process -Id $gui.Id -ErrorAction SilentlyContinue).MainWindowTitle)'"
+  $null = Ask '   Does the window say Off, with leftovers, that snisplit did not get to turn off properly last time, and offer Remove leftover settings? (y/n)'
 
-Wait-Owner '10. Press Remove leftover settings and wait until the line under the button says Off.'
-Log-State 'step 10, after removing the leftovers'
-Log "  snisplit rules: $((Rules).Count) (expected 0)"
+  Wait-Owner '10. Press Remove leftover settings and wait until the line under the button says Off.'
+  Log-State 'step 10, after removing the leftovers'
+  Log "  snisplit rules: $((Rules).Count) (expected 0)"
 
-Say '11. With this window open, the script starts a second snisplit-gui.'
-$second = Start-Process $built -PassThru
-Start-Sleep 4
-$null = Ask '   Does the second window say Already open, with a Try again button? (y/n)'
-Wait-Owner '   Close the second window (the one that says Already open) with its X button.'
-$secondClosed = $second.WaitForExit(20000)
-Log "step 11: second window closed=$secondClosed, exit code $(if ($secondClosed) { $second.ExitCode }); processes: $((Snisplit-Processes).Name -join ',')"
-if ($gui.HasExited -and -not $second.HasExited) {
-  Log '  the first window was closed instead of the second; the script goes on with the second'
-  $gui = $second
+  Say '11. With this window open, the script starts a second snisplit-gui.'
+  $second = Start-Process $built -PassThru
+  Start-Sleep 4
+  $null = Ask '   Does the second window say Already open, with a Try again button? (y/n)'
+  Wait-Owner '   Close the second window (the one that says Already open) with its X button.'
+  $secondClosed = $second.WaitForExit(20000)
+  Log "step 11: second window closed=$secondClosed, exit code $(if ($secondClosed) { $second.ExitCode }); processes: $((Snisplit-Processes).Name -join ',')"
+  $startNext = '12. In the remaining window press Start and wait until it says On.'
+  if ($gui.HasExited -and -not $second.HasExited) {
+    Log '  the first window was closed instead of the second; the script goes on with the second'
+    $gui = $second
+    $startNext = '12. The remaining window says Already open: press Try again and wait until it says Off, then press Start and wait until it says On.'
+  }
+
+  Wait-Owner $startNext
+  Log-State 'step 12, on again before the close'
+  Say '13. Close the window with its X button while it is on. The window should say Turning off... and close by itself. The script waits up to 120 s.'
+  $closedInTime = $gui.WaitForExit(120000)
+  Start-Sleep 2
+  Log "step 13: closed while on: exited=$closedInTime, exit code $(if ($closedInTime) { $gui.ExitCode })"
+  Log-State 'step 13, after closing'
+  if (-not $closedInTime) { Log 'snisplit-gui did not exit within 120 s; it was left running for you to look at' }
+  if ($closedInTime -and (RulesToRelay).Count -gt 0) { Log 'RULES LEFT after closing the window; removing them'; Remove-RelayRules; Log "rules now: $((RulesToRelay).Count)" }
+  $null = Ask '   Did Kaspersky or Windows show anything during this run? (no, or what it said)'
+
+  Say "Done. Log: $log. You can close this window."
+  Log "finished $(Get-Date -Format s)"
+  $script:completed = $true
 }
-
-Wait-Owner '12. In the remaining window press Start and wait until it says On.'
-Log-State 'step 12, on again before the close'
-Say '13. Close the window with its X button while it is on. The window should say Turning off... and close by itself. The script waits up to 120 s.'
-$closedInTime = $gui.WaitForExit(120000)
-Start-Sleep 2
-Log "step 13: closed while on: exited=$closedInTime, exit code $(if ($closedInTime) { $gui.ExitCode })"
-Log-State 'step 13, after closing'
-if (-not $closedInTime) { Log 'snisplit-gui did not exit within 120 s; it was left running for you to look at' }
-if ($closedInTime -and (RulesToRelay).Count -gt 0) { Log 'RULES LEFT after closing the window; removing them'; Remove-RelayRules; Log "rules now: $((RulesToRelay).Count)" }
-$null = Ask '   Did Kaspersky or Windows show anything during this run? (no, or what it said)'
-
-Say "Done. Log: $log. You can close this window."
-Log "finished $(Get-Date -Format s)"
+finally {
+  if (-not $script:completed) {
+    Log "the run was aborted $(Get-Date -Format s); removing any rules pointing at the relay: $((RulesToRelay).Count)"
+    Remove-RelayRules
+    Log "rules pointing at the relay now: $((RulesToRelay).Count); snisplit rules now: $((Rules).Count)"
+  }
+}
