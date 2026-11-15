@@ -392,6 +392,41 @@ writes, Remove with its question, Start pressed unelevated ("Could not start" wi
 "Windows refused the change"), Save to a file, the Activity page after the fix, and every
 state that needs a successful Start (On, Applying, Turning off with rules, closing while
 on, leftovers after a real failed removal), which needs the owner's elevated run anyway.
+
+## Review fixes
+
+An independent review of 7cbf8c2..0c8d793 found these; each is fixed with a test.
+Tests: 592 pass on Windows (581 before): cli 2 site tests and 1 session test, gui 4 state
+tests, 2 address tests, 2 driver unit tests.
+
+1. `sites::add` rewrote `off.list` before creating the site file, so a refused add whose
+   name collided with a switched-off site (`news.example.com` and `news-example.com` give
+   the same name) switched that site back on. `off.list` is now written only after the
+   file is fully written; if that write fails, the new file is removed again.
+2. A rule removal that leaves rules in place (`snisplit DNS rules left: N`, N > 0) is now
+   an error tagged `RemovingRules`: the window shows "Off, with leftovers", and
+   `snisplit cleanup` and `snisplit run` exit with code 1 in that case.
+3. If the session task or the leftover removal task panics or is cancelled, the driver
+   still reports its end: the session as a `RemovingRules` failure ("the session crashed,
+   so DNS rules may remain"), the removal as refused. Before, the window stayed in
+   "Turning off..." for good.
+4. Switching the last site off during the starting half of a restart clears the applying
+   state, so the header says "Turning off..." rather than "Applying your change...".
+5. The remove question is dropped when its row is closed, the list reloads, the page
+   changes, or Escape is pressed; Activity traces `remove <name> asked` and
+   `remove <name> confirmed`; Keep comes before Remove; each row's widget ids are salted
+   with the site name (and whether it is a broken file, since a broken `steam.profile`
+   lists under the same name as the built-in).
+6. "Save to a file" shows the full path it wrote, since `%USERPROFILE%\Desktop` may not be
+   the visible Desktop; the hint no longer promises the Desktop.
+7. `off.list` ignores a leading UTF-8 byte order mark (as Notepad may write).
+8. The address field ends the host at `\` (so `https://example.com\@example.net` is
+   example.com, as a browser reads it), accepts a leading `//`, and gives its own hint
+   when the host has letters outside ASCII.
+
+Not seen in a real window: Escape, the Keep / Remove order on screen, the row id salt,
+and how a long path wraps in the save note.
+
 ## Awaiting the owner
 
 1. The release build of 0.2.0 is in `target\release` (built after 20b551a).
