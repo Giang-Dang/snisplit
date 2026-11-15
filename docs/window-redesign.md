@@ -707,7 +707,9 @@ The owner ran two on-demand antivirus scans on 2026-11-15, of the release folder
    covered refusal), a switch and its `off.list`, Remove, Start unelevated showing
    "Windows refused the change" with 0 rules, Activity and Save to a file, close; and why
    the two site files were removed in the first run, if it happens again.
-3. `tools\acceptance\m9b.ps1` from an elevated PowerShell (log in `%TEMP%\m9b-gui.log`).
+3. `tools\acceptance\m9c.ps1` (unattended, log in `%TEMP%\m9c.log`), then
+   `tools\acceptance\m9b.ps1` (about 14 clicks in the window, log in
+   `%TEMP%\m9b-gui.log`), both from an elevated PowerShell; see the last section.
 4. Whether Kaspersky showed anything, and whether the window looks right on the owner's
    display (fonts, sizes, the dark colours).
 5. Still open from before: logoff or shutdown with the window open (now expected to be
@@ -774,3 +776,63 @@ of the same source, and of earlier source, were not flagged when scanned once, m
 after they were built. The 11:40 file was flagged some time after its build, and no later
 rescan of the rebuilt files has been done yet. A clean local build says nothing about the
 CI-built zip, because every link produces a different file.
+
+## Acceptance scripts m9c and m9b (reworked), 2026-11-15
+
+Both run from an elevated PowerShell (the UAC prompt for that PowerShell is the one
+thing the owner does before either), share `tools/acceptance/lib.ps1`, refuse with
+nothing changed when unelevated, when a snisplit process runs, when a binary is missing,
+or when `off.list` names medium, and remove stale rules pointing at 127.0.0.2-127.0.0.20
+or carrying Comment 'snisplit' first. Every step ends in a `PASS` or `FAIL` line; the
+last line is `RESULT: PASS` or `RESULT: FAIL`, and the exit code is 0 only when every
+check passed. A `finally` block ends every process the script started (by its Process
+object, never one it did not start), restores `off.list` byte for byte (or deletes it
+if it did not exist), removes any rule left, and logs what is left. Screenshots are
+taken with `PrintWindow` (flag 2, render full content) of the window only, without
+input, into `<OutDir>\m9c-shots` or `<OutDir>\m9b-shots` (default `%TEMP%`); the output
+of the `snisplit` commands goes to the `output` folder beside them.
+
+- **`m9c.ps1`: unattended, no clicks and no questions** (log `%TEMP%\m9c.log`). It
+  drives `snisplit run` and only looks at the window: run on, the base rule count, the
+  store through 127.0.0.x with HTTPS 200 and HTTP 302; a second `run` exits with code 1
+  and "already running" on stderr within 15 s; the window while `run` is on (screenshot,
+  expected "Already open"), closed by the script, exit code 0, rules unchanged; `run`
+  stopped by Ctrl+C with exit code 0, "rules left: 0" and 0 rules; `medium` appended to
+  `off.list`: one rule fewer and medium.com resolving directly, then restored; `run`
+  killed while on: rules stay, the window shows the leftovers (two screenshots), closing
+  it leaves them, `snisplit cleanup` exits 0 and leaves 0.
+- **`m9b.ps1`: the window, with the owner clicking only in the window** (log
+  `%TEMP%\m9b-gui.log`). No Enter, no y/n, no address typed in the terminal: each step
+  waits up to 180 s for its result (rule count, `off.list`, a new site file, the file
+  gone) and logs `TIMEOUT` if it does not come. About 14 clicks and one typed address,
+  all in the window: Start; Medium off; Medium on; Add a site, type it, Test, Add and turn
+  on; the site's name, Remove, Remove; Stop; Start; [the script kills the window, starts
+  it again, screenshots the leftovers]; Remove leftover settings; [the script starts a
+  second window, screenshots it, closes it]; Start; [the script closes the window once];
+  [it starts it again]; Start; [it closes it twice, 300 ms apart]. The closes record the
+  seconds to exit, the exit code, the rules left and how many polls found the window
+  not responding. The added site's domain is read from its new `.profile` file for the
+  resolution check and is never written to the log or the console, and no screenshot is
+  taken while its row exists. The one question left is whether the antivirus showed
+  anything.
+
+The clean stop of `run` from a script: the helper `send-ctrl-c.ps1` frees its own
+console, attaches to the console of `run`, installs a handler that swallows the event
+for itself, and calls `GenerateConsoleCtrlEvent`. A Ctrl+C sent that way is ignored when
+the process inherited the "ignore Ctrl+C" flag, which a parent sets with
+`SetConsoleCtrlHandler(NULL, TRUE)` or `CREATE_NEW_PROCESS_GROUP` and which every child
+inherits: started from a shell that carries the flag, `ping -t` and
+`snisplit run --no-routing` ignored Ctrl+C, and both stopped once the flag was cleared
+in the launching process. `lib.ps1` therefore clears it in the script's own process
+before it starts `run`. If `run` has not printed `stopping` 15 s after the Ctrl+C, the
+script sends Ctrl+Break, which the flag does not block and which `run` also handles
+(the PowerShell children that change the rules have their own hidden consoles and do
+not receive it); if `run` is still alive 75 s later, it is killed and `snisplit cleanup`
+runs, and the log says the clean stop was not exercised. Verified unelevated with
+`snisplit run --no-routing` in a temporary profile under Windows PowerShell 5.1 and
+PowerShell 7: Ctrl+C, exit code 0 in about 3 s. The rule removal after the Ctrl+C is
+seen only in the elevated run.
+
+Still needs the owner: the elevated PowerShell (UAC), the clicks in m9b, the antivirus
+question, and a look at the screenshots by the lead. No script covers a real UI panic,
+two accounts, or logoff and shutdown with the window open.

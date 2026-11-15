@@ -2,164 +2,158 @@ param(
   [string] $OutDir = $env:TEMP
 )
 $ErrorActionPreference = 'Continue'
-$built = Join-Path $PSScriptRoot '..\..\target\release\snisplit-gui.exe'
-$log = Join-Path $OutDir 'm9b-gui.log'
-$appFolder = Join-Path $env:APPDATA 'snisplit'
-$sites = Join-Path $appFolder 'sites'
-$offList = Join-Path $appFolder 'off.list'
-$relayAddresses = 2..20 | ForEach-Object { "127.0.0.$_" }
+. (Join-Path $PSScriptRoot 'lib.ps1')
+Open-Log $OutDir 'm9b-gui.log' 'm9b-shots'
+$medium = 'medium.com'
+$store = 'store.steampowered.com'
+$stepSeconds = 180
+$clickCount = 14
+$script:gui = $null
 
-function Log {
-  param([Parameter(ValueFromPipeline)] $Line)
-  process { Add-Content -Path $log -Value "$Line"; Write-Host "$Line" }
+function Wait-Click($text, [scriptblock] $done) {
+  Say $text
+  $watch = [Diagnostics.Stopwatch]::StartNew()
+  $seen = Wait-Until { $script:gui.HasExited -or (& $done) } $stepSeconds
+  if ($script:gui.HasExited) { throw 'the snisplit window closed before the step was done' }
+  if ($seen) { Log "  seen after $([int]$watch.Elapsed.TotalSeconds) s" } else { Log "  TIMEOUT: not seen within $stepSeconds s" }
+  $seen
 }
-function Say($text) { Write-Host "`n>>> $text`n" -ForegroundColor Yellow; Add-Content -Path $log -Value ">>> $text" }
-function Ask($question) { $answer = Read-Host $question; Add-Content -Path $log -Value "  ${question}: $answer"; $answer }
-function Wait-Owner($text) { Say $text; $null = Read-Host 'Press Enter when done' }
-function Rules { @(Get-DnsClientNrptRule | Where-Object Comment -eq 'snisplit') }
-function RulesToRelay { @(Get-DnsClientNrptRule | Where-Object { $ns = $_.NameServers; @($relayAddresses | Where-Object { $ns -contains $_ }).Count -gt 0 }) }
-function Remove-RelayRules { @(Rules) + @(RulesToRelay) | Sort-Object Name -Unique | ForEach-Object { Remove-DnsClientNrptRule -Name $_.Name -Force }; Clear-DnsClientCache }
-function Addresses($name) { @(Resolve-DnsName $name -Type A -DnsOnly -ErrorAction SilentlyContinue | Where-Object IPAddress | ForEach-Object IPAddress | Sort-Object) }
-function Resolve($name) { (Addresses $name) -join ',' }
-function Goes-To-Relay($name) { $found = Addresses $name; ($found.Count -gt 0) -and (@($found | Where-Object { $_ -notlike '127.0.0.*' }).Count -eq 0) }
-function Fetch([string] $url) { (curl.exe -s -o NUL -w '%{http_code} ip=%{remote_ip}' --max-time 20 $url 2>&1) -join ' ' }
-function Status-Code([string] $url) { (curl.exe -s -o NUL -w '%{http_code}' --max-time 20 $url 2>&1) -join ' ' }
-function Is-Elevated { ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }
-function Snisplit-Processes { @(Get-Process snisplit* -ErrorAction SilentlyContinue) }
-function Site-File-Count { @(Get-ChildItem $sites -Filter *.profile -ErrorAction SilentlyContinue).Count }
-function Off-List-Names-Medium { if (Test-Path $offList) { @(Get-Content $offList | Where-Object { $_.Trim() -eq 'medium' }).Count -gt 0 } else { $false } }
-function Log-State($step) {
-  Clear-DnsClientCache
-  Log "$step | processes: $((Snisplit-Processes).Name -join ',') | snisplit rules: $((Rules).Count), rules pointing at the relay: $((RulesToRelay).Count) | site files: $(Site-File-Count) | off.list names medium: $(Off-List-Names-Medium)"
-  Log "  store.steampowered.com -> $(Resolve 'store.steampowered.com'); https: $(Fetch 'https://store.steampowered.com/')"
-  Log "  medium.com -> $(Resolve 'medium.com')"
-  Log "  example.org -> $(Resolve 'example.org')"
+function Wait-On($text) {
+  $seen = Wait-Click $text { (Rule-Count) -ge 2 }
+  if ($seen) { $null = Wait-Rules-Settled 30 }
+  $seen
 }
-function Log-Added($when) {
-  if (-not $script:addedDomain) { Log "  the added site: no address given"; return }
-  Clear-DnsClientCache
-  Log "  the added site $when goes to the relay: $(Goes-To-Relay $script:addedDomain); https status: $(Status-Code "https://$script:addedDomain/")"
+function Domain-Of($file) {
+  try {
+    $line = @(Get-Content -LiteralPath $file.FullName -ErrorAction Stop | Where-Object { $_ -match '^\s*domains\s' }) | Select-Object -First 1
+    if ($line) { ($line.Trim() -split '\s+')[1] } else { $null }
+  } catch { $null }
+}
+function Relaunch($name) {
+  $script:gui = Start-Window
+  Expect "$name`: the window appears within 20 s" (Wait-Window $script:gui 20)
 }
 
-"started $(Get-Date -Format s)" | Add-Content $log
-Log "snisplit-gui binary present=$(Test-Path $built); elevated=$(Is-Elevated); snisplit rules: $((Rules).Count); site files: $(Site-File-Count)"
-if (-not (Is-Elevated)) { Say 'Run this script from an elevated PowerShell (Run as administrator). Nothing was changed.'; exit 1 }
-if ((Snisplit-Processes).Count -gt 0) { Say "A snisplit process is running ($((Snisplit-Processes).Name -join ', ')). Close it, then run this script again. Nothing was changed."; exit 1 }
-if (-not (Test-Path $built)) { Say "$built is missing (not built, or removed by the antivirus?). Build it with: cargo build --release -p snisplit-gui. Nothing was changed."; exit 1 }
-if (Off-List-Names-Medium) { Say "Medium is switched off in the window from an earlier run. Start snisplit-gui, switch Medium on, close it, then run this script again. Nothing was changed."; exit 1 }
-if ((RulesToRelay).Count -gt 0) { Log 'stale rules pointing at the relay found; removing them first'; Remove-RelayRules }
+Say "m9b needs about $clickCount clicks in the snisplit window and one address typed in that window. Do not press Enter here: the script watches for the result of each click and waits up to $stepSeconds s. At the very end there is one question about the antivirus."
+Log "binaries: $script:releaseFolder; elevated=$(Is-Elevated); snisplit rules: $(Rule-Count); site files: $((Site-Files).Count)"
+if (-not (Refuse-Unless-Ready @($script:guiBinary))) { Log "finished $(Get-Date -Format s), refused"; exit 1 }
+if ((RulesToRelay).Count -gt 0 -or (Rule-Count) -gt 0) { Log 'stale rules from an earlier run found; removing them first'; Remove-RelayRules }
 Log-State 'before'
+Save-OffList -RestoreAtEnd
 
-$script:completed = $false
-$script:started = @()
-function Start-Window { $window = Start-Process $built -PassThru; $script:started += $window; $window }
-function Close-Started { foreach ($window in $script:started) { if (-not $window.HasExited) { $window.Kill(); $null = $window.WaitForExit(20000) } } }
+$completed = $false
+$addedPath = $null
+$exitCode = 1
 try {
-  $gui = Start-Window
-  Start-Sleep 3
-  Log "window: process $($gui.Id), title '$((Get-Process -Id $gui.Id -ErrorAction SilentlyContinue).MainWindowTitle)'"
-  $null = Ask '0. Does the window show a round Start button, Steam and Medium rows with switches, and Add a site? (y/n)'
+  Relaunch '0. launch'
+  Start-Sleep -Seconds 3
+  $null = Save-Shot $script:gui '00-launch'
 
-  Wait-Owner '1. Press the round Start button and wait until the line under it says On.'
-  $null = Ask '   Does the line under the button say On, with a sentence that sites open through snisplit? (y/n)'
-  Log-State 'step 1, after Start'
-  Log "  medium.com goes to the relay: $(Goes-To-Relay 'medium.com')"
+  Expect '1. Start: on' (Wait-On '1. Click the round Start button.')
+  $base = Rule-Count
+  Log "  base rule count: $base"
+  Expect '1. at least 2 rules (Steam and Medium)' ($base -ge 2)
+  Start-Sleep -Seconds 2
+  $null = Save-Shot $script:gui '01-on'
+  Log-State '1. on'
+  Expect "1. $store resolves to the relay" (Goes-To-Relay $store)
+  Expect "1. $medium resolves to the relay" (Goes-To-Relay $medium)
+  $https = Fetch "https://$store/"
+  $http = Fetch "http://$store/"
+  Log "  https: $https; http: $http"
+  Expect '1. HTTPS to the store answers 200 through 127.0.0.x' ($https -match '^200 ip=127\.0\.0\.')
+  Expect '1. HTTP to the store answers 302 through 127.0.0.x' ($http -match '^302 ip=127\.0\.0\.')
 
-  Wait-Owner '2. Nothing to click: the script now fetches https://store.steampowered.com/ and the http page through snisplit.'
-  Log "  curl store https: $(Fetch 'https://store.steampowered.com/'); store http: $(Fetch 'http://store.steampowered.com/')"
+  Expect '2. Medium off: off.list names medium and one rule fewer' (Wait-Click '2. Click the Medium switch to turn it Off.' { (Off-List-Names 'medium') -and ((Rule-Count) -eq ($base - 1)) })
+  Start-Sleep -Seconds 2
+  $null = Save-Shot $script:gui '02-medium-off'
+  Expect "2. $medium does not resolve to the relay" (-not (Goes-To-Relay $medium))
+  Expect "2. $store still resolves to the relay" (Goes-To-Relay $store)
 
-  Wait-Owner '3. Click the Medium switch to turn it Off, and wait until the line under the button says On again.'
-  $null = Ask '   While it changed, did you see Applying your change... and Turning off beside the switch? (y/n)'
-  Log-State 'step 3, Medium switched off while on'
-  Log "  medium.com goes to the relay: $(Goes-To-Relay 'medium.com') (expected False); store goes to the relay: $(Goes-To-Relay 'store.steampowered.com') (expected True)"
+  Expect '3. Medium on: off.list without medium and the base count' (Wait-Click '3. Click the Medium switch again to turn it On.' { (-not (Off-List-Names 'medium')) -and ((Rule-Count) -eq $base) })
+  Expect "3. $medium resolves to the relay" (Goes-To-Relay $medium)
 
-  Wait-Owner '4. Click the Medium switch again to turn it On, and wait for On.'
-  Log-State 'step 4, Medium switched on again'
-  Log "  medium.com goes to the relay: $(Goes-To-Relay 'medium.com') (expected True)"
-
-  Say '5. Add a site while snisplit is on: click Add a site, type a blocked address that is not a Steam or medium.com name, press Test, and if the window offers it press Add and turn on. Wait for On.'
-  Write-Host 'Type the same address here so the script can check it. It is not written to the log.'
-  $script:addedDomain = (Read-Host 'Address').Trim()
-  Wait-Owner '   When the new row is in the list and the line under the button says On again, continue.'
-  $null = Ask '   What did the add panel say after the test? Answer with a number: 1 blocked and snisplit can open it, 2 already opens, 3 snisplit cannot open it, 4 could not test'
-  Log-State 'step 5, after adding a site while on'
-  Log-Added 'after adding'
-
-  Wait-Owner '6. Remove that site while on: click its name, press Remove, then Remove again in the question that appears. Wait for On.'
-  Log-State 'step 6, after removing the site while on'
-  Log-Added 'after removing'
-
-  Wait-Owner '7. Press the round Stop button and wait until the line under it says Off.'
-  Log-State 'step 7, after Stop'
-
-  Wait-Owner '8. Press Start again and wait until it says On.'
-  Log-State 'step 8, on again before the kill'
-
-  Wait-Owner '9. Nothing to click: the script now ends snisplit-gui abruptly (as Task Manager would) while it is on, and starts it again.'
-  if (-not $gui.HasExited) { $gui.Kill() }
-  $killed = $gui.WaitForExit(20000)
-  Start-Sleep 2
-  Log "step 9: killed while on: exited=$killed; snisplit rules: $((Rules).Count) (expected above 0)"
-  $gui = Start-Window
-  Start-Sleep 5
-  Log "window again: process $($gui.Id), title '$((Get-Process -Id $gui.Id -ErrorAction SilentlyContinue).MainWindowTitle)'"
-  $null = Ask '   Does the window say Off, with leftovers, that snisplit did not get to turn off properly last time, and offer Remove leftover settings? (y/n)'
-
-  Wait-Owner '10. Press Remove leftover settings and wait until the line under the button says Off.'
-  Log-State 'step 10, after removing the leftovers'
-  Log "  snisplit rules: $((Rules).Count) (expected 0)"
-
-  Say '11. With this window open, the script starts a second snisplit-gui.'
-  $second = Start-Window
-  Start-Sleep 4
-  $null = Ask '   Does the second window say Already open, with a Try again button? (y/n)'
-  Wait-Owner '   Close the second window (the one that says Already open) with its X button.'
-  $secondClosed = $second.WaitForExit(20000)
-  Log "step 11: second window closed=$secondClosed, exit code $(if ($secondClosed) { $second.ExitCode }); processes: $((Snisplit-Processes).Name -join ',')"
-  $startNext = '12. In the remaining window press Start and wait until it says On.'
-  if ($gui.HasExited -and -not $second.HasExited) {
-    Log '  the first window was closed instead of the second; the script goes on with the second'
-    $gui = $second
-    $startNext = '12. The remaining window says Already open: press Try again and wait until it says Off, then press Start and wait until it says On.'
+  $filesBefore = @(Site-Files | ForEach-Object FullName)
+  $script:newSiteFiles = @()
+  $added = Wait-Click '4. Click Add a site, type in the window a blocked address that is not a Steam or medium.com name, press Test, then press Add and turn on.' {
+    $script:newSiteFiles = @(Site-Files | Where-Object { $filesBefore -notcontains $_.FullName })
+    ($script:newSiteFiles.Count -gt 0) -and ((Rule-Count) -gt $base)
   }
+  Expect '4. a new site file and one more rule' $added
+  $addedFile = $null
+  if ($script:newSiteFiles.Count -gt 0) { $addedFile = $script:newSiteFiles[0] }
+  if ($addedFile) {
+    $null = Wait-Rules-Settled 20
+    Log "  rule count with the added site: $(Rule-Count)"
+    $addedDomain = Domain-Of $addedFile
+    Expect '4. the added site file names a domain' ([bool]$addedDomain)
+    if ($addedDomain) {
+      Expect '4. the added site resolves to the relay' (Goes-To-Relay $addedDomain)
+      Log "  the added site: https status $(Status-Code "https://$addedDomain/")"
+    }
+    $addedPath = $addedFile.FullName
+    Expect '5. removed: the site file is gone and the base count is back' (Wait-Click '5. Click the name of the site you added, press Remove, then press Remove again in the question.' { (-not (Test-Path -LiteralPath $addedPath)) -and ((Rule-Count) -eq $base) })
+    if ($addedDomain) { Expect '5. the added site no longer resolves to the relay' (-not (Goes-To-Relay $addedDomain)) }
+    $addedDomain = $null
+  } else {
+    Log '  no new site file was seen, so step 5 (remove it) is skipped'
+  }
+  Expect '5. site file count is back to the count before step 4' ((Site-Files).Count -eq $filesBefore.Count)
 
-  Wait-Owner $startNext
-  Log-State 'step 12, on again before the close'
-  Say '13. Close the window with its X button while it is on. The window should say Turning off... and close by itself. The script waits up to 120 s.'
-  $closedInTime = $gui.WaitForExit(120000)
-  Start-Sleep 2
-  Log "step 13: closed while on: exited=$closedInTime, exit code $(if ($closedInTime) { $gui.ExitCode })"
-  Log-State 'step 13, after closing'
-  if (-not $closedInTime) { Log 'snisplit-gui did not exit within 120 s; it was left running for you to look at' }
-  if ($closedInTime -and (RulesToRelay).Count -gt 0) { Log 'RULES LEFT after closing the window; removing them'; Remove-RelayRules; Log "rules now: $((RulesToRelay).Count)" }
+  Expect '6. Stop: 0 rules' (Wait-Click '6. Click the round Stop button.' { (Rule-Count) -eq 0 })
+  Expect '6. 0 rules pointing at the relay' ((RulesToRelay).Count -eq 0)
 
-  Say '14. The script starts the window once more, to close it twice in a row.'
-  $gui = Start-Window
-  Start-Sleep 3
-  Wait-Owner '    Press Start and wait until it says On.'
-  Log-State 'step 14, on again before the double close'
-  Say '    Press the X button twice quickly. The window should vanish at once and not show Not responding. The script waits up to 120 s for the process to end.'
-  $closeWatch = [Diagnostics.Stopwatch]::StartNew()
-  $closedTwice = $gui.WaitForExit(120000)
-  $closeWatch.Stop()
-  Start-Sleep 2
-  Log "step 14: closed twice while on: exited=$closedTwice, exit code $(if ($closedTwice) { $gui.ExitCode }), seconds from the prompt to the process ending: $([int]$closeWatch.Elapsed.TotalSeconds)"
-  Log-State 'step 14, after the double close'
-  $null = Ask '    Did the window vanish at once after the second X, without Not responding? (y/n)'
-  if (-not $closedTwice) { Log 'snisplit-gui did not exit within 120 s; it was left running for you to look at' }
-  if ($closedTwice -and (RulesToRelay).Count -gt 0) { Log 'RULES LEFT after the double close; removing them'; Remove-RelayRules; Log "rules now: $((RulesToRelay).Count)" }
+  Expect '7. Start again: on' (Wait-On '7. Click Start again.')
+  Expect "7. the base count ($base)" ((Rule-Count) -eq $base)
+  Say 'Nothing to click: the script now ends the window abruptly (as Task Manager would) and starts it again.'
+  if (-not $script:gui.HasExited) { $script:gui.Kill() }
+  Expect '7. the killed window ended' ($script:gui.WaitForExit(20000))
+  Start-Sleep -Seconds 2
+  Expect "7. the rules are still in place after the kill ($base)" ((Rule-Count) -eq $base)
+  Relaunch '7. relaunch after the kill'
+  Start-Sleep -Seconds 6
+  $null = Save-Shot $script:gui '07-leftovers-1'
+  Start-Sleep -Seconds 4
+  $null = Save-Shot $script:gui '07-leftovers-2'
 
-  $null = Ask '   Did Kaspersky or Windows show anything during this run? (no, or what it said)'
+  Expect '8. leftovers removed: 0 rules' (Wait-Click '8. Click Remove leftover settings.' { (Rule-Count) -eq 0 })
+  Say 'Nothing to click: the script starts a second window, takes a picture of it and closes it.'
+  $second = Start-Tracked $script:guiBinary $null 'Normal' $null
+  Expect '8. the second window appears within 20 s' (Wait-Window $second 20)
+  Start-Sleep -Seconds 4
+  $null = Save-Shot $second '08-second-window'
+  $closed = Close-Window $second 1 30
+  Expect '8. the second window exits after one close' $closed.Exited
+  Expect '8. the second window exits with code 0' ($closed.ExitCode -eq 0)
+  Expect '8. the first window is still open' (-not $script:gui.HasExited)
 
-  Say "Done. Log: $log. You can close this window."
-  Log "finished $(Get-Date -Format s)"
-  $script:completed = $true
+  Expect '9. Start: on' (Wait-On '9. Click Start.')
+  Say 'Nothing to click: the script closes the window once, as the X button would, while it is on.'
+  $closed = Close-Window $script:gui 1 120
+  Start-Sleep -Seconds 1
+  Expect '9. closed once while on: the process exits within 120 s' $closed.Exited
+  Expect '9. closed once while on: exit code 0' ($closed.ExitCode -eq 0)
+  Expect '9. closed once while on: 0 rules left' (((Rule-Count) -eq 0) -and ((RulesToRelay).Count -eq 0))
+  if ($closed.Exited -and (RulesToRelay).Count -gt 0) { Log 'RULES LEFT after the close; removing them'; Remove-RelayRules }
+
+  Say 'Nothing to click: the script starts the window again.'
+  Relaunch '10. relaunch'
+  Expect '10. Start: on' (Wait-On '10. Click Start.')
+  Say 'Nothing to click: the script closes the window twice in quick succession while it is on.'
+  $closed = Close-Window $script:gui 2 120
+  Start-Sleep -Seconds 1
+  Expect '10. closed twice while on: the process exits within 120 s' $closed.Exited
+  Expect '10. closed twice while on: exit code 0' ($closed.ExitCode -eq 0)
+  Expect '10. closed twice while on: no poll saw the window not responding' ($closed.NotRespondingPolls -eq 0)
+  Expect '10. closed twice while on: 0 rules left' (((Rule-Count) -eq 0) -and ((RulesToRelay).Count -eq 0))
+
+  Log-State 'after'
+  Log "screenshots for the lead: $script:shots"
+  $null = Ask 'Last question: did Kaspersky or Windows show anything during this run? (no, or what it said)'
+  $completed = $true
 }
 finally {
-  if (-not $script:completed) {
-    Log "the run was aborted $(Get-Date -Format s); ending the windows this script started, then removing any rules pointing at the relay: $((RulesToRelay).Count)"
-    Close-Started
-    Remove-RelayRules
-    Log "rules pointing at the relay now: $((RulesToRelay).Count); snisplit rules now: $((Rules).Count); snisplit processes still running: $((Snisplit-Processes).Count)"
-  }
+  if ($addedPath -and (Test-Path -LiteralPath $addedPath)) { Log 'the site added in step 4 is still in the site folder: remove it in the window' }
+  $exitCode = Finish-Run $completed
 }
+exit $exitCode
