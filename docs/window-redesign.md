@@ -826,8 +826,9 @@ inherits: started from a shell that carries the flag, `ping -t` and
 in the launching process. `lib.ps1` therefore clears it in the script's own process
 before it starts `run`. If `run` has not printed `stopping` 15 s after the Ctrl+C, the
 script sends Ctrl+Break, which the flag does not block and which `run` also handles
-(the PowerShell children that change the rules have their own hidden consoles and do
-not receive it); if `run` is still alive 75 s later, it is killed and `snisplit cleanup`
+(the PowerShell children that change the rules are started with `CREATE_NO_WINDOW`, so
+they have consoles of their own and should not receive it; this follows from the
+creation flags and is not tested); if `run` is still alive 75 s later, it is killed and `snisplit cleanup`
 runs, and the log says the clean stop was not exercised. Verified unelevated with
 `snisplit run --no-routing` in a temporary profile under Windows PowerShell 5.1 and
 PowerShell 7: Ctrl+C, exit code 0 in about 3 s. The rule removal after the Ctrl+C is

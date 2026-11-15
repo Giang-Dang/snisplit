@@ -275,8 +275,7 @@ function Add-OffListName($name) {
 function Off-List-Is-As-Saved {
   if (-not $script:offListSaved.Existed) { return -not (Test-Path -LiteralPath $script:offList) }
   if (-not (Test-Path -LiteralPath $script:offList)) { return $false }
-  $now = [IO.File]::ReadAllBytes($script:offList)
-  ($now.Length -eq $script:offListSaved.Bytes.Length) -and (@(Compare-Object $now $script:offListSaved.Bytes -SyncWindow 0).Count -eq 0)
+  [Convert]::ToBase64String([IO.File]::ReadAllBytes($script:offList)) -eq [Convert]::ToBase64String($script:offListSaved.Bytes)
 }
 function Restore-OffList {
   if (-not $script:offListSaved -or -not $script:offListSaved.Changed) { return }

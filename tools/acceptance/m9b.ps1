@@ -29,6 +29,11 @@ function Domain-Of($file) {
     if ($line) { ($line.Trim() -split '\s+')[1] } else { $null }
   } catch { $null }
 }
+function Shot($process, $name) {
+  $newSites = @(Site-Files | Where-Object { $script:filesBefore -and ($script:filesBefore -notcontains $_.FullName) })
+  if ($newSites.Count -gt 0) { Log "  shot $name skipped: the added site is still listed"; return }
+  $null = Save-Shot $process $name
+}
 function Relaunch($name) {
   $script:gui = Start-Window
   Expect "$name`: the window appears within 20 s" (Wait-Window $script:gui 20)
@@ -42,19 +47,20 @@ Log-State 'before'
 Save-OffList -RestoreAtEnd
 
 $completed = $false
-$addedPath = $null
+$script:addedPath = $null
+$script:filesBefore = $null
 $exitCode = 1
 try {
   Relaunch '0. launch'
   Start-Sleep -Seconds 3
-  $null = Save-Shot $script:gui '00-launch'
+  Shot $script:gui '00-launch'
 
   Expect '1. Start: on' (Wait-On '1. Click the round Start button.')
   $base = Rule-Count
   Log "  base rule count: $base"
   Expect '1. at least 2 rules (Steam and Medium)' ($base -ge 2)
   Start-Sleep -Seconds 2
-  $null = Save-Shot $script:gui '01-on'
+  Shot $script:gui '01-on'
   Log-State '1. on'
   Expect "1. $store resolves to the relay" (Goes-To-Relay $store)
   Expect "1. $medium resolves to the relay" (Goes-To-Relay $medium)
@@ -64,25 +70,28 @@ try {
   Expect '1. HTTPS to the store answers 200 through 127.0.0.x' ($https -match '^200 ip=127\.0\.0\.')
   Expect '1. HTTP to the store answers 302 through 127.0.0.x' ($http -match '^302 ip=127\.0\.0\.')
 
-  Expect '2. Medium off: off.list names medium and one rule fewer' (Wait-Click '2. Click the Medium switch to turn it Off.' { (Off-List-Names 'medium') -and ((Rule-Count) -eq ($base - 1)) })
+  Expect '2. Medium off: off.list names medium' (Wait-Click '2. Click the Medium switch to turn it Off.' { Off-List-Names 'medium' })
+  Shot $script:gui '02-applying'
+  Expect '2. Medium off: one rule fewer within 60 s' (Wait-Until { (Rule-Count) -eq ($base - 1) } 60)
   Start-Sleep -Seconds 2
-  $null = Save-Shot $script:gui '02-medium-off'
+  Shot $script:gui '02-medium-off'
   Expect "2. $medium does not resolve to the relay" (-not (Goes-To-Relay $medium))
   Expect "2. $store still resolves to the relay" (Goes-To-Relay $store)
 
   Expect '3. Medium on: off.list without medium and the base count' (Wait-Click '3. Click the Medium switch again to turn it On.' { (-not (Off-List-Names 'medium')) -and ((Rule-Count) -eq $base) })
   Expect "3. $medium resolves to the relay" (Goes-To-Relay $medium)
 
-  $filesBefore = @(Site-Files | ForEach-Object FullName)
+  $script:filesBefore = @(Site-Files | ForEach-Object FullName)
   $script:newSiteFiles = @()
   $added = Wait-Click '4. Click Add a site, type in the window a blocked address that is not a Steam or medium.com name, press Test, then press Add and turn on.' {
-    $script:newSiteFiles = @(Site-Files | Where-Object { $filesBefore -notcontains $_.FullName })
+    $script:newSiteFiles = @(Site-Files | Where-Object { $script:filesBefore -notcontains $_.FullName })
     ($script:newSiteFiles.Count -gt 0) -and ((Rule-Count) -gt $base)
   }
   Expect '4. a new site file and one more rule' $added
   $addedFile = $null
   if ($script:newSiteFiles.Count -gt 0) { $addedFile = $script:newSiteFiles[0] }
   if ($addedFile) {
+    $script:addedPath = $addedFile.FullName
     $null = Wait-Rules-Settled 20
     Log "  rule count with the added site: $(Rule-Count)"
     $addedDomain = Domain-Of $addedFile
@@ -91,14 +100,13 @@ try {
       Expect '4. the added site resolves to the relay' (Goes-To-Relay $addedDomain)
       Log "  the added site: https status $(Status-Code "https://$addedDomain/")"
     }
-    $addedPath = $addedFile.FullName
-    Expect '5. removed: the site file is gone and the base count is back' (Wait-Click '5. Click the name of the site you added, press Remove, then press Remove again in the question.' { (-not (Test-Path -LiteralPath $addedPath)) -and ((Rule-Count) -eq $base) })
+    Expect '5. removed: the site file is gone and the base count is back' (Wait-Click '5. Click the name of the site you added, press Remove, then press Remove again in the question.' { (-not (Test-Path -LiteralPath $script:addedPath)) -and ((Rule-Count) -eq $base) })
     if ($addedDomain) { Expect '5. the added site no longer resolves to the relay' (-not (Goes-To-Relay $addedDomain)) }
     $addedDomain = $null
   } else {
     Log '  no new site file was seen, so step 5 (remove it) is skipped'
   }
-  Expect '5. site file count is back to the count before step 4' ((Site-Files).Count -eq $filesBefore.Count)
+  Expect '5. site file count is back to the count before step 4' ((Site-Files).Count -eq $script:filesBefore.Count)
 
   Expect '6. Stop: 0 rules' (Wait-Click '6. Click the round Stop button.' { (Rule-Count) -eq 0 })
   Expect '6. 0 rules pointing at the relay' ((RulesToRelay).Count -eq 0)
@@ -112,16 +120,16 @@ try {
   Expect "7. the rules are still in place after the kill ($base)" ((Rule-Count) -eq $base)
   Relaunch '7. relaunch after the kill'
   Start-Sleep -Seconds 6
-  $null = Save-Shot $script:gui '07-leftovers-1'
+  Shot $script:gui '07-leftovers-1'
   Start-Sleep -Seconds 4
-  $null = Save-Shot $script:gui '07-leftovers-2'
+  Shot $script:gui '07-leftovers-2'
 
   Expect '8. leftovers removed: 0 rules' (Wait-Click '8. Click Remove leftover settings.' { (Rule-Count) -eq 0 })
   Say 'Nothing to click: the script starts a second window, takes a picture of it and closes it.'
   $second = Start-Tracked $script:guiBinary $null 'Normal' $null
   Expect '8. the second window appears within 20 s' (Wait-Window $second 20)
   Start-Sleep -Seconds 4
-  $null = Save-Shot $second '08-second-window'
+  Shot $second '08-second-window'
   $closed = Close-Window $second 1 30
   Expect '8. the second window exits after one close' $closed.Exited
   Expect '8. the second window exits with code 0' ($closed.ExitCode -eq 0)
@@ -153,7 +161,7 @@ try {
   $completed = $true
 }
 finally {
-  if ($addedPath -and (Test-Path -LiteralPath $addedPath)) { Log 'the site added in step 4 is still in the site folder: remove it in the window' }
+  if ($script:addedPath -and (Test-Path -LiteralPath $script:addedPath)) { Log 'the site added in step 4 is still in the site folder: remove it in the window' }
   $exitCode = Finish-Run $completed
 }
 exit $exitCode

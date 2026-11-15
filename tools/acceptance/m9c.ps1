@@ -82,7 +82,7 @@ try {
   $run = Start-Run 'g-run'
   Expect 'g. run reports it is on within 90 s' (Wait-Run-On $run 90)
   $null = Wait-Rules-Settled 30
-  $run.Kill()
+  if (-not $run.HasExited) { $run.Kill() }
   Expect 'g. run ended after Kill()' ($run.WaitForExit(20000))
   Start-Sleep -Seconds 2
   Expect "g. the rules are still in place after the kill ($base)" ((Rule-Count) -eq $base)
