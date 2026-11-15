@@ -339,6 +339,24 @@ fn two_domains_with_the_same_site_name_give_a_name_exists_error_and_keep_the_fir
 }
 
 #[test]
+fn a_refused_add_under_a_switched_off_name_keeps_that_site_switched_off() {
+    let folder = TempFolder::new("same-name-off");
+    let first = "name foo-bar-example-com\ndomains foo-bar.example.com\n";
+    let second = "name foo-bar-example-com\ndomains foo.bar-example.com\n";
+    add(folder.path(), first).unwrap();
+    set_switch(folder.path(), "foo-bar-example-com", false).unwrap();
+    let refused = add(folder.path(), second).unwrap_err();
+    assert_eq!(
+        refused.to_string(),
+        "a site named foo-bar-example-com already exists"
+    );
+    assert_eq!(
+        fs::read_to_string(folder.off_list()).unwrap(),
+        "foo-bar-example-com\n"
+    );
+}
+
+#[test]
 fn removing_deletes_only_a_listed_site_file() {
     let folder = TempFolder::created("remove");
     let outside = TempFolder::created("remove-outside");

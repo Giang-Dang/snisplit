@@ -223,10 +223,6 @@ pub fn add(folder: &Path, profile_text: &str) -> io::Result<ProfileSpec> {
         ));
     }
     let off = switched_off(folder)?;
-    if off.contains(&spec.name) {
-        let kept: Vec<String> = off.into_iter().filter(|name| *name != spec.name).collect();
-        write_off_list(folder, &kept)?;
-    }
     fs::create_dir_all(folder)?;
     let path = folder.join(format!("{}.{EXTENSION}", spec.name));
     let file = OpenOptions::new()
@@ -244,6 +240,12 @@ pub fn add(folder: &Path, profile_text: &str) -> io::Result<ProfileSpec> {
         file.write_all(profile_text.as_bytes())?;
         file.flush()
     })?;
+    if off.contains(&spec.name) {
+        let kept: Vec<String> = off.into_iter().filter(|name| *name != spec.name).collect();
+        write_off_list(folder, &kept).inspect_err(|_| {
+            let _ = fs::remove_file(&path);
+        })?;
+    }
     Ok(spec)
 }
 
