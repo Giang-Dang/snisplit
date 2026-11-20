@@ -61,14 +61,14 @@ so the first-boot presets apply as on a Deck):
 
 Sources: the spike above, Debian release notes for bookworm (systemd-resolved is a separate
 package, not the default), archinstall's network handler (the NetworkManager choice does
-not enable resolved), community reports for the rest. A distribution moves to "verified"
-only when the container matrix below passes on it.
+not enable resolved), community reports for the rest. A distribution is listed as checked
+only where the container matrix ("Result" below) passed on it.
 
 | Tier | Distributions |
 |---|---|
-| Works as installed | Ubuntu 24.04 and later, Fedora Workstation, SteamOS 3.x |
-| Works after enabling systemd-resolved (snisplit prints the steps) | Debian 12 and 13, Arch Linux (NetworkManager install), and the distributions in the matrix where the steps were run |
-| Unverified | openSUSE (netconfig; a community report says the switch to resolved failed), Linux Mint, Pop!_OS, Manjaro, EndeavourOS, Bazzite |
+| Checked, works as installed (resolved and NetworkManager as on a desktop) | Ubuntu 22.04 and 24.04, Fedora 45, SteamOS 3.8.14 |
+| Checked, works after the README's steps to enable systemd-resolved; refuses and changes nothing before them | Debian 12 and 13, Arch Linux, openSUSE Tumbleweed (checked without NetworkManager or netconfig) |
+| Not checked | Linux Mint, Pop!_OS, Manjaro, EndeavourOS, Bazzite, openSUSE Leap |
 
 ## Decisions
 
@@ -109,8 +109,9 @@ only when the container matrix below passes on it.
 
 Owner answers, 2026-11-20:
 
-10. Systems without systemd-resolved: snisplit refuses to start and prints the steps to
-    enable it; no resolv.conf backend.
+10. Systems without systemd-resolved: snisplit refuses to start, saying it needs
+    systemd-resolved as the system resolver; the README lists the steps that were run in
+    the matrix per distribution. No resolv.conf backend.
 11. The window on Linux is phase 2, after the command line; its design goes to the owner.
 12. SteamOS: foreground `sudo snisplit run` only; Gaming Mode is listed as unverified for
     the owner to try on a Deck. No systemd unit.
@@ -151,14 +152,14 @@ ran unchanged in every container of `tools/acceptance/linux/matrix.sh`:
 
 | Distribution | systemd | Setup before the checks | Checks |
 |---|---|---|---|
-| Ubuntu 24.04.5 | 255 | stub symlink, as on a desktop install | 41 pass, 0 fail |
-| Ubuntu 22.04.5 | 249 | stub symlink, as on a desktop install | 41 pass, 0 fail |
-| Debian 12 | 252 | refusal checked, then `apt-get install systemd-resolved` | 44 pass, 0 fail |
-| Debian 13 | 257 | refusal checked, then `apt-get install systemd-resolved` | 44 pass, 0 fail |
-| Fedora 45 | 262 | stub symlink, as on a desktop install | 41 pass, 0 fail |
-| Arch Linux | 262 | refusal checked, then enable resolved and the stub symlink | 44 pass, 0 fail |
-| openSUSE Tumbleweed | 262 | refusal checked, resolved package in the image, then enable and the stub symlink | 45 pass, 0 fail |
-| SteamOS 3.8.14 (Valve image) | 257 | booted as shipped; NetworkManager connection standing in for Wi-Fi | 41 pass, 0 fail |
+| Ubuntu 24.04.5 | 255 | stub symlink and NetworkManager managing eth0, as on a desktop install | 57 pass, 0 fail |
+| Ubuntu 22.04.5 | 249 | stub symlink and NetworkManager managing eth0, as on a desktop install | 57 pass, 0 fail |
+| Debian 12 | 252 | refusal checked, then `apt-get install systemd-resolved` | 52 pass, 0 fail |
+| Debian 13 | 257 | refusal checked, then `apt-get install systemd-resolved` | 52 pass, 0 fail |
+| Fedora 45 | 262 | stub symlink and NetworkManager managing eth0, as on a desktop install | 57 pass, 0 fail |
+| Arch Linux | 262 | refusal checked, then enable resolved and the stub symlink | 52 pass, 0 fail |
+| openSUSE Tumbleweed | 262 | refusal checked, resolved package in the image, then enable and the stub symlink | 53 pass, 0 fail |
+| SteamOS 3.8.14 (Valve image) | 257 | booted as shipped; NetworkManager connection standing in for Wi-Fi | 57 pass, 0 fail |
 
 What each run checks: preconditions (resolv.conf reaches the stub, names resolve to a real
 address); a non-root `run` is refused with a sudo hint and adds nothing; `run` is ready
@@ -169,7 +170,12 @@ name resolves to a real address; `curl` over HTTPS (200) and HTTP (302) reaches
 and leaves the first's links; Ctrl+C exits 0 with no link left; `kill -9` leaves the links,
 `cleanup` removes them; a `run` after `kill -9` removes the stale links and starts; SIGTERM
 leaves no link; with `SUDO_UID` set, a profile in that user's `~/.config/snisplit/sites`
-is relayed.
+is relayed; `probe` runs without root; SIGHUP (a closed terminal) leaves no link; a start
+that fails at the second profile (a bridge named `snisplit1` in the way) exits non-zero,
+removes the first link and leaves the foreign one; where NetworkManager runs (Ubuntu,
+Fedora, SteamOS), it hands its DNS server to resolved, leaves the snisplit links
+`connected (externally)`, and the listed names still reach the relay after a
+NetworkManager restart and after the connection is brought up again.
 
 Found by the matrix and fixed: the systemd 249 query binding (decision 1b). Harness faults
 found and fixed on the way: missing D-Bus in minimal images, SteamOS checks starting
@@ -186,11 +192,16 @@ check --target x86_64-apple-darwin`, actionlint on both workflows.
   ClientHello gets through the provider's DPI on Linux is not shown; only that the relay
   carries the traffic.
 - Real kernels and desktops: every container ran on kernel 6.6.87.2-microsoft-standard-WSL2.
-  NetworkManager was present only in the SteamOS run; netplan, wicked, netconfig and
+  NetworkManager ran in the Ubuntu, Fedora and SteamOS runs with a static stand-in connection, not DHCP or Wi-Fi; netplan, wicked, netconfig and
   connman were not.
 - `sudo` itself (the check sets `SUDO_UID` directly), pkexec, and a Steam Deck: Gaming Mode,
   the Steam client, Flatpak and Steam Runtime containers, browsers with their own secure DNS.
 - Linux Mint, Pop!_OS, Manjaro, EndeavourOS, Bazzite.
+- The local-route fix for systemd 249 (decision 1b) is kernel routing behaviour, shown only
+  on the 6.6 WSL2 kernel, not on Ubuntu 22.04's own kernel.
+- macOS: `cargo check` and `cargo clippy` for `x86_64-apple-darwin` pass; its tests were
+  not run here (CI runs them).
+- The release workflow's new `linux` job passed actionlint; it has not run on GitHub.
 
 ## Blast radius
 

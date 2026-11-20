@@ -259,7 +259,7 @@ packets (synthetic tests only).
 | Browsers with their own secure DNS | They bypass the OS resolver and so snisplit. Measured: Steam's embedded browser auto-upgrades to DoH, and drops it while any NRPT rule exists. Explicit "secure DNS" settings are not covered; needs a README note. | Milestones 3 and 7 |
 | NRPT fallback is machine-wide | While snisplit's rules exist, every Chromium-based app loses automatic DoH for all names, not only listed ones. Users should be told. | Milestone 7 (README) |
 | snisplit started while Steam or Chrome is already open | Chrome open before the start went through the relay (milestone 3 acceptance). A Steam client left open worked without a restart in the owner's foreground trial (one run, 2026-11-14, docs/milestone-5.md). | Closed for this PC |
-| DoH bypass on Linux and macOS | No NRPT there; Chromium's auto-upgrade needs another answer. | Milestone 10 |
+| DoH bypass on Linux and macOS | No NRPT there; Chromium's auto-upgrade needs another answer. | Milestone 10. Linux: not measured; with systemd-resolved routing a browser with its own secure DNS still bypasses snisplit (README) |
 | Port conflicts on loopback 53/80/443 | On this PC ICS holds 0.0.0.0:53; 127.0.0.2 and 127.0.0.3 are free. A bind failure stops `run` before any rule exists (milestone 3). | Closed for this PC |
 | Listed names that exist only over IPv6 | Milestone 4: a listed name with no A record is forwarded unchanged, so it resolves as without snisplit (checked in the elevated run). | Milestone 4 |
 | Start-up time | 13-21 s in milestone 3, 3.5 s in milestone 4, 0.7-1.3 s routed in milestone 5's first runs, then 703, 1789 and 2000 ms with the foreground build (cause of the spread unknown). Accepted by the owner (D14). | Closed |
@@ -267,8 +267,8 @@ packets (synthetic tests only).
 | Relay throughput | Every Steam byte is copied through snisplit: about 9 MB/s for a 1.66 GB download in milestone 4, not compared with zapret; a download through the foreground build worked (owner, milestone 5). | Carried; measure if downloads feel slow |
 | Antivirus reaction | Kaspersky on the owner's PC (2026-11-14): `snisplit service install` was terminated as `PDM:Trojan.Win32.Generic` twice and the file deleted; one stream C build was deleted on disk as `VHO:Backdoor.Win64.Agent.gen`. The service was removed; the foreground build since then raised no alert. The elevated window (0.1.0, 2026-11-15) raised no alert either. A friend's antivirus may react the same way. | Milestone 7 (false-positive reports, signing are owner decisions) |
 | New crates (DNS codec, async runtime) | Decided: D11 (tokio, minimal features; DNS codec hand-written). | Closed |
-| Resolver routing on Linux and macOS | Per-domain DNS routing exists (systemd-resolved domains, macOS `/etc/resolver/<domain>` files) but is untested for this use. | Milestone 10 |
-| Test machines for Linux and macOS | None identified yet. | Milestone 10 |
+| Resolver routing on Linux and macOS | Per-domain DNS routing exists (systemd-resolved domains, macOS `/etc/resolver/<domain>` files) but is untested for this use. | Linux: done in milestone 10 phase 1 (docs/milestone-10.md), dummy links with routing domains, checked in containers on eight systems; macOS open |
+| Test machines for Linux and macOS | None identified yet. | Linux: containers only (docs/milestone-10.md); a real Linux machine or a Steam Deck on the ISP is still needed; macOS open |
 | ISP changes its DPI | Split may stop working. `probe` shows what still works. | Ongoing |
 | Moot under D1 | WinDivert binding choice, bundled driver provenance, WinDivert licence, `nfq` crate, Linux NFQUEUE test machine, macOS packet interception. Kept here so they are not reopened by accident. | Closed |
 
