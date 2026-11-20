@@ -45,6 +45,10 @@ pub enum Failure {
 const CLEANUP_WHILE_RUNNING: &str =
     "snisplit: warning: another snisplit is running and will lose its DNS rules";
 const NO_UPSTREAM: &str = "no usable upstream DNS server found; pass --upstream <ipv4>";
+#[cfg(target_os = "linux")]
+const ELEVATION_HINT: &str = "run it with sudo";
+#[cfg(not(target_os = "linux"))]
+const ELEVATION_HINT: &str = "run from an administrator terminal";
 const NOTHING_SWITCHED_ON: &str = "every site is switched off: turn one on in snisplit-gui or take its name out of off.list in the snisplit folder, or choose sites with --profile or --profile-file";
 const TIMING: Timing = Timing {
     refresh_every: Duration::from_secs(30),
@@ -651,9 +655,7 @@ fn routing_failure(error: &io::Error) -> io::Error {
     let first_line = message.lines().next().unwrap_or_default();
     io::Error::new(
         error.kind(),
-        format!(
-            "adding DNS rules failed (run from an administrator terminal, or pass --no-routing): {first_line}"
-        ),
+        format!("adding DNS rules failed ({ELEVATION_HINT}, or pass --no-routing): {first_line}"),
     )
 }
 

@@ -1,5 +1,11 @@
 use super::*;
 
+#[cfg(target_os = "linux")]
+const ADDING_FAILED: &str = "adding DNS rules failed (run it with sudo, or pass --no-routing): ";
+#[cfg(not(target_os = "linux"))]
+const ADDING_FAILED: &str =
+    "adding DNS rules failed (run from an administrator terminal, or pass --no-routing): ";
+
 #[test]
 fn a_relayed_connection_names_host_port_and_pieces() {
     let event = Event::Forwarded {
@@ -124,8 +130,9 @@ fn a_routing_failure_keeps_only_the_first_line_and_says_what_to_do() {
     let shown = routing_failure(&raw);
     assert_eq!(
         shown.to_string(),
-        "adding DNS rules failed (run from an administrator terminal, or pass --no-routing): \
-         powershell: Add-DnsClientNrptRule : Failed to load the NRPT information."
+        format!(
+            "{ADDING_FAILED}powershell: Add-DnsClientNrptRule : Failed to load the NRPT information."
+        )
     );
     assert_eq!(shown.kind(), io::ErrorKind::Other);
 }
@@ -934,11 +941,14 @@ mod start_up {
             let cases = [
                 (
                     StartFailure::Adding(io::Error::other("powershell: Access is denied.")),
-                    "adding DNS rules failed (run from an administrator terminal, or pass --no-routing): powershell: Access is denied.",
+                    format!(
+                        "{}powershell: Access is denied.",
+                        super::super::ADDING_FAILED
+                    ),
                 ),
                 (
                     StartFailure::RemovingStale(io::Error::other("powershell: Access is denied.")),
-                    "powershell: Access is denied.",
+                    "powershell: Access is denied.".to_string(),
                 ),
             ];
             for (refused, expected) in cases {
