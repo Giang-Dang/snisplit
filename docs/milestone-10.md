@@ -147,7 +147,7 @@ during implementation:
 ## Result (2026-11-20)
 
 Phase 1 is built. One static binary (`x86_64-unknown-linux-musl`, 2.1 MB, sha256
-`68a47511b365a4631242f7b6e9552522bfdedcb33c9d2b1800d4909d4284559a` for the build checked)
+`7c234811ada5dbc908bfdf0fca28368e290a3157f227fa83e149a51c94fedf32` for the build checked)
 ran unchanged in every container of `tools/acceptance/linux/matrix.sh`:
 
 | Distribution | systemd | Setup before the checks | Checks |
@@ -177,13 +177,19 @@ Fedora, SteamOS), it hands its DNS server to resolved, leaves the snisplit links
 `connected (externally)`, and the listed names still reach the relay after a
 NetworkManager restart and after the connection is brought up again.
 
-Found by the matrix and fixed: the systemd 249 query binding (decision 1b). Harness faults
+The failed start, run by hand on Debian 13 with the bridge in place, printed
+`snisplit: error: adding DNS rules failed (run it with sudo, or pass --no-routing): ip:
+RTNETLINK answers: File exists` and exited 1, leaving `eth0 lo snisplit1`.
+
+Found by the matrix and fixed: the systemd 249 query binding (decision 1b), and the
+add-failure hint, which said "run from an administrator terminal" on Linux too (it now
+says "run it with sudo" there). Harness faults
 found and fixed on the way: missing D-Bus in minimal images, SteamOS checks starting
 before NetworkManager, and address checks that passed on an empty answer (they now need a
 real address).
 
 Gates: `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace` on Linux (680
-passed, baseline 640) and Windows (699 passed, baseline 666 measured at d3a01b3), `cargo
+passed as root and 680 as an unprivileged user, as CI runs; baseline 640) and Windows (699 passed, baseline 666 measured at d3a01b3), `cargo
 check --target x86_64-apple-darwin`, actionlint on both workflows.
 
 ### Not verified
@@ -218,16 +224,16 @@ check --target x86_64-apple-darwin`, actionlint on both workflows.
 
 | Risk | Handling |
 |---|---|
-| NetworkManager or another manager reconfigures the dummy links | Measured on SteamOS's NetworkManager: no effect. Other managers (netplan, wicked, connman) unmeasured |
+| NetworkManager or another manager reconfigures the dummy links | Measured with NetworkManager on Ubuntu 22.04 and 24.04, Fedora 45 and SteamOS: the links stay `connected (externally)` and keep their DNS through an NM restart and reconnect. Other managers (netplan, wicked, connman) unmeasured |
 | Docker Desktop shares one kernel; DPI cannot be seen from a container | Container results are claimed as "routing, relay, cleanup", never as "gets through the ISP" |
 | Clients with their own DNS (browser secure DNS, Steam Runtime containers) bypass resolved | README note; not measurable in containers |
-| SteamOS Gaming Mode: a foreground `sudo snisplit run` from Desktop Mode | Owner question; not measurable in containers |
+| SteamOS Gaming Mode: a foreground `sudo snisplit run` from Desktop Mode | Decision 12: foreground only, listed as unverified; not measurable in containers |
 | A port 53 listener on 0.0.0.0 (dnsmasq, libvirt) blocks 127.0.0.2:53 | The existing bind error stops `run` before any link exists |
 
 ## Dropped
 
 - A second backend that points `/etc/resolv.conf` at snisplit for systems without resolved:
-  every lookup breaks if snisplit dies (PLAN.md "Crash leaves DNS broken"). Owner decision.
+  every lookup breaks if snisplit dies (PLAN.md "Crash leaves DNS broken"). Declined by the owner (decision 10).
 - NetworkManager's dnsmasq plugin: not installed by default anywhere in the tiers.
 - `/etc/hosts`: cannot express suffixes.
 - macOS: not requested.
