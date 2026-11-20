@@ -1,0 +1,91 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="snisplit"
+           Manufacturer="Giang Dang"
+           Version="$(ProductVersion)"
+           UpgradeCode="6b633373-174d-472c-b1a8-0998e2529b9e"
+           Scope="perMachine"
+           Compressed="yes">
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of snisplit is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Giang-Dang/snisplit" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/Giang-Dang/snisplit#if-something-goes-wrong" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <Icon Id="snisplit.ico" SourceFile="$(RepositoryRoot)\assets\icon\snisplit.ico" />
+    <Property Id="ARPPRODUCTICON" Value="snisplit.ico" />
+
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="snisplit" />
+    </StandardDirectory>
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="MachineDataFolder" Name="snisplit" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="snisplit" AllowAbsent="no">
+      <ComponentGroupRef Id="ProgramFiles" />
+      <ComponentRef Id="MachineData" />
+    </Feature>
+
+    <SetProperty Id="RemoveLeftoverRules"
+                 Value="&quot;[INSTALLFOLDER]snisplit.exe&quot; cleanup"
+                 Before="RemoveLeftoverRules"
+                 Sequence="execute"
+                 Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    <CustomAction Id="RemoveLeftoverRules"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixQuietExec"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="RemoveLeftoverRules"
+              Before="RemoveFiles"
+              Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="ProgramFiles" Directory="INSTALLFOLDER">
+      <Component Id="Window">
+        <File Id="WindowExe" Source="$(BinariesFolder)\snisplit-gui.exe" KeyPath="yes">
+          <Shortcut Id="WindowShortcut"
+                    Directory="ProgramMenuFolder"
+                    Name="snisplit"
+                    Description="Start and stop snisplit, and choose its sites"
+                    WorkingDirectory="INSTALLFOLDER" />
+        </File>
+      </Component>
+      <Component Id="CommandLine">
+        <File Id="CommandLineExe" Source="$(BinariesFolder)\snisplit.exe" KeyPath="yes" />
+        <Environment Id="PathEntry"
+                     Name="PATH"
+                     Value="[INSTALLFOLDER]"
+                     Action="set"
+                     Part="last"
+                     System="yes"
+                     Permanent="no" />
+      </Component>
+      <Component Id="Readme">
+        <File Id="ReadmeFile" Source="$(RepositoryRoot)\README.md" KeyPath="yes" />
+      </Component>
+      <Component Id="LicenseMit">
+        <File Id="LicenseMitFile" Source="$(RepositoryRoot)\LICENSE-MIT" KeyPath="yes" />
+      </Component>
+      <Component Id="LicenseApache">
+        <File Id="LicenseApacheFile" Source="$(RepositoryRoot)\LICENSE-APACHE" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <Component Id="MachineData" Directory="MachineDataFolder">
+      <RegistryValue Root="HKLM" Key="Software\snisplit" Name="MachineDataFolder" Type="string" Value="[MachineDataFolder]" KeyPath="yes" />
+      <RemoveFile Id="InstanceLock" Name="instance.lock" On="uninstall" />
+      <RemoveFolder Id="MachineDataFolderRemove" On="uninstall" />
+    </Component>
+  </Fragment>
+</Wix>

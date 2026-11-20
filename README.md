@@ -29,15 +29,35 @@ the rules are removed.
 
 ## Install
 
-1. Download `snisplit-<version>-windows-x86_64.zip` from the Releases page and unpack
-   it anywhere. There is no installer and nothing to uninstall: delete the folder to
-   remove it.
-2. Optional: compare the SHA-256 of the zip with the `.sha256` file next to it:
-   `Get-FileHash snisplit-<version>-windows-x86_64.zip -Algorithm SHA256`.
+### Installer (recommended)
 
-The executables are not code-signed, so Windows SmartScreen may ask before the first
-start, and an antivirus may warn about a program it has not seen before that changes
-DNS rules. See "Antivirus" below before you decide to allow it.
+1. Download `snisplit-<version>-windows-x86_64.msi` and double-click it. Accept the
+   licence and confirm the Windows prompt; snisplit installs for all users into
+   `C:\Program Files\snisplit`, a folder only administrators can change, which matters
+   for a program that runs elevated.
+2. Start it from the Start menu (snisplit). The command line `snisplit` is on the
+   system PATH; open a new elevated terminal to use it.
+3. To remove it, use Settings, Apps, Installed apps, snisplit, Uninstall. The
+   uninstaller first removes any DNS rules snisplit left behind (as `snisplit cleanup`
+   does), then the program files, the Start menu entry, the PATH entry and the lock
+   folder `%ProgramData%\snisplit`. Your sites in `%APPDATA%\snisplit` are kept.
+
+A newer installer upgrades an older installation in place; an older one refuses to
+install over a newer one. Silent install for scripts:
+`msiexec /i snisplit-<version>-windows-x86_64.msi /qn`.
+
+### Zip
+
+1. Download `snisplit-<version>-windows-x86_64.zip` from the Releases page and unpack
+   it anywhere. Delete the folder to remove it.
+
+Optional for either: compare the SHA-256 of the download with the `.sha256` file next
+to it: `Get-FileHash <file> -Algorithm SHA256`.
+
+The executables and the installer are not code-signed, so Windows SmartScreen may ask
+before the first start and the installer shows "Unknown publisher", and an antivirus
+may warn about a program it has not seen before that changes DNS rules. See
+"Antivirus" below before you decide to allow it.
 
 ## Use
 
@@ -184,6 +204,11 @@ Rust 1.95 or newer for the whole workspace (the window needs it); the command li
 alone, `cargo build --release -p snisplit`, needs 1.85. `cargo test --workspace` runs the test suite; no test needs
 administrator rights or the internet. The plan, the measurements behind each design
 choice and the per-milestone records are in `PLAN.md` and `docs/`.
+
+The installer needs the .NET SDK (8 or newer) and is built with the WiX Toolset 5,
+which `dotnet` restores on its own: after `cargo build --release`, run
+`dotnet build installer -c Release -p:ProductVersion=<workspace version>`; the package
+lands in `target\installer\bin\Release`. `docs/installer.md` has the design.
 
 ## Licence
 

@@ -1,6 +1,6 @@
 # snisplit progress
 
-Read this first when resuming. Last updated 2026-11-15 (window redesign, 0.2.0). The plan itself is PLAN.md;
+Read this first when resuming. Last updated 2026-11-20 (Windows installer). The plan itself is PLAN.md;
 this file says where the work stands and what to do next.
 
 ## Where things stand
@@ -18,6 +18,7 @@ this file says where the work stands and what to do next.
 | 9 UI | **Done** 2026-11-15 (docs/milestone-9.md): `snisplit-gui` (egui) starts and stops the relay and lists, checks, adds and removes sites; the owner's elevated run passed every step: Start, fetch through the relay, add a site, Stop, Start again, close while running, 0 rules left |
 | 9b Window redesign | **Built** 2026-11-15 (docs/window-redesign.md): version 0.2.0; a 400 px window with one round button, a switch per site (`off.list`, which `run` honours too), rows that open in place, plain failure causes, leftovers removal, Activity with Save to a file. Seen in a real window: Off, a row opened, Test on medium.com (debug build with a temporary trace), Activity, close, and without input Medium switched off, every site off and the small header; the rest of the smoke run was stopped because the window received input the test driver did not send. The owner's elevated `tools/acceptance/m9b.ps1` run on a build from 0c8d793 passed (Start, switch, add and remove while on, Stop, close while on: 0 rules, exit code 0). On 2026-11-15 the redesign and changes 1-4 (the post-window wait for rule removal, leftovers shown at launch, one instance at a time with "Already open", a broken file named like a built-in as its own row) passed the owner's elevated acceptance: `m9c.ps1` and `m9b.ps1`, 39 checks each, all PASS (docs/window-redesign.md, last section). Still not covered by any run: a real UI panic, the lock with two accounts, logoff or shutdown with the window open, Escape and the Keep / Remove order on screen |
 | 7 Releases | **Built** 2026-11-15 (docs/milestone-7.md): README, release workflow, version 0.1.0, draft release `v0.1.0` with the Windows archive. Draft v0.2.0 built 2026-11-15, not published (antivirus flag on the window binary in the archive); the owner uses local builds for now. Still open: rescan, publish a draft, a friend installs |
+| 7b Windows installer | **Built** 2026-11-20 (docs/installer.md): per-machine WiX 5 MSI next to the zip; uninstall removes leftover rules. Not installed yet: awaiting the owner's elevated `tools/acceptance/m7b-installer.ps1` |
 | 10 Linux and macOS | Deferred (PLAN.md D13) |
 
 Design: the owner chose a driverless design on 2026-11-14 (PLAN.md decision D1):
@@ -34,6 +35,8 @@ administrator rights or a second person waits for the owner, in this order:
 1b. Done 2026-11-15: the redesigned window (0.2.0, release build in `target\release`)
    passed the owner's elevated `m9c.ps1` and `m9b.ps1`, 39 checks each
    (docs/window-redesign.md, last section).
+1c. Run `tools/acceptance/m7b-installer.ps1` elevated after building the MSI
+   (docs/installer.md, "Not yet run").
 2. While the window is running: open a listed site in a browser that used it over
    HTTP/3 before, and see that it falls back to TCP quickly (docs/milestone-8.md).
 3. The draft releases: draft v0.2.0 is built and not published (the antivirus flagged

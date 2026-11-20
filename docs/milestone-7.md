@@ -21,7 +21,8 @@ person and cannot be met by the lead.
 
 1. Draft only (D13). `gh release create --draft` makes no git tag; the tag `v0.1.0`
    appears when the owner publishes the draft.
-2. One zip, no installer. Removing snisplit is deleting the folder; the per-user site
+2. One zip, no installer (superseded 2026-11-20: an MSI is added next to the zip,
+   docs/installer.md). Removing snisplit is deleting the folder; the per-user site
    folder `%APPDATA%\snisplit\sites` is the only other trace.
 3. Unsigned. Signing and antivirus false-positive reports are owner decisions and
    were not started.

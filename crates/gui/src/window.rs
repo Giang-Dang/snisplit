@@ -40,11 +40,22 @@ const BUTTON_GAP: f32 = 8.0;
 const DETAILS_INDENT: f32 = 16.0;
 const CLOCK_TICK: Duration = Duration::from_secs(15);
 const FIELD_HINT: &str = "example.net or a pasted link";
+const WINDOW_ICON_SIDE: u32 = 32;
+const WINDOW_ICON_RGBA: &[u8] = include_bytes!("../../../assets/icon/snisplit-32.rgba");
+
+fn window_icon() -> egui::IconData {
+    egui::IconData {
+        rgba: WINDOW_ICON_RGBA.to_vec(),
+        width: WINDOW_ICON_SIDE,
+        height: WINDOW_ICON_SIDE,
+    }
+}
 
 pub fn run() -> ExitCode {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(TITLE)
+            .with_icon(window_icon())
             .with_inner_size([WIDTH, HEIGHT])
             .with_min_inner_size([WIDTH, MIN_HEIGHT])
             .with_max_inner_size([WIDTH, MAX_HEIGHT])

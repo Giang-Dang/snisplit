@@ -1,0 +1,17 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <PropertyGroup>
+    <OutputName>snisplit-$(ProductVersion)-windows-x86_64</OutputName>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <BinariesFolder Condition="'$(BinariesFolder)' == ''">$(MSBuildThisFileDirectory)..\target\release</BinariesFolder>
+    <RepositoryRoot>$(MSBuildThisFileDirectory)..</RepositoryRoot>
+    <SuppressIces>ICE43;ICE57;ICE61</SuppressIces>
+    <DefineConstants>ProductVersion=$(ProductVersion);BinariesFolder=$(BinariesFolder);RepositoryRoot=$(RepositoryRoot)</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Util.wixext" Version="5.0.2" />
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+  </ItemGroup>
+  <Target Name="RequireProductVersion" BeforeTargets="Build">
+    <Error Condition="'$(ProductVersion)' == ''" Text="Pass the workspace version: dotnet build -p:ProductVersion=X.Y.Z" />
+  </Target>
+</Project>
