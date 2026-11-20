@@ -19,6 +19,16 @@ expect() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "expected [$3], go
 links() { ls -d /sys/class/net/snisplit* 2>/dev/null | wc -l | tr -d ' '; }
 nss() { getent ahostsv4 "$1" | awk 'NR == 1 { print $1 }'; }
 direct() { python3 "$query" "$1" | awk '{ print $2 }'; }
+nm_state() { nmcli -t -f DEVICE,STATE device | awk -F: -v device="$1" '$1 == device { print $2 }'; }
+nm_settle() {
+    tries=0
+    until nmcli general status >/dev/null 2>&1 && [ "$(nm_state eth0)" = connected ]; do
+        [ "$tries" -ge 60 ] && return 1
+        sleep 0.5
+        tries=$((tries + 1))
+    done
+    sleep 2
+}
 address_kind() { case "$1" in 127.*) echo loopback ;; [0-9]*.[0-9]*.[0-9]*.[0-9]*) echo public ;; *) echo none ;; esac; }
 
 start_run() {
@@ -55,6 +65,15 @@ nobody_output=$(setpriv --reuid=65534 --regid=65534 --clear-groups "$bin" run 2>
 nobody_status=$?
 if [ "$nobody_status" -ne 0 ] && echo "$nobody_output" | grep -qi "sudo"; then pass "non-root:refused-with-sudo-hint"; else fail "non-root:refused-with-sudo-hint" "exit $nobody_status: $nobody_output"; fi
 expect "non-root:no-links" "$(links)" 0
+probe_output=$(setpriv --reuid=65534 --regid=65534 --clear-groups "$bin" probe "$unlisted" 2>&1)
+probe_status=$?
+if [ "$probe_status" -eq 0 ] && [ -n "$probe_output" ]; then pass "non-root:probe-runs"; else fail "non-root:probe-runs" "exit $probe_status: $probe_output"; fi
+
+nm_running=no
+if command -v nmcli >/dev/null 2>&1 && nmcli general status >/dev/null 2>&1; then nm_running=yes; fi
+if [ "$nm_running" = yes ]; then
+    expect "nm:eth0-managed" "$(nm_state eth0)" connected
+fi
 
 if start_run --verbose; then pass "run:ready"; else fail "run:ready" "$(cat "$out")"; fi
 expect "run:one-link-per-profile" "$(links)" 2
@@ -75,6 +94,22 @@ second_output=$("$bin" run 2>&1)
 second_status=$?
 if [ "$second_status" -ne 0 ] && echo "$second_output" | grep -q "already running"; then pass "run:second-instance-refused"; else fail "run:second-instance-refused" "exit $second_status: $second_output"; fi
 expect "run:links-kept-after-second-instance" "$(links)" 2
+if [ "$nm_running" = yes ]; then
+    case "$(nm_state snisplit0)" in
+        "connected (externally)"|unmanaged) pass "nm:link-left-external $(nm_state snisplit0)" ;;
+        *) fail "nm:link-left-external" "$(nm_state snisplit0)" ;;
+    esac
+    systemctl restart NetworkManager
+    if nm_settle; then pass "nm:restarted"; else fail "nm:restarted" "$(nmcli -t device 2>&1)"; fi
+    resolvectl flush-caches
+    expect "nm:listed-nss-after-restart" "$(nss $listed)" "$listed_address"
+    expect "nm:listed-direct-after-restart" "$(direct $listed)" "$listed_address"
+    nmcli con up wifi-stand-in >/dev/null 2>&1
+    nm_settle
+    resolvectl flush-caches
+    expect "nm:listed-nss-after-reconnect" "$(nss $listed)" "$listed_address"
+    expect "nm:unlisted-nss-after-reconnect" "$(address_kind "$(nss $unlisted)")" public
+fi
 
 kill -INT "$run_pid"
 if stopped_within 20; then pass "sigint:exited"; else fail "sigint:exited" "still running"; fi
@@ -100,6 +135,21 @@ expect "stale:listed-nss" "$(nss $listed)" "$listed_address"
 kill -TERM "$run_pid"
 if stopped_within 20; then pass "sigterm:exited"; else fail "sigterm:exited" "still running"; fi
 expect "sigterm:no-links" "$(links)" 0
+
+if start_run; then pass "sighup:ready"; else fail "sighup:ready" "$(cat "$out")"; fi
+kill -HUP "$run_pid"
+if stopped_within 20; then pass "sighup:exited"; else fail "sighup:exited" "still running"; fi
+expect "sighup:no-links" "$(links)" 0
+
+ip link add snisplit1 type bridge
+failed_output=$("$bin" run 2>&1)
+failed_status=$?
+if [ "$failed_status" -ne 0 ]; then pass "failed-start:non-zero-exit"; else fail "failed-start:non-zero-exit" "$failed_output"; fi
+if [ -e /sys/class/net/snisplit0 ]; then fail "failed-start:first-link-removed" "snisplit0 left"; else pass "failed-start:first-link-removed"; fi
+if [ -e /sys/class/net/snisplit1 ]; then pass "failed-start:foreign-link-untouched"; else fail "failed-start:foreign-link-untouched" "snisplit1 bridge gone"; fi
+resolvectl flush-caches
+expect "failed-start:listed-nss-not-loopback" "$(address_kind "$(nss $listed)")" public
+ip link del snisplit1
 
 user_home=$(getent passwd "$TEST_USER" | cut -d: -f6)
 user_uid=$(getent passwd "$TEST_USER" | cut -d: -f3)

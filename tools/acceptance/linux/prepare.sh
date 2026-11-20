@@ -36,16 +36,32 @@ refuses_without_resolved() {
     fi
 }
 
-as_installed() {
-    use_docker_upstream
+network_manager_stand_in() {
+    address=$(ip -4 -o addr show eth0 | awk '{ print $4 }')
+    gateway=$(ip route | awk '/default/ { print $3 }')
+    nmcli con add type ethernet ifname eth0 con-name wifi-stand-in ipv4.method manual ipv4.addresses "$address" ipv4.gateway "$gateway" ipv4.dns "$docker_upstream" ipv6.method disabled >/dev/null
+    nmcli con up wifi-stand-in >/dev/null
+    tries=0
+    until resolvectl dns eth0 2>/dev/null | grep -q "$docker_upstream" || [ "$tries" -ge 20 ]; do sleep 1; tries=$((tries + 1)); done
+    if resolvectl dns eth0 | grep -q "$docker_upstream"; then pass "nm-hands-dns-to-resolved"; else fail "nm-hands-dns-to-resolved" "$(resolvectl dns eth0)"; fi
+}
+
+desktop_as_installed() {
     ln -sf "$stub" /etc/resolv.conf
+    mkdir -p /etc/NetworkManager/conf.d
+    : > /etc/NetworkManager/conf.d/10-globally-managed-devices.conf
     systemctl enable --now systemd-resolved >/dev/null 2>&1
     systemctl restart systemd-resolved
+    systemctl enable NetworkManager >/dev/null 2>&1
+    systemctl restart NetworkManager
+    tries=0
+    until nmcli general status >/dev/null 2>&1 || [ "$tries" -ge 30 ]; do sleep 1; tries=$((tries + 1)); done
+    network_manager_stand_in
 }
 
 case "$distro" in
     ubuntu-24.04|ubuntu-22.04|fedora)
-        as_installed
+        desktop_as_installed
         ;;
     debian-12|debian-13)
         printf 'nameserver %s\n' "$docker_upstream" > /etc/resolv.conf
@@ -72,10 +88,7 @@ case "$distro" in
         systemctl restart systemd-resolved
         ;;
     steamos)
-        address=$(ip -4 -o addr show eth0 | awk '{ print $4 }')
-        gateway=$(ip route | awk '/default/ { print $3 }')
-        nmcli con add type ethernet ifname eth0 con-name wifi-stand-in ipv4.method manual ipv4.addresses "$address" ipv4.gateway "$gateway" ipv4.dns "$docker_upstream" ipv6.method disabled >/dev/null
-        nmcli con up wifi-stand-in >/dev/null
+        network_manager_stand_in
         tries=0
         until grep -q '^nameserver' /etc/resolv.conf || [ "$tries" -ge 20 ]; do sleep 1; tries=$((tries + 1)); done
         ;;
