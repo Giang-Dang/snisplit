@@ -188,6 +188,10 @@ found and fixed on the way: missing D-Bus in minimal images, SteamOS checks star
 before NetworkManager, and address checks that passed on an empty answer (they now need a
 real address).
 
+`tools/acceptance/linux/steamos-image.sh` rebuilt `steamos-rootfs:3.8.14` from the
+downloaded recovery image end to end, and the SteamOS run passed again on that image
+(57 pass, 0 fail). The download step itself ran by hand, not through the script.
+
 Gates: `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace` on Linux (680
 passed as root and 680 as an unprivileged user, as CI runs; baseline 640) and Windows (699 passed, baseline 666 measured at d3a01b3), `cargo
 check --target x86_64-apple-darwin`, actionlint on both workflows.
