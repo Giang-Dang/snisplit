@@ -16,6 +16,18 @@ const NEW_SITE_SOURCE: &str = "new site";
 const OFF_LIST: &str = "off.list";
 const OFF_LIST_DRAFT: &str = "off.list.new";
 const BYTE_ORDER_MARK: char = '\u{feff}';
+#[cfg(not(windows))]
+const CONFIG_FOLDER: &str = ".config";
+#[cfg(target_os = "linux")]
+const PASSWD_FILE: &str = "/etc/passwd";
+#[cfg(target_os = "linux")]
+const PASSWD_SEPARATOR: char = ':';
+#[cfg(target_os = "linux")]
+const PASSWD_UID_FIELD: usize = 2;
+#[cfg(target_os = "linux")]
+const PASSWD_HOME_FIELD: usize = 5;
+#[cfg(target_os = "linux")]
+const INVOKER_UID_VARIABLES: [&str; 2] = ["SUDO_UID", "PKEXEC_UID"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteFile {
@@ -81,8 +93,17 @@ impl Owner {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 pub fn folder() -> Option<PathBuf> {
     folder_from(|key| std::env::var_os(key))
+}
+
+#[cfg(target_os = "linux")]
+pub fn folder() -> Option<PathBuf> {
+    folder_of_invoker(
+        |key| std::env::var_os(key),
+        || fs::read_to_string(PASSWD_FILE).ok(),
+    )
 }
 
 #[cfg(windows)]
@@ -96,8 +117,46 @@ fn folder_from(lookup: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     let config_home = non_empty(lookup("XDG_CONFIG_HOME"))
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
-        .or_else(|| non_empty(lookup("HOME")).map(|home| PathBuf::from(home).join(".config")))?;
-    Some(config_home.join(APP_FOLDER).join(SITES_FOLDER))
+        .or_else(|| {
+            non_empty(lookup("HOME")).map(|home| PathBuf::from(home).join(CONFIG_FOLDER))
+        })?;
+    Some(sites_in(config_home))
+}
+
+#[cfg(not(windows))]
+fn sites_in(config_home: PathBuf) -> PathBuf {
+    config_home.join(APP_FOLDER).join(SITES_FOLDER)
+}
+
+#[cfg(target_os = "linux")]
+fn folder_of_invoker(
+    lookup: impl Fn(&str) -> Option<OsString>,
+    read_passwd: impl Fn() -> Option<String>,
+) -> Option<PathBuf> {
+    invoking_uid(&lookup)
+        .and_then(|uid| home_of_uid(&read_passwd()?, uid))
+        .map(|home| sites_in(home.join(CONFIG_FOLDER)))
+        .or_else(|| folder_from(lookup))
+}
+
+#[cfg(target_os = "linux")]
+fn invoking_uid(lookup: &impl Fn(&str) -> Option<OsString>) -> Option<u32> {
+    INVOKER_UID_VARIABLES
+        .iter()
+        .find_map(|key| non_empty(lookup(key)))?
+        .to_str()?
+        .parse()
+        .ok()
+}
+
+#[cfg(target_os = "linux")]
+fn home_of_uid(passwd: &str, uid: u32) -> Option<PathBuf> {
+    passwd.lines().find_map(|line| {
+        let fields: Vec<&str> = line.split(PASSWD_SEPARATOR).collect();
+        let entry_uid: u32 = fields.get(PASSWD_UID_FIELD)?.parse().ok()?;
+        let home = PathBuf::from(fields.get(PASSWD_HOME_FIELD)?);
+        (entry_uid == uid && home.is_absolute()).then_some(home)
+    })
 }
 
 fn non_empty(value: Option<OsString>) -> Option<OsString> {

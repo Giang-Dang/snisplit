@@ -51,9 +51,9 @@ fn adapters_that_are_down_give_no_servers() {
     assert!(usable_servers(&adapters).is_empty());
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 #[test]
-fn the_lookup_is_unsupported_off_windows() {
+fn the_lookup_is_unsupported_off_windows_and_linux() {
     assert_eq!(
         servers().unwrap_err().kind(),
         std::io::ErrorKind::Unsupported
@@ -162,4 +162,70 @@ mod native {
         assert!(!grown.is_empty());
         assert_eq!(grown, adapters().unwrap());
     }
+}
+
+const SYSTEMD_UPSTREAM_TEXT: &str = "\
+# This is /run/systemd/resolve/resolv.conf managed by man:systemd-resolved(8).
+# Do not edit.
+
+nameserver 192.168.1.1
+nameserver 2001:db8::53
+nameserver 1.1.1.1
+search lan example.org
+options edns0 trust-ad
+";
+
+#[test]
+fn nameserver_lines_are_read_in_order_skipping_other_lines_and_ipv6() {
+    assert_eq!(
+        resolv_conf_servers(SYSTEMD_UPSTREAM_TEXT).unwrap(),
+        [Ipv4Addr::new(192, 168, 1, 1), Ipv4Addr::new(1, 1, 1, 1)]
+    );
+}
+
+#[test]
+fn loopback_stub_and_repeated_entries_are_dropped() {
+    let text = "nameserver 127.0.0.53\nnameserver 9.9.9.9\nnameserver 127.0.0.1\nnameserver 9.9.9.9\nnameserver 8.8.8.8\n";
+    assert_eq!(
+        resolv_conf_servers(text).unwrap(),
+        [Ipv4Addr::new(9, 9, 9, 9), Ipv4Addr::new(8, 8, 8, 8)]
+    );
+}
+
+#[test]
+fn commented_out_entries_are_ignored_and_trailing_comments_and_tabs_are_tolerated() {
+    let text = "# nameserver 4.4.4.4\n;nameserver 5.5.5.5\n#nameserver 6.6.6.6\nnameserver\t7.7.7.7 # office\n  nameserver 8.8.4.4\n";
+    assert_eq!(
+        resolv_conf_servers(text).unwrap(),
+        [Ipv4Addr::new(7, 7, 7, 7), Ipv4Addr::new(8, 8, 4, 4)]
+    );
+}
+
+#[test]
+fn only_the_nameserver_keyword_counts() {
+    let text = "search 3.3.3.3\noptions 2.2.2.2\nnameservers 1.1.1.1\nnameserver\nnameserver not-an-address\n";
+    assert_eq!(
+        resolv_conf_servers(text).unwrap_err().kind(),
+        std::io::ErrorKind::NotFound
+    );
+}
+
+#[test]
+fn a_file_with_only_the_stub_and_ipv6_servers_is_not_found_with_a_message() {
+    let error =
+        resolv_conf_servers("nameserver 127.0.0.53\nnameserver ::1\nnameserver fe80::1%eth0\n")
+            .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    assert_eq!(
+        error.to_string(),
+        "no usable IPv4 DNS server in the resolv.conf files (loopback and IPv6 entries are skipped)"
+    );
+}
+
+#[test]
+fn an_empty_text_is_not_found() {
+    assert_eq!(
+        resolv_conf_servers("").unwrap_err().kind(),
+        std::io::ErrorKind::NotFound
+    );
 }

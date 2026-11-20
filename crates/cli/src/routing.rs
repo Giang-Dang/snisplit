@@ -23,13 +23,19 @@ pub enum StartFailure {
     Adding(io::Error),
 }
 
+#[cfg(not(target_os = "linux"))]
 pub struct PendingStart(Gated);
 
+#[cfg(target_os = "linux")]
+pub use linux::{PendingStart, begin_start, count_all, remove_all};
+
+#[cfg(not(target_os = "linux"))]
 pub fn begin_start(rules: &[ProfileRule]) -> io::Result<PendingStart> {
     let script = start_script(rules)?;
     Gated::spawn(&script).map(PendingStart)
 }
 
+#[cfg(not(target_os = "linux"))]
 impl PendingStart {
     pub fn add(self) -> Result<(), StartFailure> {
         let output = self.0.release().map_err(StartFailure::RemovingStale)?;
@@ -42,10 +48,12 @@ impl PendingStart {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 pub fn remove_all() -> io::Result<usize> {
     parse_count(&run_powershell(&stop_script())?)
 }
 
+#[cfg(not(target_os = "linux"))]
 pub fn count_all() -> io::Result<usize> {
     parse_count(&run_powershell(&count_script())?)
 }
@@ -260,6 +268,9 @@ impl Gated {
         Err(unsupported())
     }
 }
+
+#[cfg(any(target_os = "linux", test))]
+mod linux;
 
 #[cfg(test)]
 mod tests;

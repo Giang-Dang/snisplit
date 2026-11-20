@@ -326,9 +326,9 @@ mod gate {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 #[test]
-fn rule_changes_are_unsupported_off_windows() {
+fn rule_changes_are_unsupported_off_windows_and_linux() {
     assert_eq!(remove_all().unwrap_err().kind(), ErrorKind::Unsupported);
     assert_eq!(count_all().unwrap_err().kind(), ErrorKind::Unsupported);
     let begun = begin_start(&[rule(&["a.com"], SERVER)]);

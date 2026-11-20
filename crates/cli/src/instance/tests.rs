@@ -29,7 +29,7 @@ impl Drop for TempFolder {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 #[test]
 fn a_second_claim_is_refused_while_the_first_is_held_and_succeeds_once_it_is_dropped() {
     let folder = TempFolder::new("second");
@@ -233,8 +233,18 @@ fn the_lock_lives_in_the_snisplit_folder_under_program_data() {
     );
 }
 
+#[cfg(not(target_os = "linux"))]
 #[test]
 fn an_unset_or_empty_program_data_gives_no_folder() {
     assert_eq!(folder_from(|_| None), None);
     assert_eq!(folder_from(|_| Some(OsString::new())), None);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_lock_lives_in_the_fixed_run_snisplit_folder() {
+    assert_eq!(
+        folder().as_deref().map(lock_path),
+        Some(PathBuf::from("/run/snisplit/instance.lock"))
+    );
 }

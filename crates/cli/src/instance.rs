@@ -1,3 +1,4 @@
+#[cfg(not(target_os = "linux"))]
 use std::ffi::OsString;
 use std::fs::{self, File, Metadata, OpenOptions};
 use std::io;
@@ -5,8 +6,12 @@ use std::path::{Path, PathBuf};
 
 use platform::{held_by_another, is_link, open_exclusive, open_folder};
 
+#[cfg(not(target_os = "linux"))]
 const MACHINE_FOLDER_VARIABLE: &str = "ProgramData";
+#[cfg(not(target_os = "linux"))]
 const APP_FOLDER: &str = "snisplit";
+#[cfg(target_os = "linux")]
+const LINUX_FOLDER: &str = "/run/snisplit";
 const LOCK_FILE: &str = "instance.lock";
 const NO_MACHINE_FOLDER: &str =
     "no machine-wide snisplit folder: the ProgramData environment variable is not set";
@@ -32,10 +37,17 @@ pub fn unlocked_warning(error: &io::Error) -> String {
     format!("snisplit: warning: not checking for another running snisplit: {error}")
 }
 
+#[cfg(target_os = "linux")]
+pub fn folder() -> Option<PathBuf> {
+    Some(PathBuf::from(LINUX_FOLDER))
+}
+
+#[cfg(not(target_os = "linux"))]
 pub fn folder() -> Option<PathBuf> {
     folder_from(|key| std::env::var_os(key))
 }
 
+#[cfg(not(target_os = "linux"))]
 fn folder_from(lookup: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     let program_data = lookup(MACHINE_FOLDER_VARIABLE).filter(|value| !value.is_empty())?;
     Some(PathBuf::from(program_data).join(APP_FOLDER))
@@ -158,6 +170,9 @@ mod platform {
     use std::io;
     use std::path::Path;
 
+    #[cfg(target_os = "linux")]
+    use std::fs::TryLockError;
+
     pub(super) fn open_folder(path: &Path) -> io::Result<File> {
         if super::existing(path)?.is_some_and(|metadata| is_link(&metadata)) {
             return Err(super::refused(super::FOLDER_REFUSED));
@@ -165,10 +180,27 @@ mod platform {
         File::open(path)
     }
 
+    #[cfg(target_os = "linux")]
+    pub(super) fn open_exclusive(path: &Path) -> io::Result<File> {
+        let file = super::creating_options().open(path)?;
+        match file.try_lock() {
+            Ok(()) => Ok(file),
+            Err(TryLockError::WouldBlock) => Err(io::ErrorKind::WouldBlock.into()),
+            Err(TryLockError::Error(error)) => Err(error),
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
     pub(super) fn open_exclusive(path: &Path) -> io::Result<File> {
         super::creating_options().open(path)
     }
 
+    #[cfg(target_os = "linux")]
+    pub(super) fn held_by_another(error: &io::Error) -> bool {
+        error.kind() == io::ErrorKind::WouldBlock
+    }
+
+    #[cfg(not(target_os = "linux"))]
     pub(super) fn held_by_another(_error: &io::Error) -> bool {
         false
     }

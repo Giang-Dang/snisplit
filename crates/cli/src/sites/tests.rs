@@ -391,3 +391,121 @@ fn removing_deletes_only_a_listed_site_file() {
         "no site named gone"
     );
 }
+
+#[cfg(target_os = "linux")]
+mod invoker {
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
+    use super::super::{folder_of_invoker, home_of_uid};
+
+    const PASSWD: &str = "\
+root:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+alice:x:1000:1000:Alice Example,,,:/home/alice:/bin/bash
+deck:x:1001:1001::/home/deck:/bin/bash
+nohome:x:1002:1002:::/usr/sbin/nologin
+relative:x:1003:1003::home/relative:/bin/sh
+bad:x:notanumber:5::/home/bad:/bin/sh
+short:x:1004
+";
+
+    fn environment(pairs: &[(&'static str, &'static str)]) -> impl Fn(&str) -> Option<OsString> {
+        let pairs = pairs.to_vec();
+        move |key: &str| {
+            pairs
+                .iter()
+                .find(|(name, _)| *name == key)
+                .map(|(_, value)| OsString::from(*value))
+        }
+    }
+
+    fn folder_with(pairs: &[(&'static str, &'static str)]) -> Option<PathBuf> {
+        folder_of_invoker(environment(pairs), || Some(PASSWD.to_string()))
+    }
+
+    #[test]
+    fn the_home_comes_from_the_sixth_field_of_the_line_with_that_uid() {
+        assert_eq!(home_of_uid(PASSWD, 0), Some(PathBuf::from("/root")));
+        assert_eq!(
+            home_of_uid(PASSWD, 1000),
+            Some(PathBuf::from("/home/alice"))
+        );
+        assert_eq!(home_of_uid(PASSWD, 1001), Some(PathBuf::from("/home/deck")));
+    }
+
+    #[test]
+    fn an_unknown_uid_or_an_unusable_entry_has_no_home() {
+        assert_eq!(home_of_uid(PASSWD, 4242), None);
+        assert_eq!(home_of_uid(PASSWD, 1002), None);
+        assert_eq!(home_of_uid(PASSWD, 1003), None);
+        assert_eq!(home_of_uid(PASSWD, 1004), None);
+        assert_eq!(home_of_uid("", 1000), None);
+    }
+
+    #[test]
+    fn under_sudo_the_folder_is_the_invoking_users_and_ignores_xdg_and_home() {
+        let folder = folder_with(&[
+            ("SUDO_UID", "1000"),
+            ("XDG_CONFIG_HOME", "/root/.xdg"),
+            ("HOME", "/root"),
+        ]);
+        assert_eq!(
+            folder,
+            Some(PathBuf::from("/home/alice/.config/snisplit/sites"))
+        );
+    }
+
+    #[test]
+    fn under_pkexec_the_folder_is_the_invoking_users() {
+        let folder = folder_with(&[("PKEXEC_UID", "1001"), ("HOME", "/root")]);
+        assert_eq!(
+            folder,
+            Some(PathBuf::from("/home/deck/.config/snisplit/sites"))
+        );
+    }
+
+    #[test]
+    fn sudo_uid_wins_over_pkexec_uid() {
+        let folder = folder_with(&[("SUDO_UID", "1000"), ("PKEXEC_UID", "1001")]);
+        assert_eq!(
+            folder,
+            Some(PathBuf::from("/home/alice/.config/snisplit/sites"))
+        );
+    }
+
+    #[test]
+    fn without_an_invoking_uid_the_current_environment_decides() {
+        let folder = folder_with(&[("HOME", "/root"), ("XDG_CONFIG_HOME", "/etc/xdg-owner")]);
+        assert_eq!(folder, Some(PathBuf::from("/etc/xdg-owner/snisplit/sites")));
+        assert_eq!(
+            folder_with(&[("SUDO_UID", ""), ("HOME", "/root")]),
+            Some(PathBuf::from("/root/.config/snisplit/sites"))
+        );
+    }
+
+    #[test]
+    fn an_invoking_uid_that_cannot_be_resolved_falls_back_to_the_current_environment() {
+        let unknown = folder_with(&[("SUDO_UID", "4242"), ("HOME", "/root")]);
+        assert_eq!(unknown, Some(PathBuf::from("/root/.config/snisplit/sites")));
+        let garbled = folder_with(&[("SUDO_UID", "abc"), ("HOME", "/root")]);
+        assert_eq!(garbled, Some(PathBuf::from("/root/.config/snisplit/sites")));
+        let unreadable = folder_of_invoker(
+            environment(&[("SUDO_UID", "1000"), ("HOME", "/root")]),
+            || None,
+        );
+        assert_eq!(
+            unreadable,
+            Some(PathBuf::from("/root/.config/snisplit/sites"))
+        );
+    }
+
+    #[test]
+    fn the_off_list_sits_beside_the_invoking_users_sites_folder() {
+        let folder = folder_with(&[("SUDO_UID", "1000")]).unwrap();
+        assert_eq!(
+            super::super::off_list_path(&folder),
+            PathBuf::from("/home/alice/.config/snisplit/off.list")
+        );
+    }
+}
