@@ -1358,3 +1358,54 @@ fn deleting_the_broken_file_while_on_keeps_the_built_in_running_without_a_restar
     assert!(!state.applying());
     assert_eq!(kinds(&state), [("steam".to_string(), SiteKind::BuiltIn)]);
 }
+
+#[test]
+fn the_sites_list_starts_collapsed_and_the_row_shows_and_hides_it_without_effects() {
+    let mut state = with_sites();
+    assert!(!state.sites_shown());
+    assert_eq!(state.update(Event::SitesTogglePressed), []);
+    assert!(state.sites_shown());
+    assert_eq!(state.update(Event::SitesTogglePressed), []);
+    assert!(!state.sites_shown());
+}
+
+#[test]
+fn pressing_add_a_site_shows_the_list_it_lives_in() {
+    let mut state = with_sites();
+    assert!(!state.sites_shown());
+    state.update(Event::AddRowPressed);
+    assert!(state.sites_shown());
+    assert_eq!(*state.open(), Open::Add);
+}
+
+#[test]
+fn collapsing_keeps_the_open_site_and_the_add_panel_as_they_were() {
+    let mut state = with_sites();
+    state.update(Event::SitesTogglePressed);
+    state.update(Event::RowPressed(SiteId::built_in("medium")));
+    state.update(Event::SitesTogglePressed);
+    state.update(Event::SitesTogglePressed);
+    assert_eq!(*state.open(), Open::Site(SiteId::built_in("medium")));
+
+    state.update(Event::AddRowPressed);
+    state.update(Event::FieldEdited("news.example.org".to_string()));
+    state.update(Event::SitesTogglePressed);
+    assert!(!state.sites_shown());
+    state.update(Event::SitesTogglePressed);
+    assert_eq!(*state.open(), Open::Add);
+    assert_eq!(state.field(), "news.example.org");
+}
+
+#[test]
+fn collapsing_does_not_cancel_a_running_test() {
+    let mut state = with_sites();
+    state.update(Event::SitesTogglePressed);
+    state.update(Event::RowPressed(SiteId::built_in("medium")));
+    state.update(Event::TestPressed {
+        site: SiteId::built_in("medium"),
+        at: Instant::now(),
+    });
+    assert!(state.probe().is_some());
+    assert_eq!(state.update(Event::SitesTogglePressed), []);
+    assert_eq!(state.probe().map(|probing| probing.id), Some(1));
+}

@@ -75,13 +75,17 @@ confirm the Windows prompt. The window is small (400 px wide) and has:
   button is on, a double ring means something went wrong. Stopping, or closing the
   window, removes the DNS rules before the program exits; keep the window open while
   you use the sites.
-- **Sites**: the ones that come with snisplit (Steam, Medium) and the ones you added,
-  each with an On/Off switch. Only the sites switched on go through snisplit. Changing a
+- **Sites**: the ones that come with snisplit (Steam, Medium) and the ones you added
+  are behind one "Sites" row that shows which are on. Press it to show or hide the list;
+  the list starts hidden each time the window opens. While it is hidden the window fits
+  its content; while the list or Activity is shown you can resize the window. Each site
+  has an On/Off switch. Only the sites switched on go through snisplit. Changing a
   switch while snisplit is on restarts it for about 2 seconds. Press a site's name to
   open it: its domains, Test (tests the site now, with snisplit on or off), Remove for
   sites you added, and "What snisplit tried".
-- **Add a site**: type an address, or paste a link (it is shortened to the address), and
-  press Test. If snisplit can open the site, press Add and turn on.
+- **Add a site**: at the bottom of the Sites list. Type an address, or paste a link (it
+  is shortened to the address), and press Test. If snisplit can open the site, press Add
+  and turn on.
 - **Activity**: what snisplit did, in more technical words. "Save to a file" writes
   `snisplit-log.txt` to your Desktop, to send to whoever helps you.
 

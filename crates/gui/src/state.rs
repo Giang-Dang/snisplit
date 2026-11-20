@@ -236,6 +236,7 @@ pub enum Event {
     RemoveConfirmed,
     RemoveKept,
     SiteRemoved(Result<String, String>),
+    SitesTogglePressed,
     AddRowPressed,
     FieldEdited(String),
     AddTestPressed {
@@ -296,6 +297,7 @@ pub struct State {
     adding: Adding,
     field: String,
     page: Page,
+    sites_shown: bool,
     log_saved: Option<Result<PathBuf, String>>,
 }
 
@@ -330,6 +332,7 @@ impl State {
             adding: Adding::Typing { mistyped: false },
             field: String::new(),
             page: Page::Sites,
+            sites_shown: false,
             log_saved: None,
         }
     }
@@ -431,6 +434,10 @@ impl State {
         self.page
     }
 
+    pub fn sites_shown(&self) -> bool {
+        self.sites_shown
+    }
+
     pub fn log_saved(&self) -> Option<&Result<PathBuf, String>> {
         self.log_saved.as_ref()
     }
@@ -506,7 +513,14 @@ impl State {
             }
             Event::RemoveConfirmed => self.remove_confirmed(),
             Event::SiteRemoved(removed) => self.site_removed(removed),
-            Event::AddRowPressed => self.open_add(),
+            Event::SitesTogglePressed => {
+                self.sites_shown = !self.sites_shown;
+                Vec::new()
+            }
+            Event::AddRowPressed => {
+                self.sites_shown = true;
+                self.open_add()
+            }
             Event::FieldEdited(text) => {
                 if matches!(self.adding, Adding::Typing { .. }) {
                     self.field = text;

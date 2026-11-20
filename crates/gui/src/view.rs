@@ -4,10 +4,12 @@ use snisplit::session::Failure;
 use snisplit_core::probe::Verdict;
 
 use crate::address;
-use crate::state::{Adding, Event, Note, Open, Relay, Row, Site, SiteId, SiteKind, State, Target};
+use crate::state::{
+    Adding, Event, Note, Open, Page, Relay, Row, Site, SiteId, SiteKind, State, Target,
+};
 
-const OFF_HINT: &str = "The sites switched on below will not open until you press Start.";
-const NOTHING_ON: &str = "Turn on at least one site below, then press Start.";
+const OFF_HINT: &str = "The sites switched on will not open until you press Start.";
+const NOTHING_ON: &str = "Open Sites and turn on at least one site, then press Start.";
 const STARTING: &str = "About 2 seconds.";
 const APPLYING: &str = "snisplit restarts for about 2 seconds. Sites may pause briefly.";
 const KEEP_OPEN: &str = "Keep this window open: closing it turns snisplit off.";
@@ -19,7 +21,7 @@ const REFUSED: &str = "Windows refused the change snisplit needs. If you did not
 const UNEXPECTED: &str = "snisplit stopped unexpectedly.";
 const LEFTOVERS_REFUSED: &str = "Windows refused to remove them. If you did not start it with Run as administrator, close this window, right-click snisplit-gui and choose Run as administrator.";
 const LEFTOVERS_REMOVED: &str = "The leftover settings were removed.";
-const LEFTOVERS_FROM_LAST_TIME: &str = "snisplit did not get to turn off properly last time. Some of its settings are still in place, so the sites below may not open.";
+const LEFTOVERS_FROM_LAST_TIME: &str = "snisplit did not get to turn off properly last time. Some of its settings are still in place, so your sites may not open.";
 const ALREADY_OPEN: &str = "snisplit is already running, or is still turning off. Wait a few seconds, then press Try again.";
 const RESTARTS: &str = "snisplit restarts for about 2 seconds.";
 const MISTYPED: &str = "Type only the address, like example.net. A pasted link such as https://example.net/page is accepted and shortened.";
@@ -126,6 +128,19 @@ pub struct SiteRow {
     pub dimmed: bool,
     pub open: bool,
     pub switch: Option<Switch>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Summary {
+    pub line: String,
+    pub warning: bool,
+    pub open: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sizing {
+    Fit,
+    Free,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -392,6 +407,46 @@ pub fn rows(state: &State) -> Vec<SiteRow> {
             }
         })
         .collect()
+}
+
+pub fn sites_summary(state: &State) -> Summary {
+    let sites = state.sites();
+    let on: Vec<String> = sites
+        .iter()
+        .filter(|site| site.relayed())
+        .map(|site| site.title.clone())
+        .collect();
+    let off = sites
+        .iter()
+        .filter(|site| site.switchable() && !site.on)
+        .count();
+    let broken = sites
+        .iter()
+        .filter(|site| matches!(site.kind, SiteKind::Broken(_)))
+        .count();
+    let mut parts = vec![if on.is_empty() {
+        "Nothing on".to_string()
+    } else {
+        format!("{} on", sites_phrase(&on).0)
+    }];
+    if off > 0 {
+        parts.push(format!("{off} off"));
+    }
+    if broken > 0 {
+        parts.push(format!("{broken} with a mistake"));
+    }
+    Summary {
+        line: parts.join(", "),
+        warning: broken > 0,
+        open: state.sites_shown(),
+    }
+}
+
+pub fn sizing(state: &State) -> Sizing {
+    match state.page() {
+        Page::Sites if !state.sites_shown() => Sizing::Fit,
+        Page::Sites | Page::Activity => Sizing::Free,
+    }
 }
 
 fn mistake(problem: &str) -> String {

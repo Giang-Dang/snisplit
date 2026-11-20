@@ -93,7 +93,7 @@ fn off_names_start_and_says_what_it_does() {
     assert_eq!(hero.state_line, "Off");
     assert_eq!(
         hero.sentences,
-        ["The sites switched on below will not open until you press Start."]
+        ["The sites switched on will not open until you press Start."]
     );
 }
 
@@ -108,7 +108,7 @@ fn with_every_site_off_start_is_disabled_and_the_hint_says_why() {
     assert_eq!(hero.press, None);
     assert_eq!(
         hero.sentences,
-        ["Turn on at least one site below, then press Start."]
+        ["Open Sites and turn on at least one site, then press Start."]
     );
 }
 
@@ -336,7 +336,7 @@ fn leftovers_name_the_sites_offer_the_removal_and_report_its_outcome() {
         cleaned.sentences,
         [
             "The leftover settings were removed.",
-            "The sites switched on below will not open until you press Start."
+            "The sites switched on will not open until you press Start."
         ]
     );
 }
@@ -365,7 +365,7 @@ fn leftovers_found_at_launch_say_it_did_not_turn_off_last_time_and_offer_the_rem
     assert_eq!(
         hero.sentences,
         [
-            "snisplit did not get to turn off properly last time. Some of its settings are still in place, so the sites below may not open."
+            "snisplit did not get to turn off properly last time. Some of its settings are still in place, so your sites may not open."
         ]
     );
     assert_eq!(
@@ -381,7 +381,7 @@ fn leftovers_found_at_launch_say_it_did_not_turn_off_last_time_and_offer_the_rem
     assert_eq!(
         view_hero(&state).sentences,
         [
-            "snisplit did not get to turn off properly last time. Some of its settings are still in place, so the sites below may not open.",
+            "snisplit did not get to turn off properly last time. Some of its settings are still in place, so your sites may not open.",
             "Windows refused to remove them. If you did not start it with Run as administrator, close this window, right-click snisplit-gui and choose Run as administrator."
         ]
     );
@@ -820,4 +820,110 @@ fn a_broken_file_named_like_a_built_in_is_its_own_row_with_remove_and_the_built_
     );
     state.update(Event::RowPressed(SiteId::built_in("steam")));
     assert_eq!(labels(&details(&state, at).unwrap().buttons), ["Test"]);
+}
+
+fn summary_of(sites: Vec<Site>) -> Summary {
+    sites_summary(&state_with(sites))
+}
+
+#[test]
+fn the_summary_names_the_sites_that_are_on_and_counts_the_ones_that_are_off() {
+    let summary = summary_of(vec![
+        site("steam", "Steam", SiteKind::BuiltIn, true),
+        site("medium", "Medium", SiteKind::BuiltIn, true),
+        site("example-com", "example.com", SiteKind::User, false),
+    ]);
+    assert_eq!(summary.line, "Steam and Medium on, 1 off");
+    assert!(!summary.warning);
+}
+
+#[test]
+fn the_summary_says_nothing_on_when_every_site_is_off() {
+    let summary = summary_of(vec![
+        site("steam", "Steam", SiteKind::BuiltIn, false),
+        site("medium", "Medium", SiteKind::BuiltIn, false),
+        site("example-com", "example.com", SiteKind::User, false),
+    ]);
+    assert_eq!(summary.line, "Nothing on, 3 off");
+}
+
+#[test]
+fn a_broken_file_adds_a_mistake_count_and_a_warning_but_is_not_counted_as_off() {
+    let summary = summary_of(vec![
+        site("steam", "Steam", SiteKind::BuiltIn, true),
+        site(
+            "bad",
+            "bad",
+            SiteKind::Broken("bad.profile: oops".to_string()),
+            false,
+        ),
+    ]);
+    assert_eq!(summary.line, "Steam on, 1 with a mistake");
+    assert!(summary.warning);
+}
+
+#[test]
+fn the_summary_counts_the_on_sites_when_there_are_more_than_three() {
+    let summary = summary_of(vec![
+        site("a-com", "a.example", SiteKind::User, true),
+        site("b-com", "b.example", SiteKind::User, true),
+        site("c-com", "c.example", SiteKind::User, true),
+        site("d-com", "d.example", SiteKind::User, true),
+    ]);
+    assert_eq!(summary.line, "4 sites on");
+}
+
+#[test]
+fn the_summary_follows_whether_the_list_is_shown() {
+    let mut state = three_sites();
+    assert!(!sites_summary(&state).open);
+    state.update(Event::SitesTogglePressed);
+    assert!(sites_summary(&state).open);
+}
+
+#[test]
+fn the_window_fits_a_collapsed_sites_page_and_is_free_otherwise() {
+    let mut state = three_sites();
+    assert_eq!(sizing(&state), Sizing::Fit);
+    state.update(Event::ActivityPressed);
+    assert_eq!(sizing(&state), Sizing::Free);
+    state.update(Event::BackPressed);
+    assert_eq!(sizing(&state), Sizing::Fit);
+    state.update(Event::SitesTogglePressed);
+    assert_eq!(sizing(&state), Sizing::Free);
+    state.update(Event::ActivityPressed);
+    assert_eq!(sizing(&state), Sizing::Free);
+}
+
+#[test]
+fn a_broken_file_is_never_counted_as_on_even_when_its_flag_says_on() {
+    let summary = summary_of(vec![
+        site(
+            "bad",
+            "bad",
+            SiteKind::Broken("bad.profile: oops".to_string()),
+            true,
+        ),
+        site("steam", "Steam", SiteKind::BuiltIn, true),
+    ]);
+    assert_eq!(summary.line, "Steam on, 1 with a mistake");
+}
+
+#[test]
+fn with_no_sites_the_summary_is_just_nothing_on() {
+    let summary = summary_of(Vec::new());
+    assert_eq!(summary.line, "Nothing on");
+    assert!(!summary.warning);
+}
+
+#[test]
+fn with_only_a_broken_file_the_summary_is_nothing_on_and_a_mistake() {
+    let summary = summary_of(vec![site(
+        "bad",
+        "bad",
+        SiteKind::Broken("bad.profile: oops".to_string()),
+        false,
+    )]);
+    assert_eq!(summary.line, "Nothing on, 1 with a mistake");
+    assert!(summary.warning);
 }

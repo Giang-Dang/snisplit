@@ -6,12 +6,15 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{
     self, Align, CornerRadius, FontId, Frame, Key, Label, Layout, Margin, RichText, ScrollArea,
-    Sense, Stroke, TextEdit, Theme, Ui, Vec2, vec2,
+    Sense, Stroke, TextEdit, Theme, Ui, Vec2, ViewportCommand, vec2,
 };
 use snisplit::{instance, sites};
 use snisplit_gui::driver::{Driver, Ending, Folders, Keeper};
+use snisplit_gui::resize::{Command, FIT_MIN_HEIGHT, MAX_HEIGHT, Resizer};
 use snisplit_gui::state::{Effect, Event, Page, Probing, Row, State};
-use snisplit_gui::view::{self, AddPanel, Button, Details, Hero, Ring, SiteRow, Style, Tone};
+use snisplit_gui::view::{
+    self, AddPanel, Button, Details, Hero, Mark, Ring, SiteRow, Style, Summary, Tone,
+};
 
 use crate::widgets::{
     self, ACCENT, BACKGROUND, BORDER, DEEP, HERO_ON, HERO_TROUBLE, LIGHT, LINE, MUTED, ON_ACCENT,
@@ -20,12 +23,17 @@ use crate::widgets::{
 
 const TITLE: &str = "snisplit";
 const WIDTH: f32 = 400.0;
-const HEIGHT: f32 = 680.0;
-const MIN_HEIGHT: f32 = 480.0;
-const MAX_HEIGHT: f32 = 1600.0;
+const LAUNCH_HEIGHT: f32 = 400.0;
+const CENTRAL_MARGIN_X: i8 = 14;
+const CENTRAL_MARGIN_Y: i8 = 12;
 const FULL_HERO_HEIGHT: f32 = 275.0;
 const FOOTER_HEIGHT: f32 = 38.0;
-const LIST_HEADING_HEIGHT: f32 = 38.0;
+const SUMMARY_TEXT_HEIGHT: f32 = 40.0;
+const SUMMARY_ROW_HEIGHT: f32 = 58.0;
+const SUMMARY_GAP: f32 = 6.0;
+const ITEM_SPACING: f32 = 6.0;
+const SUMMARY_MARK_ROOM: f32 = 26.0;
+const LIST_HEADING_HEIGHT: f32 = SUMMARY_ROW_HEIGHT + ITEM_SPACING + SUMMARY_GAP;
 const FULL_ROW_HEIGHT: f32 = 68.0;
 const ADD_ROW_HEIGHT: f32 = 51.0;
 const BIG_BUTTON: f32 = 108.0;
@@ -56,8 +64,8 @@ pub fn run() -> ExitCode {
         viewport: egui::ViewportBuilder::default()
             .with_title(TITLE)
             .with_icon(window_icon())
-            .with_inner_size([WIDTH, HEIGHT])
-            .with_min_inner_size([WIDTH, MIN_HEIGHT])
+            .with_inner_size([WIDTH, LAUNCH_HEIGHT])
+            .with_min_inner_size([WIDTH, FIT_MIN_HEIGHT])
             .with_max_inner_size([WIDTH, MAX_HEIGHT])
             .with_resizable(true),
         ..Default::default()
@@ -84,6 +92,8 @@ struct App<'keeper> {
     events: Receiver<Event>,
     exit_allowed: bool,
     reveal_panel: bool,
+    summary_height: Option<f32>,
+    resizer: Resizer,
 }
 
 impl<'keeper> App<'keeper> {
@@ -107,6 +117,8 @@ impl<'keeper> App<'keeper> {
             events,
             exit_allowed: false,
             reveal_panel: false,
+            summary_height: None,
+            resizer: Resizer::new(),
         }
     }
 
@@ -124,6 +136,26 @@ impl<'keeper> App<'keeper> {
                 self.driver.run(effect);
             }
         }
+    }
+
+    fn resize(&mut self, ctx: &egui::Context, sizing: view::Sizing, fit_target: f32) {
+        let (inner_height, maximized) = ctx.input(|i| {
+            let viewport = i.viewport();
+            (
+                viewport.inner_rect.map(|rect| rect.height()),
+                viewport.maximized,
+            )
+        });
+        let commands = self
+            .resizer
+            .update(sizing, fit_target, inner_height, maximized);
+        if commands.is_empty() {
+            return;
+        }
+        for command in commands {
+            ctx.send_viewport_cmd(viewport_command(command));
+        }
+        ctx.request_repaint();
     }
 
     fn footer(&self, ui: &mut Ui, compact: bool, now: Instant, pressed: &mut Vec<Event>) {
@@ -159,9 +191,12 @@ impl<'keeper> App<'keeper> {
     }
 
     fn site_list(&mut self, ui: &mut Ui, compact: bool, now: Instant, pressed: &mut Vec<Event>) {
-        ui.add_space(2.0);
-        ui.label(RichText::new("Sites").size(13.0).color(MUTED));
-        ui.add_space(2.0);
+        let summary = view::sites_summary(&self.state);
+        self.summary_height = Some(summary_row(ui, &summary, pressed));
+        if !summary.open {
+            return;
+        }
+        ui.add_space(SUMMARY_GAP);
         let rows = view::rows(&self.state);
         let details = view::details(&self.state, now);
         let panel = view::add_panel(&self.state, now);
@@ -266,9 +301,13 @@ impl eframe::App for App<'_> {
         let now = Instant::now();
         let mut pressed = Vec::new();
         let hero = view::hero(&self.state);
+        let sizing = view::sizing(&self.state);
+        let layout_height = self.resizer.layout_height(sizing, ui.available_height());
         let compact = self.state.page() == Page::Activity
-            || list_overflows(ui.available_height(), self.state.sites().len());
-        egui::Panel::top("hero")
+            || (self.state.sites_shown()
+                && list_overflows(layout_height, self.state.sites().len()));
+        self.summary_height = None;
+        let hero_panel = egui::Panel::top("hero")
             .frame(hero_frame(hero.tone, compact))
             .show(ui, |ui| {
                 if compact {
@@ -289,13 +328,20 @@ impl eframe::App for App<'_> {
             .frame(
                 Frame::new()
                     .fill(BACKGROUND)
-                    .inner_margin(Margin::symmetric(14, 12)),
+                    .inner_margin(Margin::symmetric(CENTRAL_MARGIN_X, CENTRAL_MARGIN_Y)),
             )
             .show(ui, |ui| match self.state.page() {
                 Page::Sites => self.site_list(ui, compact, now, &mut pressed),
                 Page::Activity => self.activity(ui, &mut pressed),
             });
         let ctx = ui.ctx().clone();
+        let fit_height = self.summary_height.map(|summary| {
+            hero_panel.response.rect.height()
+                + summary
+                + 2.0 * f32::from(CENTRAL_MARGIN_Y)
+                + FOOTER_HEIGHT
+        });
+        self.resize(&ctx, sizing, fit_height.unwrap_or(FIT_MIN_HEIGHT));
         if hero.ring == Ring::Turning || self.state.probe().is_some() {
             ctx.request_repaint();
         } else if self.state.on_since().is_some() {
@@ -307,7 +353,22 @@ impl eframe::App for App<'_> {
     }
 }
 
+fn viewport_command(command: Command) -> ViewportCommand {
+    match command {
+        Command::Resizable(resizable) => ViewportCommand::Resizable(resizable),
+        Command::MinHeight(height) => ViewportCommand::MinInnerSize(vec2(WIDTH, height)),
+        Command::Height(height) => ViewportCommand::InnerSize(vec2(WIDTH, height)),
+        Command::Maximize(maximized) => ViewportCommand::Maximized(maximized),
+        Command::MaximizeButton(maximize) => ViewportCommand::EnableButtons {
+            close: true,
+            minimized: true,
+            maximize,
+        },
+    }
+}
+
 fn style(ctx: &egui::Context) {
+    ctx.options_mut(|options| options.zoom_with_keyboard = false);
     ctx.set_theme(Theme::Dark);
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = BACKGROUND;
@@ -318,7 +379,7 @@ fn style(ctx: &egui::Context) {
     ctx.set_visuals_of(Theme::Dark, visuals);
     ctx.all_styles_mut(|style| {
         style.spacing.button_padding = vec2(BUTTON_PADDING, 4.0);
-        style.spacing.item_spacing = vec2(BUTTON_GAP, 6.0);
+        style.spacing.item_spacing = vec2(BUTTON_GAP, ITEM_SPACING);
     });
 }
 
@@ -491,6 +552,52 @@ fn small_text(ui: &mut Ui, text: &str) {
 
 fn wrapped(ui: &mut Ui, text: &str, size: f32, colour: egui::Color32) {
     ui.add(Label::new(RichText::new(text).size(size).color(colour)).wrap());
+}
+
+fn summary_row(ui: &mut Ui, summary: &Summary, pressed: &mut Vec<Event>) -> f32 {
+    let mut toggled = false;
+    let framed = Frame::new()
+        .fill(ROW)
+        .corner_radius(8.0)
+        .inner_margin(Margin::symmetric(10, 9))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                toggled |= widgets::disclosure(ui, summary.open).clicked();
+                let mark_room = if summary.warning {
+                    SUMMARY_MARK_ROOM
+                } else {
+                    0.0
+                };
+                let text_width = (ui.available_width() - mark_room).max(40.0);
+                ui.allocate_ui_with_layout(
+                    vec2(text_width, SUMMARY_TEXT_HEIGHT),
+                    Layout::top_down(Align::Min),
+                    |ui| {
+                        ui.add(
+                            Label::new(RichText::new("Sites").size(15.0).color(TEXT))
+                                .selectable(false)
+                                .truncate(),
+                        );
+                        ui.add(
+                            Label::new(RichText::new(&summary.line).size(12.0).color(SOFT))
+                                .selectable(false)
+                                .truncate(),
+                        );
+                    },
+                );
+                if summary.warning {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        widgets::mark(ui, Mark::Trouble);
+                    });
+                }
+            });
+        });
+    let response = framed.response.interact(Sense::click());
+    if toggled || response.clicked() {
+        pressed.push(Event::SitesTogglePressed);
+    }
+    response.rect.height()
 }
 
 fn site_row(
