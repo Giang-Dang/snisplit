@@ -8,7 +8,9 @@ every app that uses the system's name resolution, and needs no kernel driver.
 It is a small tool for the author and friends on similar providers, not a VPN or a
 general proxy. It never decrypts traffic and holds no certificate.
 
-Status: Windows, x86_64; tested on Windows 11 only. Linux and macOS are planned.
+Status: Windows, x86_64; tested on Windows 11 only. Linux x86_64: the command line
+only, checked in containers (see "Linux" below), not yet on a real machine or a Steam
+Deck. macOS is planned.
 
 ## How it works
 
@@ -25,7 +27,9 @@ app --TCP 443/80--> snisplit relay (loopback)
 
 While it runs, Windows name resolution rules (NRPT) send only the listed domains to
 snisplit. Every other name resolves and connects exactly as before. When it stops,
-the rules are removed.
+the rules are removed. On Linux, systemd-resolved does the same job: snisplit adds one
+small network link per profile (`snisplit0`, `snisplit1`, ...) that carries the listed
+domains, and deletes the links when it stops.
 
 ## Install
 
@@ -159,6 +163,51 @@ http-method host-spell
 A listed domain covers its subdomains. `tls-split` lists where the ClientHello is cut:
 a byte offset, `host-start`, or `domain-mid`.
 
+## Linux
+
+The command line works on Linux x86_64 as one static file; there is no window on Linux
+yet. snisplit needs systemd-resolved as the system resolver, and root while it runs.
+
+### Which systems
+
+Checked in containers (DNS routing, the relay, Ctrl+C, a killed process and `cleanup`):
+
+| System | What to do first |
+|---|---|
+| Ubuntu 24.04, Fedora, SteamOS 3.8 | Nothing: systemd-resolved is already the resolver |
+| Ubuntu 22.04 | Nothing on a desktop install (systemd-resolved is the default there) |
+| Debian, Arch, openSUSE before the steps below | snisplit refuses to start and changes nothing |
+| Debian 12 and 13 | `sudo apt install systemd-resolved` (checked without NetworkManager; on a desktop, restart once afterwards so NetworkManager hands its DNS servers to systemd-resolved) |
+| Arch Linux | `sudo systemctl enable --now systemd-resolved` and `sudo ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf` |
+| openSUSE Tumbleweed | `sudo zypper install systemd-resolved`, `sudo systemctl enable --now systemd-resolved` and `sudo ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf` (checked without NetworkManager or netconfig; on a desktop, NetworkManager may also need `dns=systemd-resolved`) |
+
+Linux Mint, Pop!_OS, Manjaro, EndeavourOS and Bazzite were not checked. If
+`snisplit run` says "needs systemd-resolved as the system resolver", enable it the way
+your distribution documents, so that `/etc/resolv.conf` lists `nameserver 127.0.0.53`.
+
+### Install and run
+
+1. Download `snisplit-<version>-linux-x86_64.tar.gz`, unpack it anywhere in your home
+   folder, and open a terminal in that folder.
+2. Run `sudo ./snisplit run`. It prints one line when it is ready and relays Steam and
+   medium.com until you press Ctrl+C or close the terminal. Leave it open while you use
+   the sites.
+3. Sites you add go in `~/.config/snisplit/sites` as `<name>.profile` files (see "Adding a
+   site from the command line"). Under `sudo` snisplit reads your folder, not root's.
+
+`snisplit probe <domain>` needs no root. If snisplit was killed, `sudo ./snisplit
+cleanup` removes its links; the next `run` removes them too.
+
+### Steam Deck (SteamOS)
+
+1. Switch to Desktop Mode and open Konsole.
+2. The `deck` user has no password at first, and `sudo` needs one: run `passwd` once.
+3. Unpack snisplit under `/home/deck`; nothing is installed into the read-only system.
+4. Run `sudo ./snisplit run` and keep Konsole open.
+
+Not checked yet: whether snisplit keeps running after you switch back to Gaming Mode,
+and the Steam client itself. Tell the author what you see.
+
 ## What it cannot do
 
 - Sites blocked by IP address, or whose real address is hidden by DNS tampering.
@@ -205,7 +254,9 @@ cargo build --release
 ## Building and tests
 
 Rust 1.95 or newer for the whole workspace (the window needs it); the command line
-alone, `cargo build --release -p snisplit`, needs 1.85. `cargo test --workspace` runs the test suite; no test needs
+alone, `cargo build --release -p snisplit`, needs 1.89. The Linux release file is built
+with `cargo build --release -p snisplit --target x86_64-unknown-linux-musl`;
+`tools/acceptance/linux/matrix.sh` runs the container checks (`docs/milestone-10.md`). `cargo test --workspace` runs the test suite; no test needs
 administrator rights or the internet. The plan, the measurements behind each design
 choice and the per-milestone records are in `PLAN.md` and `docs/`.
 

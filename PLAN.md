@@ -156,7 +156,7 @@ on this PC; until 2026-11-14 that meant stopping the `zapret-steam` service afte
 | 7 | Releases: CI-built archives, README | A friend installs from the GitHub release and reaches Steam without help |
 | 8 | QUIC: measure first, then decide | A written result on whether this ISP blocks QUIC by SNI. With DNS pointing listed names at loopback, QUIC to them fails and apps fall back to TCP, which may already be enough |
 | 9 | UI (redefined 2026-11-14): start and stop the relay, add and remove sites | The owner adds a site, sees whether it works, and starts and stops snisplit without a terminal. Decided in D15: egui, one elevated app, Windows first. Needs a per-user profile folder that `run` loads, and `probe` (milestone 6) to say whether a site will work |
-| 10 | Linux and macOS (D4), deferred (D13) | The relay and DNS run on both; resolver routing per OS; the milestone 3-5 checks pass on a Linux machine and a Mac, as foreground runs |
+| 10 | Linux and macOS (D4), Linux phase 1 built 2026-11-20 (docs/milestone-10.md); macOS deferred (D13) | The relay and DNS run on both; resolver routing per OS; the milestone 3-5 checks pass on a Linux machine and a Mac, as foreground runs |
 
 Ordering notes:
 
